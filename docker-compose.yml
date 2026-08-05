@@ -1,0 +1,103 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kanbango_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Aplica as migrations e termina. A API só sobe depois que este container sai
+  # com sucesso (service_completed_successfully), então o schema nunca fica
+  # atrás do código que vai usá-lo.
+  flyway:
+    image: flyway/flyway:13-alpine
+    container_name: kanbango_flyway
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      FLYWAY_USER: ${POSTGRES_USER}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_BASELINE_ON_MIGRATE: "true"
+    volumes:
+      - ./backend/migrations:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kanbango_api
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: development
+      FRONTEND_ORIGIN: http://localhost:5173
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+
+  # Captura os emails da fase 1 (confirmação de cadastro, recuperação de senha)
+  # em vez de enviá-los de verdade: UI em http://localhost:8025.
+  # Já sobe aqui na fase 0 para o ambiente não mudar quando a auth chegar — por
+  # ora nenhum serviço fala com ele.
+  mailpit:
+    image: axllent/mailpit
+    container_name: kanbango_mailpit
+    ports:
+      - "8025:8025" # UI web
+      - "1025:1025" # SMTP
+
+  web:
+    # Mesma major do runtime que a imagem de produção vai usar (fase 8):
+    # desenvolver numa versão e publicar em outra esconde incompatibilidade até
+    # o deploy.
+    image: node:24-alpine
+    container_name: kanbango_web
+    working_dir: /app
+    # `npm ci`, não `npm install`: o ci instala a partir do package-lock.json e
+    # NUNCA o reescreve. Como o container roda como root e o lock está no bind
+    # mount, um `npm install` aqui devolveria o arquivo ao host com dono root —
+    # e a próxima instalação na sua máquina falharia com EACCES.
+    # Dependência nova se adiciona no host (`npm install <pacote>`), que atualiza
+    # o lock; o container só reproduz.
+    command: sh -c "npm ci && npm run dev -- --host --port 5173"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      # node_modules e .svelte-kit em volumes PRÓPRIOS, por cima do bind mount.
+      # Sem isto a instalação do container (Alpine, musl) sobrescreve a do host
+      # (glibc), e os binários nativos do Vite quebram fora do container —
+      # "Cannot find module './rolldown-binding.wasi.cjs'" no `make
+      # test-frontend`. Os dois são gerados e ignorados pelo git; cada lado
+      # passa a ter o seu.
+      - frontend_node_modules:/app/node_modules
+      - frontend_svelte_kit:/app/.svelte-kit
+      # Cache do npm: sem ele o `npm ci` rebaixa tudo da rede a cada subida.
+      - frontend_npm_cache:/root/.npm
+
+volumes:
+  postgres_data:
+  frontend_node_modules:
+  frontend_svelte_kit:
+  frontend_npm_cache:

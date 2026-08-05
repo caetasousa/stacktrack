@@ -9,12 +9,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
 	"kanbango/config"
+	"kanbango/internal/adapter/http/handler"
+	"kanbango/internal/adapter/http/middleware"
+	"kanbango/internal/adapter/repository"
+	"kanbango/internal/adapter/security"
 	"kanbango/internal/pkg/logging"
+	ucauth "kanbango/internal/usecase/auth"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,9 +46,56 @@ func main() {
 	}
 	defer pool.Close()
 
+	avisarSobreTetosDesligados()
+
+	// repositórios
+	usuarioRepo := repository.NovoUsuarioPostgres(pool)
+	sessionRepo := repository.NovoSessionPostgres(pool)
+
+	// segurança
+	hasher := security.NovoHasherArgon2id()
+
+	// usecases
+	cadastrarUC := ucauth.NovoCadastrarUseCase(usuarioRepo, sessionRepo, hasher)
+	loginUC := ucauth.NovoLoginUseCase(usuarioRepo, sessionRepo, hasher)
+	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
+	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
+	perfilUC := ucauth.NovoPerfilUseCase(usuarioRepo)
+
+	// handlers e middlewares
+	autenticacao := middleware.NovoAuth(validarSessaoUC, config.CookieSeguro())
+	authHandler := handler.NovoAuthHandler(
+		cadastrarUC, loginUC, logoutUC, perfilUC,
+		config.CookieSeguro(),
+		handler.NovoLimitadorPorConta(config.RateLimitLoginPorConta(), config.JanelaLimitePorConta),
+		func(r *http.Request) (ucauth.Identidade, bool) {
+			return middleware.IdentidadeDoContexto(r.Context())
+		},
+	)
+
 	r := config.NovoRouter()
 	r.Get("/health", health)
 	r.Get("/ready", ready(pool))
+
+	r.Route("/auth", func(r chi.Router) {
+		// Os tetos por IP entram por grupo, e não na rota: assim uma rota nova
+		// de autenticação nasce protegida em vez de depender de alguém lembrar.
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitCadastroPorMinuto()))
+			r.Post("/cadastro", authHandler.Cadastrar)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitLoginPorMinuto()))
+			r.Post("/login", authHandler.Login)
+		})
+
+		r.Post("/logout", authHandler.Logout)
+
+		r.Group(func(r chi.Router) {
+			r.Use(autenticacao.Autenticar)
+			r.Get("/me", authHandler.Me)
+		})
+	})
 
 	srv := config.NovoServidor(r)
 
@@ -61,6 +117,38 @@ func main() {
 	}
 
 	slog.Info("servidor encerrado")
+}
+
+// limitePorIP devolve o middleware de teto por IP, ou um middleware neutro
+// quando o limite é 0 (desligado). Sem o caso neutro, desligar o teto exigiria
+// montar a rota de outro jeito.
+func limitePorIP(porMinuto int) func(http.Handler) http.Handler {
+	if porMinuto <= 0 {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return httprate.LimitByIP(porMinuto, time.Minute)
+}
+
+// avisarSobreTetosDesligados registra um WARN quando algum teto de requisições
+// está em zero. É fácil demais copiar um .env de desenvolvimento (onde os
+// tetos atrapalham os testes) para um ambiente exposto e não perceber que o
+// login ficou sem proteção nenhuma.
+func avisarSobreTetosDesligados() {
+	desligados := make([]string, 0, 3)
+	for nome, limite := range map[string]int{
+		"RATE_LIMIT_LOGIN_POR_MINUTO":    config.RateLimitLoginPorMinuto(),
+		"RATE_LIMIT_CADASTRO_POR_MINUTO": config.RateLimitCadastroPorMinuto(),
+		"RATE_LIMIT_LOGIN_POR_CONTA":     config.RateLimitLoginPorConta(),
+	} {
+		if limite == 0 {
+			desligados = append(desligados, nome)
+		}
+	}
+	if len(desligados) > 0 {
+		sort.Strings(desligados)
+		slog.Warn("rate limiting parcialmente desligado: as rotas cobertas ficam sem teto",
+			slog.String("variaveis_em_zero", strings.Join(desligados, ", ")))
+	}
 }
 
 // health informa que o processo está no ar. Não toca em dependência nenhuma —

@@ -41,6 +41,41 @@ func EhProducao() bool {
 	return os.Getenv("APP_ENV") == "production"
 }
 
+// CookieSeguro informa se o cookie de sessão deve ter o atributo Secure.
+// Em desenvolvimento (http://localhost) o navegador não entrega cookies Secure
+// de forma confiável, por isso o atributo só é ativado em produção — é também
+// o que decide o nome do cookie (o prefixo __Host- exige Secure).
+func CookieSeguro() bool {
+	return EhProducao()
+}
+
+// RateLimitLoginPorMinuto é o teto de tentativas de login por IP por minuto
+// (env RATE_LIMIT_LOGIN_POR_MINUTO; 0 desliga). Mitiga brute-force e o custo
+// de CPU do Argon2id em rajadas.
+func RateLimitLoginPorMinuto() int {
+	return intDoAmbiente("RATE_LIMIT_LOGIN_POR_MINUTO", 10)
+}
+
+// RateLimitCadastroPorMinuto é o teto de cadastros por IP por minuto
+// (env RATE_LIMIT_CADASTRO_POR_MINUTO; 0 desliga). A rota é pública e cria
+// linha no banco: sem teto, uma rajada enche a tabela de contas de lixo.
+func RateLimitCadastroPorMinuto() int {
+	return intDoAmbiente("RATE_LIMIT_CADASTRO_POR_MINUTO", 5)
+}
+
+// RateLimitLoginPorConta é o teto de tentativas fracassadas de login por
+// CONTA, dentro de JanelaLimitePorConta (env RATE_LIMIT_LOGIN_POR_CONTA;
+// 0 desliga). Complementa o teto por IP, que não vê nada quando o atacante
+// troca de endereço a cada tentativa.
+func RateLimitLoginPorConta() int {
+	return intDoAmbiente("RATE_LIMIT_LOGIN_POR_CONTA", 5)
+}
+
+// JanelaLimitePorConta é a janela do teto por conta. Curta de propósito: o
+// preço de errar a senha cinco vezes é esperar alguns minutos, não perder o
+// acesso — e é tempo suficiente para inviabilizar brute-force.
+const JanelaLimitePorConta = 5 * time.Minute
+
 // intDoAmbiente lê um inteiro não negativo da env var, caindo no padrão quando
 // ausente ou inválida.
 func intDoAmbiente(nome string, padrao int) int {

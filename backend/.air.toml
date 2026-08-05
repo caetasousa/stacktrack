@@ -1,0 +1,31 @@
+root = "."
+tmp_dir = "/tmp/air"
+
+[build]
+  cmd = "go build -o /tmp/air/api ./cmd/api/main.go"
+  entrypoint = ["/tmp/air/api"]
+  include_ext = ["go"]
+  exclude_dir = ["test", "migrations"]
+  exclude_regex = ["_test.go"]
+  delay = 1000
+
+  # Sem isto o air MATA o processo em vez de pedir que ele encerre, e o
+  # desligamento gracioso do main.go nunca roda em desenvolvimento — o defeito
+  # só apareceria em produção, onde o sinal chega de verdade. Da fase 5 em
+  # diante isso deixa de ser detalhe: é o hub fechando as conexões WebSocket
+  # abertas antes de o processo morrer.
+  # kill_delay é quanto o air espera depois do sinal antes de forçar.
+  send_interrupt = true
+  kill_delay = "5s"
+
+[log]
+  time = true
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true

@@ -7,8 +7,12 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de estudo de cada
 uma, está em [PLANO.md](PLANO.md).
 
-**Fase atual: 0 — fundação.** A stack sobe, a API responde e fala com o banco. O
-quadro começa na fase 2; o tempo real, na 5.
+**Fase atual: 1 — contas e sessão.** Dá para criar conta, entrar, sair e
+permanecer logado. O quadro começa na fase 2; o tempo real, na 5.
+
+> Confirmação de email e recuperação de senha ficaram de fora: as duas dependem
+> de enviar mensagem, e o envio ainda não existe no projeto. Por isso o cadastro
+> cria a conta já utilizável e sai logado.
 
 ## Stack
 
@@ -58,6 +62,14 @@ prepara o que faltar, e pode repetir à vontade:
 |---|---|---|
 | `GET` | `/health` | Liveness: o processo está no ar. Não toca em dependência nenhuma. |
 | `GET` | `/ready` | Readiness: faz ping no Postgres. Responde 503 se o banco estiver fora. |
+| `POST` | `/auth/cadastro` | Cria a conta e já abre a sessão (201 + cookie). 409 se o email já existir. |
+| `POST` | `/auth/login` | Autentica e abre a sessão (200 + cookie). 401 genérico; 429 no teto por conta. |
+| `POST` | `/auth/logout` | Encerra a sessão no servidor e apaga o cookie (204, sempre). |
+| `GET` | `/auth/me` | Devolve a conta autenticada. 401 sem sessão válida. |
+
+A sessão viaja num cookie `HttpOnly` + `SameSite=Lax` (com prefixo `__Host-` e
+`Secure` em produção). O banco guarda só o SHA-256 do token; a senha, um hash
+Argon2id.
 
 ## Testes
 
@@ -70,3 +82,17 @@ make test-frontend   # vitest run
 cd backend && make test    # com -race, o detector de corrida
 cd frontend && npm run check   # tipos (svelte-check)
 ```
+
+## Ao adicionar uma dependência Go
+
+O `air` recompila a cada `.go` salvo, mas quando a build falha ele **mantém no
+ar o binário anterior** — a API responde normalmente e só as rotas novas dão
+404, o que parece erro de código e não de build. É o que acontece depois de um
+`go get`, porque o container ainda não baixou o módulo novo:
+
+```bash
+go get <módulo>              # no host, atualiza go.mod/go.sum
+docker compose restart api   # o container baixa e recompila
+```
+
+Na dúvida, `docker compose logs api` mostra a falha de build.

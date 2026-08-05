@@ -1,0 +1,80 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ *
+ * Design system do kanbanGo.
+ * Tema escuro é o padrão; o claro sai trocando data-theme no <html>.
+ * O seletor de tema em si chega quando houver tela para ele.
+ * ------------------------------------------------------------------ */
+
+/* Escala estática: raio e famílias tipográficas. */
+@theme {
+	--radius-xs: 4px;
+	--radius-sm: 8px;
+	--radius-md: 10px;
+	--radius-lg: 14px;
+
+	--font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tokens de cor por tema. */
+:root,
+[data-theme='dark'] {
+	--canvas: #0b0c0e;
+	--surface: #131519;
+	--surface-elevated: #1a1d23;
+
+	--ink: #fbfcfe;
+	--body: rgba(251, 252, 254, 0.86);
+	--mute: #9aa0a8;
+
+	--hairline: rgba(255, 255, 255, 0.08);
+	--hairline-strong: rgba(255, 255, 255, 0.16);
+
+	--accent: #6ea8fe;
+	--positivo: #4ade80;
+	--negativo: #f87171;
+}
+
+[data-theme='light'] {
+	--canvas: #fbfbfc;
+	--surface: #ffffff;
+	--surface-elevated: #f4f5f7;
+
+	--ink: #0b0c0e;
+	--body: rgba(11, 12, 14, 0.84);
+	--mute: #6b7280;
+
+	--hairline: rgba(11, 12, 14, 0.1);
+	--hairline-strong: rgba(11, 12, 14, 0.2);
+
+	--accent: #2563eb;
+	--positivo: #16a34a;
+	--negativo: #dc2626;
+}
+
+/* `inline` porque os valores são var(): assim as utilitárias (bg-canvas,
+   text-mute, border-hairline) leem o token no ponto de uso e trocam junto com
+   o data-theme, em vez de congelar a cor do tema escuro no build. */
+@theme inline {
+	--color-canvas: var(--canvas);
+	--color-surface: var(--surface);
+	--color-surface-elevated: var(--surface-elevated);
+	--color-ink: var(--ink);
+	--color-body: var(--body);
+	--color-mute: var(--mute);
+	--color-hairline: var(--hairline);
+	--color-hairline-strong: var(--hairline-strong);
+	--color-accent: var(--accent);
+	--color-positivo: var(--positivo);
+	--color-negativo: var(--negativo);
+}
+
+html {
+	background-color: var(--canvas);
+	color-scheme: dark;
+}
+
+[data-theme='light'] {
+	color-scheme: light;
+}

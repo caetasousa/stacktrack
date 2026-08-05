@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { ApiError } from '$lib/api/client';
 	import { verificarProcesso, verificarProntidao } from '$lib/api/saude';
+	import { sessao } from '$lib/stores/session.svelte';
 
 	type Estado = 'checando' | 'ok' | 'falha';
 
@@ -47,9 +48,33 @@
 
 <h1 class="text-3xl font-semibold tracking-tight text-ink">kanbanGo</h1>
 <p class="mt-3 max-w-xl text-sm leading-relaxed text-mute">
-	Quadro Kanban colaborativo em tempo real. A fundação está de pé: Postgres, migrations, API em Go e
-	este frontend. O quadro em si começa na fase 2 — o tempo real, na 5.
+	Quadro Kanban colaborativo em tempo real. Já dá para criar conta e entrar. O quadro em si começa
+	na fase 2 — o tempo real, na 5.
 </p>
+
+<div class="mt-6 flex gap-3">
+	{#if sessao.usuario}
+		<a
+			href="/painel"
+			class="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-canvas hover:brightness-110"
+		>
+			Ir para o painel
+		</a>
+	{:else}
+		<a
+			href="/cadastro"
+			class="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-canvas hover:brightness-110"
+		>
+			Criar conta
+		</a>
+		<a
+			href="/login"
+			class="rounded-sm border border-hairline-strong px-4 py-2 text-sm text-body hover:text-ink"
+		>
+			Entrar
+		</a>
+	{/if}
+</div>
 
 <section class="mt-10 rounded-lg border border-hairline bg-surface p-6">
 	<h2 class="text-xs font-semibold tracking-widest text-mute uppercase">Infraestrutura</h2>

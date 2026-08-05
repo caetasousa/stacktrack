@@ -57,3 +57,16 @@ export async function apiPost<TReq, TRes>(caminho: string, corpo: TReq): Promise
 
 	return resposta.json() as Promise<TRes>;
 }
+
+// apiPostVazio é para rotas que respondem sem corpo (ex: 204 No Content).
+// Chamar apiPost nelas quebraria no resposta.json(), que não tem o que ler.
+export async function apiPostVazio(caminho: string): Promise<void> {
+	const resposta = await fetch(`${BASE_URL}${caminho}`, {
+		method: 'POST',
+		credentials: 'include'
+	});
+
+	if (!resposta.ok) {
+		return parseErro(resposta);
+	}
+}

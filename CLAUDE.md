@@ -1,0 +1,132 @@
+# kanbanGo
+
+Quadro Kanban colaborativo em tempo real (Go + SvelteKit). O roteiro completo,
+fase a fase, com as fontes de estudo de cada uma, está em [PLANO.md](PLANO.md).
+
+---
+
+## Identidade no Git
+
+**Toda alteração deste repositório é feita com o usuário do GitHub `caetasousa`.**
+
+O repositório vem configurado localmente:
+
+```
+git config --local user.name  caetasousa
+git config --local user.email caetasousa@gmail.com
+```
+
+Nenhum commit pode ser autorado com outra identidade — nem a global da máquina,
+nem uma passada por `--author`, nem a de qualquer assistente. Antes de commitar,
+conferir com `git config --local --list | grep user`; se a configuração local
+tiver sumido (clone novo, `.git` recriado), restaurá-la com os dois comandos
+acima antes de qualquer outra coisa.
+
+A autoria é sempre do usuário. A participação do assistente vai no trailer
+`Co-Authored-By:` da mensagem, nunca no campo de autor.
+
+---
+
+## Migrations (banco de dados)
+
+O banco é um detalhe de infraestrutura — ele não conhece regras de negócio.
+
+Constraints permitidas nas migrations:
+- `NOT NULL` — o campo deve sempre existir
+- `UNIQUE` — unicidade técnica (ex: email)
+- `PRIMARY KEY`, `FOREIGN KEY` — relações entre tabelas
+- Tipos corretos (`UUID`, `VARCHAR`, `TIMESTAMPTZ`)
+
+Não usar nas migrations:
+- `DEFAULT` com valores que representam regras de negócio — essa responsabilidade é do domínio
+- `CHECK` constraints que validam regras de negócio — essa responsabilidade é do domínio
+- `UPDATE`, `INSERT` ou `DELETE` — **migration não escreve dado**. Todo backfill
+  precisa decidir com que valor as linhas antigas ficam, e essa decisão é do
+  domínio; em SQL ela vira uma segunda fonte da verdade, sem teste e sem
+  conserto, porque migration aplicada não se corrige. A partir da fase 8 o CI
+  reprova (job `backend`, passo "migrations não podem escrever dado"); até lá a
+  regra vale igual, só não há quem a faça cumprir sozinha.
+
+### Migration que aperta exige dois deploys
+
+`SET NOT NULL`, `DROP COLUMN`, `RENAME` e `UNIQUE` novo quebram a versão
+ANTERIOR da aplicação, que continua no ar durante o deploy e é para onde um
+rollback volta. Como o Flyway é forward-only, o banco não volta junto com a
+imagem — e o rollback sobe sem erro, quebrando no primeiro `INSERT`.
+
+O ciclo é de três passos, e o do meio não é opcional:
+
+1. **Expand** (migration): coluna nova entra **anulável**. As duas versões do
+   código funcionam contra este schema.
+2. **Código novo em produção**: passa a escrever a coluna em todos os caminhos.
+   As linhas legadas são preenchidas por um comando pontual que roda **pelo
+   domínio** — nunca por SQL na migration.
+3. **Contract** (migration do deploy seguinte): só o `SET NOT NULL`.
+
+A partir da fase 8, `backend/test/repository/compatibilidade_schema_test.go`
+transforma isso em falha de build: compara o schema antes e depois e acusa
+coluna nova obrigatória, coluna removida e coluna apertada.
+
+---
+
+## README
+
+Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas no `README.md`. A partir da fase 8 (quando o Swagger entra) a rota vira um link clicável apontando para a operação correspondente no Swagger UI: `http://localhost:8080/swagger/index.html#/{tag}/{método}_{caminho-com-underscore}` (ex.: `POST /auth/me` com tag `auth` → `#/auth/get_auth_me`). Para descobrir o id exato de uma operação nova, inspecionar os elementos `[id^="operations-"]` na página do Swagger renderizada.
+
+### Estrutura de documentação
+
+O `README.md` é enxuto — cartão de visitas: badges, stack resumida, quick start, tabela de rotas, comandos de teste, e links para `docs/`. Não crescer o README com conteúdo detalhado; extrair para arquivos dedicados em `docs/`:
+
+- `docs/tecnologias.md` — guia de estudo do stack (o que é, por que está no projeto, fontes oficiais para aprofundar)
+- `docs/testes.md` — instruções detalhadas de cada camada de teste (build tags, Testcontainers, Playwright)
+- `docs/regra-de-negocio.md` — modelo de negócio
+
+Ao adicionar uma tecnologia nova ou uma decisão de arquitetura relevante, documentar em `docs/tecnologias.md` seguindo o padrão já estabelecido (o que é → por que está aqui, com referência a arquivo real do código → fontes para estudo), não só mencionar em passant no README.
+
+---
+
+## Comentários no código
+
+Comentários sempre em português.
+
+- Identificadores exportados (Go) recebem doc comment no padrão `// Nome é/faz X`, descrevendo o comportamento — inclusive casos de erro relevantes (ex: `// Executar valida os dados, verifica duplicidade de email e persiste o novo prestador.`).
+- Arquivo com papel não óbvio pelo nome/caminho ganha um comentário de cabeçalho explicando para que ele serve (ex: `// Cliente HTTP fino sobre fetch para falar com a API Go.`).
+- Fora isso, comentário só quando o "porquê" não é óbvio pelo código — uma decisão, um trade-off, uma limitação do ambiente (ex: `// localStorage indisponível: mantém a escolha só nesta sessão`). Nunca comentário descrevendo o que o código já deixa claro sozinho.
+- Anotações Swag/godoc (`@Summary`, `@Router` etc.) seguem o formato exigido pela ferramenta, não esse padrão.
+
+---
+
+## Convenção de commits
+
+Cada commit deve ter um único contexto — nunca misturar feat, fix, docs, chore ou refactor no mesmo commit. Se uma tarefa envolve múltiplos contextos, separar em commits distintos.
+
+Mensagens de commit seguem o padrão Conventional Commits, sempre em português:
+
+- **feat** — nova funcionalidade
+- **fix** — correção de bug
+- **docs** — só documentação
+- **chore** — tarefa de manutenção que não afeta o código de produção (configuração, build, `.gitignore`, dependências)
+- **refactor** — reorganização de código sem mudar comportamento
+- **test** — adição ou ajuste de testes
+
+### Nunca commitar sem perguntar
+
+**Sempre perguntar antes de fazer `git commit`**, sem exceção — mesmo com a
+alteração pronta, revisada e os testes passando. Terminar o trabalho, apresentar
+o que mudou e **aguardar confirmação explícita**.
+
+Uma autorização vale só para os commits daquele pedido: pedir de novo na próxima
+vez. Pedir para *construir* alguma coisa **não** autoriza commitar.
+
+### Nunca dar push — e nem perguntar
+
+**`git push` é sempre do usuário, nunca do assistente.** Não executar, e
+**não perguntar se pode**: a pergunta já empurra uma decisão que não é sua.
+
+Terminado o trabalho e feitos os commits autorizados, apenas informar que está
+pronto — quantos commits, o que entrou — e parar por aí. Quem decide se e quando
+publicar é o usuário.
+
+Isso vale mesmo quando o push parece a consequência natural do que foi pedido
+(implantar, ver a esteira rodar, validar em produção). Nesses casos, descrever o
+que aconteceria e deixar a decisão de lado do usuário.

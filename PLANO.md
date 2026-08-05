@@ -1,0 +1,462 @@
+# kanbanGo — quadro Kanban colaborativo em tempo real
+
+## Contexto
+
+`/home/caetasousa/projectX` está vazio. O objetivo é um **projeto de aprendizagem**: o
+agendaGo já cobriu CRUD + auth + testes + deploy, então mais um CRUD ensinaria pouco. Este
+projeto força um eixo novo — **concorrência de verdade em Go e sincronização de estado entre
+clientes** — reaproveitando o esqueleto que já é domínio conhecido (hexagonal, chi, pgx,
+Postgres, Flyway, SvelteKit, Tailwind).
+
+O produto: um quadro estilo Trello onde várias pessoas movem cards e todos veem na hora, sem
+recarregar a página.
+
+```
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│  A fazer    │  Fazendo    │  Revisão    │   Pronto    │   👤👤 online
+├─────────────┼─────────────┼─────────────┼─────────────┤
+│ ┌─────────┐ │ ┌─────────┐ │ ┌─────────┐ │ ┌─────────┐ │
+│ │Migração │ │ │Login CSS│ │ │Fix #204 │ │ │Deploy v1│ │
+│ └─────────┘ │ │✏ ana    │ │ └─────────┘ │ └─────────┘ │
+│ ┌─────────┐ │ └─────────┘ │             │             │
+│ │Testes E2E│ │             │             │             │
+│ └─────────┘ │             │             │             │
+└─────────────┴─────────────┴─────────────┴─────────────┘
+```
+
+### Decisões já tomadas
+
+| Decisão | Escolha |
+|---|---|
+| Autenticação | Completa, como no agendaGo (confirmação por email, recuperação de senha, rate limiting, convites) |
+| Infra inicial | Postgres + Docker Compose + Flyway. Swagger, Testcontainers, CI e Caddy entram na fase 8 |
+| WebSocket | `github.com/coder/websocket` (API sobre `context`, casa com o shutdown gracioso) |
+| Nome / caminho | `kanbanGo` em `/home/caetasousa/projectX` |
+
+### Convenções herdadas do agendaGo
+
+Valem aqui sem discussão (copiar o `CLAUDE.md` e adaptar):
+comentários e doc comments em português · migration não escreve dado, sem `DEFAULT`/`CHECK` de
+regra de negócio · aperto de schema em dois deploys (expand → código → contract) · Conventional
+Commits em português, um contexto por commit · nunca commitar sem perguntar, nunca dar push ·
+README enxuto com tabela de rotas, detalhe em `docs/`.
+
+---
+
+## Arquitetura alvo
+
+```
+backend/
+  cmd/api/main.go              # wiring: pool, repos, usecases, hub, rotas, shutdown
+  config/                      # env vars tipadas, pool pgx
+  internal/
+    domain/                    # regra pura, sem I/O
+      usuario/ session/ signup/ passwordreset/
+      board/ coluna/ card/ membro/ evento/
+    usecase/                   # orquestra domínio + portas
+      auth/ board/ coluna/ card/ realtime/
+    adapter/
+      http/handler/  http/dto/  http/middleware/
+      http/ws/                 # handshake, auth por cookie, bombas de leitura/escrita
+      realtime/hub/            # salas, fan-out, presença (implementa a porta Publicador)
+      repository/              # Postgres via pgx
+      security/                # argon2id
+      email/                   # go-mail + templates
+    pkg/                       # logging, token, paging
+  migrations/                  # V1__..., V2__... (Flyway)
+  test/                        # domain/ usecase/ handler/ repository/memoria (fakes)
+
+frontend/src/
+  lib/api/                     # cliente fetch fino (espelha os DTOs do Go)
+  lib/realtime/                # store da conexão WebSocket, reconexão, aplicação de eventos
+  lib/stores/                  # sessão, quadro
+  lib/components/              # Quadro, Coluna, Card, Presenca
+  routes/                      # login, cadastro, quadros, quadros/[id]
+```
+
+**A regra que segura o desenho todo:** `domain` e `usecase` não sabem que WebSocket existe. O
+usecase depende de uma porta `Publicador` (uma interface com `Publicar(boardID, evento)`); quem
+implementa é o hub, em `adapter/realtime`. Trocar WebSocket por SSE amanhã não toca em regra de
+negócio — é a mesma lição do `notificador` de email do agendaGo, agora com um adaptador vivo.
+
+**O caminho de um movimento de card:**
+
+```
+navegador A                 API Go                              navegador B
+    │                          │                                     │
+    │ arrasta o card ──────────┤                                     │
+    │ (UI move na hora)        │                                     │
+    │ PATCH /cards/{id}/mover  │                                     │
+    ├─────────────────────────►│                                     │
+    │                          │ usecase: valida + version check     │
+    │                          │ TX: UPDATE card + INSERT evento     │
+    │                          │ COMMIT                              │
+    │                          │ hub.Publicar("board:7", evento) ────┼──► card se move
+    │◄─────────────────────────┤ 200 OK                              │    (sem F5)
+    │ confirma (ou desfaz)     │                                     │
+```
+
+---
+
+## Fases
+
+Cada fase termina com algo que funciona no navegador. Dá pra parar em qualquer uma sem ficar com
+projeto pela metade. As fases 0–3 são terreno conhecido (é onde você constrói a base); o
+aprendizado novo começa firme na 4 e explode na 5.
+
+---
+
+### Fase 0 — Fundação
+
+**Conceito novo:** nenhum. É montar o mesmo terreno do agendaGo, de propósito, para o resto ser
+sobre o que interessa.
+
+**Entrega:**
+- `docker-compose.yml`: `postgres` (16-alpine, healthcheck), `flyway` (migrate, depende do
+  healthcheck), `api` (Go), `web` (node), `mailpit` (a auth completa precisa de SMTP em dev)
+- Esqueleto Go: `cmd/api/main.go` com chi, `slog` configurado, `config/` lendo env, `GET /health`,
+  shutdown gracioso via `signal.NotifyContext`
+- SvelteKit + Tailwind + TypeScript, `lib/api/client.ts` (o wrapper fino sobre `fetch` com
+  `credentials: 'include'`)
+- `Makefile` com `test-backend` / `test-frontend`, `.env.example`, `CLAUDE.md`, `README.md`
+
+**Arquivos:** `docker-compose.yml`, `backend/go.mod`, `backend/cmd/api/main.go`,
+`backend/config/*.go`, `frontend/` (scaffold), `Makefile`
+
+**Pronto quando:** `docker compose up` sobe tudo, `curl localhost:8080/health` responde, a home
+aparece em `:5173`, e `Ctrl+C` desliga sem erro no log.
+
+**Estudo:**
+- [How to Write Go Code](https://go.dev/doc/code) — módulos e layout
+- [chi](https://github.com/go-chi/chi) — router e middlewares
+- [log/slog](https://pkg.go.dev/log/slog) — logging estruturado
+- [Docker Compose file reference](https://docs.docker.com/reference/compose-file/) e
+  [Flyway — naming de migrations](https://documentation.red-gate.com/fd/migrations-271585107.html)
+- [SvelteKit — project structure](https://svelte.dev/docs/kit/project-structure)
+
+---
+
+### Fase 1 — Contas e sessão
+
+**Conceito novo:** nenhum grande, mas é a fase que fixa argon2id e cookie `__Host-` com você no
+comando (no agendaGo isso já existia pronto).
+
+**Entrega:** domínio `usuario`, `session`, `signup`, `passwordreset`; hash argon2id; cadastro com
+confirmação por email (capturado no Mailpit); login/logout; `GET /auth/me`; recuperação de senha;
+rate limiting com `httprate`. Frontend: telas de cadastro, confirmação, login, recuperar/redefinir
+senha, e a store de sessão (`session.svelte.ts`).
+
+**Migrations:** `V1__cria_tabela_usuarios.sql`, `V2__cria_tabela_sessions.sql`,
+`V3__cria_tabela_cadastros_pendentes.sql`, `V4__cria_tabela_password_reset_tokens.sql`
+
+**Pronto quando:** cadastro → email no Mailpit (`localhost:8025`) → confirma → login → `/auth/me`
+devolve o usuário → logout invalida a sessão. Testes de domínio e usecase (fakes em memória)
+passando.
+
+**Estudo:**
+- [alexedwards/argon2id](https://github.com/alexedwards/argon2id) e
+  [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [MDN — Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
+  e [SameSite](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie/SameSite)
+  — atenção especial ao prefixo `__Host-`; ele volta na fase 5
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+
+---
+
+### Fase 2 — Quadro, colunas e cards (ainda sem tempo real)
+
+**Conceito novo:** modelagem de hierarquia com autorização por recurso (quem pode ver/editar
+*este* quadro), diferente do agendaGo onde o dono do dado era sempre o prestador logado.
+
+**Entrega:** domínio `board`, `coluna`, `card`, `membro` (papéis dono/editor/leitor); CRUD REST
+completo; autorização checada no usecase (nunca só no handler). Frontend: lista de quadros e a
+tela do quadro renderizando colunas e cards em CSS grid, com criar/renomear/apagar — **com
+recarga manual mesmo**, para a fase 5 ter contraste.
+
+**Migrations:** `V5__cria_tabela_boards.sql`, `V6__cria_tabela_board_membros.sql`,
+`V7__cria_tabela_colunas.sql`, `V8__cria_tabela_cards.sql`
+
+Campos que já nascem pensando nas fases seguintes: `colunas.posicao`, `cards.posicao`
+(`double precision`) e `cards.version` (`integer`).
+
+**Pronto quando:** dá pra montar um quadro inteiro pela UI e ele sobrevive ao F5. Um usuário não
+enxerga o quadro do outro (teste de autorização cobrindo isso).
+
+**Estudo:**
+- [Atlassian — o que é Kanban](https://www.atlassian.com/agile/kanban) (o conceito, já que você
+  nunca usou o Trello) e [WIP limits](https://www.atlassian.com/agile/kanban/wip-limits)
+- [PostgreSQL — chaves estrangeiras](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK)
+- [pgx — CollectRows / RowTo](https://pkg.go.dev/github.com/jackc/pgx/v5) para montar as listas
+  aninhadas sem N+1
+
+---
+
+### Fase 3 — Convites e colaboração
+
+**Conceito novo:** o quadro deixa de ser de uma pessoa. É o pré-requisito humano do tempo real —
+sem duas contas no mesmo quadro, não há o que sincronizar.
+
+**Entrega:** convidar por email para o quadro, aceitar convite (com token), listar/remover membros,
+papéis aplicados na autorização (leitor não move card). Frontend: painel de membros do quadro.
+
+**Migrations:** `V9__cria_tabela_convites_board.sql`
+
+**Pronto quando:** duas contas diferentes abrem o mesmo quadro em dois navegadores. (Ainda sem
+sincronia — cada uma precisa dar F5 para ver o que a outra fez. Guarde essa sensação: é o problema
+que a fase 5 resolve.)
+
+**Estudo:**
+- [RBAC — NIST](https://csrc.nist.gov/projects/role-based-access-control) (visão geral do modelo
+  de papéis)
+- [crypto/rand](https://pkg.go.dev/crypto/rand) — tokens de convite imprevisíveis
+
+---
+
+### Fase 4 — Arrastar e soltar + ordenação fracionária
+
+**Conceito novo (o primeiro grande):** como ordenar itens quando várias pessoas inserem no meio ao
+mesmo tempo.
+
+Se a posição for `1, 2, 3, 4`, arrastar um card para o meio obriga a reescrever todas as linhas
+abaixo — muitas linhas alteradas e corrida garantida com dois usuários. Com **fractional
+indexing**, a posição é fracionária e inserir entre `2.0` e `3.0` é gravar `2.5`: **uma linha
+alterada, nenhuma corrida.**
+
+```
+antes:   A(1.0)   B(2.0)   C(3.0)
+                     ▲ solta aqui
+depois:  A(1.0)   B(2.0)  X(2.5)  C(3.0)     ← só X foi escrito
+```
+
+**Entrega:** `PATCH /cards/{id}/mover` recebendo `{colunaDestino, posicao}`; o front calcula a
+posição como a média dos vizinhos; `svelte-dnd-action` no arrastar; **atualização otimista** —
+a UI move na hora e desfaz se a API recusar.
+
+**Pronto quando:** arrastar entre colunas e dentro da coluna persiste; o F5 mantém a ordem; e o
+log do Postgres mostra **um** `UPDATE` por movimento.
+
+**A armadilha, de propósito:** ficar dividindo o mesmo intervalo (`2.5`, `2.75`, `2.875`…) esgota a
+mantissa de 53 bits do `double precision` em ~50 inserções no mesmo ponto e dois cards colidem na
+mesma posição. Deixe acontecer, escreva o teste que reproduz — a fase 9 conserta.
+
+**Estudo:**
+- [Figma — Realtime editing of ordered sequences](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
+  — leitura obrigatória desta fase, explica exatamente esse problema
+- [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
+  — a versão com chaves textuais (o destino da fase 9); o termo para pesquisar depois é *LexoRank*,
+  a solução do Jira para o mesmo problema
+- [svelte-dnd-action](https://github.com/isaacHagoel/svelte-dnd-action) — a lib de drag & drop
+- [Svelte 5 — runes](https://svelte.dev/docs/svelte/what-are-runes) (`$state`, `$derived`) — a
+  atualização otimista vive aqui
+- [IEEE 754 / precisão de ponto flutuante](https://docs.python.org/3/tutorial/floatingpoint.html)
+  — a explicação mais didática que existe do limite que você vai bater (é em Python, mas o
+  problema é do padrão, não da linguagem)
+
+---
+
+### Fase 5 — Tempo real: WebSocket + hub
+
+**Conceito novo (o coração do projeto):** o servidor falando primeiro, e uma goroutine por
+conexão.
+
+HTTP é pergunta-e-resposta: o servidor não tem como avisar ninguém. O WebSocket começa como um
+`GET` comum e **troca de protocolo** no meio (`101 Switching Protocols`), deixando um cano aberto
+nos dois sentidos.
+
+```
+navegador A ──WS──┐
+navegador B ──WS──┼──► hub ──► sala "board:7" ──► broadcast para as outras conexões
+navegador C ──WS──┘            (map[boardID]map[*conexao]struct{} + sync.RWMutex)
+```
+
+**Entrega:**
+- `GET /ws?board={id}` em `adapter/http/ws`: autentica pelo **mesmo cookie de sessão** (o
+  handshake é HTTP, o cookie viaja junto), valida que o usuário é membro do quadro, e faz o
+  `websocket.Accept` com `OriginPatterns` restrito
+- `adapter/realtime/hub`: registro/remoção de conexão, salas por quadro, `Publicar` sem bloquear
+  (canal com buffer; conexão lenta é derrubada, não segura o servidor)
+- Uma goroutine de leitura e **uma única** de escrita por conexão, com ping/pong para detectar
+  cliente morto
+- Porta `Publicador` no usecase; cada usecase de escrita publica **depois do commit**
+- Frontend: `lib/realtime/conexao.svelte.ts` — abre o socket ao entrar no quadro, aplica os eventos
+  recebidos no `$state`, fecha ao sair
+- **O teste que define o projeto:** Playwright com dois `BrowserContext`, um arrasta e o outro vê
+
+**Pronto quando:** `make test-e2e` passa com o teste de duas abas, e `go test -race ./...` está
+limpo.
+
+**Segurança que não pode passar batido:** WebSocket **não obedece CORS**. Sem checar `Origin`, um
+site qualquer abre um socket autenticado com o cookie da vítima (*Cross-Site WebSocket
+Hijacking*). O `OriginPatterns` do `coder/websocket` é a defesa — e o cookie `SameSite` da fase 1
+é a segunda camada.
+
+**Estudo:**
+- [coder/websocket — godoc](https://pkg.go.dev/github.com/coder/websocket) e os
+  [exemplos do repositório](https://github.com/coder/websocket/tree/master/internal/examples)
+- [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat)
+  — mesmo usando outra lib, `hub.go` e `client.go` são a referência canônica do padrão hub em Go;
+  leia os dois arquivos inteiros
+- [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — o handshake e os frames (leia as
+  seções 1 e 4; o resto é referência)
+- [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) para o lado
+  do navegador
+- [Go blog — Share memory by communicating](https://go.dev/blog/codelab-share) e
+  [Go Concurrency Patterns (Rob Pike)](https://go.dev/talks/2012/concurrency.slide) — o modelo
+  mental do hub
+- [pkg.go.dev/sync](https://pkg.go.dev/sync) — `RWMutex` para o mapa de salas
+- [Data Race Detector](https://go.dev/doc/articles/race_detector) — rode com `-race` desde o
+  primeiro teste desta fase
+- [Playwright — browser contexts](https://playwright.dev/docs/browser-contexts) — como abrir duas
+  sessões independentes no mesmo teste
+- [OWASP HTML5 Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets)
+  — a seção de WebSockets cobre o CSWSH
+
+---
+
+### Fase 6 — Presença e edição concorrente
+
+**Conceito novo:** estado efêmero (que **não** vai para o banco) e resolução de conflito.
+
+**Entrega:**
+- Presença: avatares de quem está com o quadro aberto, derivados do próprio mapa de conexões do
+  hub; entrada/saída viram eventos; heartbeat limpa quem sumiu sem fechar direito
+- "Ana está editando este card": marca temporária com TTL, renovada enquanto o campo tem foco
+- **Bloqueio otimista:** todo `UPDATE` de card leva `WHERE id = $1 AND version = $2` e incrementa
+  a versão; zero linhas afetadas → `409 Conflict`. A UI mostra "alguém mudou este card" e recarrega
+  o card em vez de sobrescrever
+
+**Pronto quando:** dois navegadores abrem o quadro e cada um vê o avatar do outro; fechar uma aba
+remove o avatar em segundos; e um teste de handler prova que o segundo `UPDATE` com versão velha
+devolve 409.
+
+**Estudo:**
+- [Martin Fowler — Optimistic Offline Lock](https://martinfowler.com/eaaCatalog/optimisticOfflineLock.html)
+  — o padrão exato do `version`
+- [PostgreSQL — isolamento de transações](https://www.postgresql.org/docs/current/transaction-iso.html)
+  — por que `READ COMMITTED` (o padrão) não te salva sozinho
+- [MDN — Status 409 Conflict](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/409)
+- [time.Ticker](https://pkg.go.dev/time#Ticker) — a varredura periódica de presença morta
+
+---
+
+### Fase 7 — Reconexão e replay de eventos
+
+**Conceito novo:** entrega confiável sobre um canal que cai. É o mesmo raciocínio de *offset* do
+Kafka, na versão caseira — e o momento em que "tempo real" vira "tempo real **correto**".
+
+O wi-fi cai por 20 segundos e o cliente perde 3 eventos. Ao voltar, ele não pode fingir que nada
+aconteceu.
+
+**Entrega:**
+- Tabela `board_events` (`seq BIGSERIAL`, `board_id`, `tipo`, `payload JSONB`, `autor_id`,
+  `criado_em`), escrita **na mesma transação** da mudança do dado — é o *transactional outbox*
+  em miniatura: ou o card move e o evento existe, ou nenhum dos dois
+- O cliente guarda o último `seq` aplicado; ao reconectar, envia `?desde=41` e recebe o backlog
+  antes de voltar ao vivo
+- Reconexão com backoff exponencial + jitter no front, e indicador visual de "reconectando"
+- Idempotência no cliente: aplicar o mesmo evento duas vezes não pode duplicar card (o `seq`
+  resolve — descarta o que for `<=` ao último aplicado)
+- Teste: derrubar a API com `docker compose stop api`, mexer no quadro pela outra aba, subir de
+  volta e verificar a convergência
+
+**Migrations:** `V10__cria_tabela_board_events.sql`
+
+**Pronto quando:** matar a conexão, mexer no quadro pelo outro navegador e reconectar deixa as duas
+telas idênticas — sem F5.
+
+**Estudo:**
+- [microservices.io — Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html)
+- [AWS — Exponential backoff and jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/)
+  — por que o jitter importa quando 50 clientes reconectam juntos
+- [Idempotência — Stripe API](https://docs.stripe.com/api/idempotent_requests) — a explicação mais
+  clara do conceito em API real
+- [PostgreSQL — tipos JSON](https://www.postgresql.org/docs/current/datatype-json.html) para o
+  payload do evento
+
+---
+
+### Fase 8 — Endurecer (produtização)
+
+**Conceito novo:** nenhum — é trazer o rigor do agendaGo para um projeto que agora tem
+concorrência de verdade para proteger.
+
+**Entrega:** Swagger via Swaggo (+ tabela de rotas no README), Testcontainers nos testes de
+repositório, `compatibilidade_schema_test.go` (o guard de expand/contract), CI no GitHub Actions
+rodando `-race`, `docker-compose.prod.yml` com Caddy, e `docs/tecnologias.md` no formato de guia de
+estudo do agendaGo.
+
+**Atenção específica deste projeto:** proxy reverso e conexão longa não se dão bem por padrão —
+timeout de leitura, buffering e keep-alive precisam de atenção, e é aqui que o ping/pong da fase 5
+prova seu valor.
+
+**Estudo:**
+- [Caddy — reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+  (WebSocket é transparente no Caddy 2, mas leia sobre timeouts)
+- [Testcontainers for Go](https://golang.testcontainers.org/)
+- [GitHub Actions — workflow syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
+- [net/http — Server timeouts](https://pkg.go.dev/net/http#Server) — `ReadTimeout` mata WebSocket se
+  configurado sem pensar
+
+---
+
+### Fase 9 (opcional) — Chaves de ordenação textuais
+
+**Conceito novo:** consertar em produção uma escolha de tipo, usando a doutrina expand/contract do
+próprio agendaGo.
+
+Trocar `cards.posicao` de `double precision` para `text` (chaves estilo LexoRank: entre `"a"` e
+`"b"` cabe `"an"`, infinitamente). Em três passos: coluna nova anulável → código novo escrevendo
+nas duas → `SET NOT NULL` e `DROP` da antiga no deploy seguinte. O backfill roda **por um comando
+do domínio**, nunca por SQL na migration.
+
+**Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
+· o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
+
+---
+
+### Depois, se der gosto
+
+Etiquetas, prazo, checklist, comentários, anexos, histórico de atividade, WIP limit por coluna,
+cursor de cada pessoa flutuando na tela. E dois caminhos de estudo que este projeto abre
+naturalmente:
+
+- **Múltiplas instâncias da API:** o hub em memória só avisa quem está conectado *naquele*
+  processo. A saída caseira é [PostgreSQL LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html);
+  a industrial é Redis Pub/Sub ou NATS.
+- **Edição concorrente de texto de verdade** (dois digitando na mesma descrição): é o território
+  de [CRDTs](https://crdt.tech/) — [Yjs](https://docs.yjs.dev/) e
+  [Automerge](https://automerge.org/) são as implementações de referência.
+
+---
+
+## Verificação
+
+Ao fim de cada fase:
+
+```bash
+make test              # domínio + usecases + handlers (fakes) + Vitest
+docker compose up -d   # postgres, flyway, api, web, mailpit
+```
+
+- **Fase 1:** cadastro → Mailpit em `localhost:8025` → confirma → login → `/auth/me` → logout
+- **Fase 2–3:** montar um quadro pela UI; segunda conta convidada abre o mesmo quadro; leitor não
+  consegue mover card (403)
+- **Fase 4:** arrastar, dar F5, ordem preservada; um `UPDATE` por movimento
+- **Fase 5 em diante — o teste que importa:** dois navegadores lado a lado no mesmo quadro. Arrastar
+  em um move no outro em menos de um segundo, sem F5. Automatizado com dois `BrowserContext` no
+  Playwright (`make test-e2e`)
+- **Fase 5 em diante, sempre:** `go test -race ./...` limpo. Concorrência sem `-race` é fé, não
+  engenharia
+- **Fase 7:** `docker compose stop api`, mexer no quadro pela outra aba, `start api` — as duas telas
+  convergem sozinhas
+
+## Como estudar isto
+
+A ordem que funciona: **ler a fonte principal da fase antes de escrever a primeira linha dela**, e
+as demais durante. Se for ler só três coisas no projeto inteiro, leia o post da Figma (fase 4), o
+`hub.go`+`client.go` do gorilla (fase 5) e o padrão Optimistic Offline Lock (fase 6) — são os três
+que mudam como você pensa, o resto é ferramenta.
+
+## Primeiro passo
+
+Fase 0 inteira, num commit `chore:` por peça (compose, backend, frontend, Makefile).

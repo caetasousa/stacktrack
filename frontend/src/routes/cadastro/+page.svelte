@@ -30,11 +30,11 @@
 
 <svelte:head><title>Criar conta · kanbanGo</title></svelte:head>
 
-<div class="mx-auto w-full max-w-sm">
-	<h1 class="text-2xl font-semibold tracking-tight text-ink">Criar conta</h1>
-	<p class="mt-2 text-sm text-mute">Leva menos de um minuto.</p>
+<div class="mx-auto w-full max-w-sm rounded-lg border border-hairline bg-surface p-7 shadow-flutuante">
+	<h1 class="text-xl font-semibold tracking-tight text-ink">Criar conta</h1>
+	<p class="mt-1.5 text-sm text-mute">Leva menos de um minuto.</p>
 
-	<form onsubmit={enviar} class="mt-8 space-y-4">
+	<form onsubmit={enviar} class="mt-6 space-y-4">
 		<div>
 			<label class="rotulo" for="nome">Nome</label>
 			<input id="nome" class="campo" bind:value={nome} required autocomplete="name" />
@@ -76,6 +76,6 @@
 	</form>
 
 	<p class="mt-6 text-center text-sm text-mute">
-		Já tem conta? <a href="/login" class="text-ink hover:underline">Entrar</a>
+		Já tem conta? <a href="/login" class="font-semibold text-accent-texto hover:underline">Entrar</a>
 	</p>
 </div>

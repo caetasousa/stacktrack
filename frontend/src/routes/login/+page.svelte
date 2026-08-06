@@ -30,10 +30,11 @@
 
 <svelte:head><title>Entrar · kanbanGo</title></svelte:head>
 
-<div class="mx-auto w-full max-w-sm">
-	<h1 class="text-2xl font-semibold tracking-tight text-ink">Entrar</h1>
+<div class="mx-auto w-full max-w-sm rounded-lg border border-hairline bg-surface p-7 shadow-flutuante">
+	<h1 class="text-xl font-semibold tracking-tight text-ink">Entrar</h1>
+	<p class="mt-1.5 text-sm text-mute">Bem-vindo de volta.</p>
 
-	<form onsubmit={enviar} class="mt-8 space-y-4">
+	<form onsubmit={enviar} class="mt-6 space-y-4">
 		<div>
 			<label class="rotulo" for="email">Email</label>
 			<input
@@ -68,6 +69,7 @@
 	</form>
 
 	<p class="mt-6 text-center text-sm text-mute">
-		Não tem conta? <a href="/cadastro" class="text-ink hover:underline">Criar conta</a>
+		Não tem conta?
+		<a href="/cadastro" class="font-semibold text-accent-texto hover:underline">Criar conta</a>
 	</p>
 </div>

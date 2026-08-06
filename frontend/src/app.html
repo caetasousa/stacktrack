@@ -3,6 +3,10 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- Tema antes da primeira pintura. O data-theme acima é o padrão para
+		     quem está sem JavaScript; o script sobrescreve com a preferência
+		     salva. Externo, não inline, para passar na CSP script-src 'self'. -->
+		<script src="%sveltekit.assets%/tema.js"></script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

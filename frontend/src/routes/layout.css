@@ -1,141 +1,253 @@
-@import '@fontsource-variable/inter';
-@import 'tailwindcss';
+@import "@fontsource-variable/inter";
+@import "tailwindcss";
 
 /* ------------------------------------------------------------------ *
- * Design system do kanbanGo.
- * Tema escuro é o padrão; o claro sai trocando data-theme no <html>.
- * O seletor de tema em si chega quando houver tela para ele.
+ * Design system do kanbanGo — adaptado do Untitled UI, a base que o
+ * shelf.nu publica em apps/webapp/tailwind.config.ts: rampa de cinza
+ * azulado de 25 a 900, laranja #EF6820 como marca, Inter, raios de 6 e
+ * 8 px e sombras de 5% a 10%.
+ *
+ * Escuro é o padrão; claro é escolha de quem usa (static/tema.js aplica
+ * o data-theme antes da primeira pintura, e o seletor no cabeçalho
+ * grava a preferência).
  * ------------------------------------------------------------------ */
 
-/* Escala estática: raio e famílias tipográficas. */
+/* Escala estática: raio, tipografia e sombra não mudam com o tema. */
 @theme {
-	--radius-xs: 4px;
-	--radius-sm: 8px;
-	--radius-md: 10px;
-	--radius-lg: 14px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 
-	--font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Tokens de cor por tema. */
+/* ---------------------------------------------------------------- *
+ * Tema escuro — o padrão do projeto.
+ * A rampa é lida de trás para frente: gray-900 vira fundo, gray-50
+ * vira texto. As semânticas sobem um passo (500 → 400) porque o 500
+ * escurece contra o cinza e perde legibilidade.
+ * ---------------------------------------------------------------- */
 :root,
-[data-theme='dark'] {
-	--canvas: #0b0c0e;
-	--surface: #131519;
-	--surface-elevated: #1a1d23;
+[data-theme="dark"] {
+  --canvas: #0c111d;
+  --surface: #101828;
+  --surface-elevated: #1d2939;
 
-	--ink: #fbfcfe;
-	--body: rgba(251, 252, 254, 0.86);
-	--mute: #9aa0a8;
+  --ink: #f9fafb;
+  --body: #d0d5dd;
+  --mute: #98a2b3;
 
-	--hairline: rgba(255, 255, 255, 0.08);
-	--hairline-strong: rgba(255, 255, 255, 0.16);
+  --hairline: #1d2939;
+  --hairline-strong: #344054;
 
-	--accent: #6ea8fe;
-	--positivo: #4ade80;
-	--negativo: #f87171;
+  --accent: #ef6820;
+  /* Acento legível como TEXTO. O #EF6820 puro tem contraste de
+	   sobra sobre o fundo escuro, mas no tema claro não teria — por
+	   isso quem é texto tem token próprio. */
+  --accent-texto: #f38744;
+  --accent-suave: rgba(239, 104, 32, 0.14);
+
+  --positivo: #32d583;
+  --negativo: #f97066;
+  --aviso: #fdb022;
+
+  /* Sombra preta sobre fundo preto não separa nada: no escuro quem
+	   destaca o cartão é a borda, e a sombra fica quase só para dar
+	   peso ao que flutua. */
+  --sombra-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-[data-theme='light'] {
-	--canvas: #fbfbfc;
-	--surface: #ffffff;
-	--surface-elevated: #f4f5f7;
+/* ---------------------------------------------------------------- *
+ * Tema claro — a mesma rampa na direção original do Untitled UI.
+ * ---------------------------------------------------------------- */
+[data-theme="light"] {
+  --canvas: #f9fafb;
+  --surface: #ffffff;
+  --surface-elevated: #f9fafb;
 
-	--ink: #0b0c0e;
-	--body: rgba(11, 12, 14, 0.84);
-	--mute: #6b7280;
+  --ink: #101828;
+  --body: #475467;
+  --mute: #667085;
 
-	--hairline: rgba(11, 12, 14, 0.1);
-	--hairline-strong: rgba(11, 12, 14, 0.2);
+  --hairline: #eaecf0;
+  --hairline-strong: #d0d5dd;
 
-	--accent: #2563eb;
-	--positivo: #16a34a;
-	--negativo: #dc2626;
+  --accent: #ef6820;
+  /* primary-700: o #EF6820 como texto sobre fundo claro dá 3,0:1 e
+	   reprova em AA. Este dá 5,6:1 e é a mesma família. */
+  --accent-texto: #b93815;
+  --accent-suave: #fef6ee;
+
+  --positivo: #12b76a;
+  --negativo: #f04438;
+  --aviso: #f79009;
+
+  --sombra-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --sombra-sm:
+    0 1px 3px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 
 /* `inline` porque os valores são var(): assim as utilitárias (bg-canvas,
-   text-mute, border-hairline) leem o token no ponto de uso e trocam junto com
-   o data-theme, em vez de congelar a cor do tema escuro no build. */
+   text-mute, border-hairline) leem o token no ponto de uso e trocam junto
+   com o data-theme, em vez de congelar a cor de um tema no build. */
 @theme inline {
-	--color-canvas: var(--canvas);
-	--color-surface: var(--surface);
-	--color-surface-elevated: var(--surface-elevated);
-	--color-ink: var(--ink);
-	--color-body: var(--body);
-	--color-mute: var(--mute);
-	--color-hairline: var(--hairline);
-	--color-hairline-strong: var(--hairline-strong);
-	--color-accent: var(--accent);
-	--color-positivo: var(--positivo);
-	--color-negativo: var(--negativo);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-mute: var(--mute);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-accent: var(--accent);
+  --color-accent-texto: var(--accent-texto);
+  --color-accent-suave: var(--accent-suave);
+  --color-positivo: var(--positivo);
+  --color-negativo: var(--negativo);
+  --color-aviso: var(--aviso);
+
+  --shadow-ficha: var(--sombra-xs);
+  --shadow-flutuante: var(--sombra-sm);
 }
 
 html {
-	background-color: var(--canvas);
-	color-scheme: dark;
+  background-color: var(--canvas);
+  color-scheme: dark;
 }
 
-[data-theme='light'] {
-	color-scheme: light;
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* O tema troca com uma transição curta para a mudança não ser um
+   estalo — mas nada disso vale para quem pediu menos movimento. */
+@media (prefers-reduced-motion: no-preference) {
+  html.trocando-tema,
+  html.trocando-tema * {
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
 
 /* ------------------------------------------------------------------ *
- * Formulários. Ficam aqui, e não como utilitárias repetidas em cada
- * tela, porque campo e botão aparecem em toda página de autenticação —
- * e depois em todo formulário de quadro e card.
+ * Formulários e ações. Ficam aqui, e não como utilitárias repetidas em
+ * cada tela, porque campo e botão aparecem em toda página de
+ * autenticação — e em todo formulário de quadro e card.
+ *
+ * ⚠️ Dentro de `@layer components`, e isso não é organização: no Tailwind
+ * 4 as utilitárias vivem em `@layer utilities`, e regra SEM layer vence
+ * qualquer regra COM layer, independente de especificidade e de ordem.
+ * Solto aqui fora, o `width: 100%` do .botao ganhava do `w-auto` e o
+ * botão tomava a linha inteira; o `padding` ganhava do `px-5`. Dentro do
+ * layer, a utilitária volta a mandar — que é o que quem escreve a
+ * marcação espera.
  * ------------------------------------------------------------------ */
 
-.campo {
-	width: 100%;
-	padding: 0.625rem 0.75rem;
-	border: 1px solid var(--hairline-strong);
-	border-radius: var(--radius-sm);
-	background-color: var(--surface-elevated);
-	color: var(--ink);
-	font-size: 0.875rem;
-}
+@layer components {
+  .campo {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-sm);
+    background-color: var(--surface);
+    color: var(--ink);
+    font-size: 0.875rem;
+    box-shadow: var(--sombra-xs);
+  }
 
-.campo::placeholder {
-	color: var(--mute);
-}
+  .campo::placeholder {
+    color: var(--mute);
+  }
 
-.campo:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 1px;
-	border-color: transparent;
-}
+  .campo:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
+    border-color: var(--accent);
+  }
 
-.rotulo {
-	display: block;
-	margin-bottom: 0.375rem;
-	font-size: 0.8125rem;
-	color: var(--body);
-}
+  .rotulo {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--body);
+  }
 
-.botao {
-	width: 100%;
-	padding: 0.625rem 1rem;
-	border-radius: var(--radius-sm);
-	background-color: var(--accent);
-	color: var(--canvas);
-	font-size: 0.875rem;
-	font-weight: 600;
-	cursor: pointer;
-}
+  .botao {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    /* primary-700 em vez do #EF6820 da marca: texto branco sobre o
+		   laranja puro dá 3,1:1 e reprova em AA. Sobre este, 5,1:1. */
+    background-color: #c4410e;
+    color: #ffffff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--sombra-xs);
+  }
 
-.botao:hover:not(:disabled) {
-	filter: brightness(1.08);
-}
+  .botao:hover:not(:disabled) {
+    background-color: #b93815;
+  }
 
-.botao:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
-}
+  .botao:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 
-.erro-form {
-	padding: 0.625rem 0.75rem;
-	border: 1px solid var(--negativo);
-	border-radius: var(--radius-sm);
-	color: var(--negativo);
-	font-size: 0.8125rem;
+  .botao-secundario {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-sm);
+    background-color: var(--surface);
+    color: var(--body);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--sombra-xs);
+  }
+
+  .botao-secundario:hover {
+    color: var(--ink);
+    border-color: var(--mute);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background-color: var(--accent-suave);
+    color: var(--accent-texto);
+    border: 1px solid transparent;
+  }
+
+  .chip-neutro {
+    background-color: var(--surface-elevated);
+    color: var(--mute);
+    border-color: var(--hairline-strong);
+  }
+
+  .erro-form {
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--negativo);
+    border-radius: var(--radius-sm);
+    color: var(--negativo);
+    font-size: 0.8125rem;
+  }
 }

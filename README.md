@@ -7,8 +7,10 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de estudo de cada
 uma, está em [PLANO.md](PLANO.md).
 
-**Fase atual: 1 — contas e sessão.** Dá para criar conta, entrar, sair e
-permanecer logado. O quadro começa na fase 2; o tempo real, na 5.
+**Fase atual: 2 — quadro, colunas e cards.** Dá para criar conta, montar um
+quadro inteiro e voltar nele depois. Ainda **sem tempo real**: cada pessoa vê
+só o que ela mesma faz, e a tela se atualiza porque pergunta de novo à API. É
+esse contraste que a fase 5 resolve. Arrastar-e-soltar chega na fase 4.
 
 > Confirmação de email e recuperação de senha ficaram de fora: as duas dependem
 > de enviar mensagem, e o envio ainda não existe no projeto. Por isso o cadastro
@@ -26,6 +28,24 @@ permanecer logado. O quadro começa na fase 2; o tempo real, na 5.
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`) — as
 convenções do projeto estão no [CLAUDE.md](CLAUDE.md).
+
+## Design
+
+O sistema visual é o [Untitled UI](https://www.untitledui.com/), a base que o
+[shelf.nu](https://www.shelf.nu/) publica no `tailwind.config.ts` deles: rampa de
+cinza azulado de `#FCFCFD` a `#101828`, laranja `#EF6820` como marca, Inter,
+raios de 6 e 8 px e sombras de 5% a 10%.
+
+Tudo vive em tokens no topo de [`frontend/src/routes/layout.css`](frontend/src/routes/layout.css).
+Os componentes leem os tokens por `var()` e pelas utilitárias que o
+`@theme inline` gera (`bg-canvas`, `text-mute`, `border-hairline`), então trocar
+um tema é trocar valores — nenhum `.svelte` conhece cor.
+
+**Escuro é o padrão; quem usa escolhe.** O seletor no cabeçalho grava a
+preferência, e [`frontend/static/tema.js`](frontend/static/tema.js) a aplica no
+`<html>` **antes da primeira pintura** — sem ele a página apareceria escura e
+piscaria para clara depois da hidratação. Ele é um script externo, e não inline,
+porque a CSP do projeto é `script-src 'self'`.
 
 ## Quick start
 
@@ -70,6 +90,30 @@ prepara o que faltar, e pode repetir à vontade:
 A sessão viaja num cookie `HttpOnly` + `SameSite=Lax` (com prefixo `__Host-` e
 `Secure` em produção). O banco guarda só o SHA-256 do token; a senha, um hash
 Argon2id.
+
+Todas as rotas abaixo exigem sessão e têm teto de requisições por sessão.
+
+| Método | Rota | O que faz |
+|---|---|---|
+| `GET` | `/boards` | Lista os quadros de que você participa, com o seu papel em cada um. |
+| `POST` | `/boards` | Cria um quadro e vincula você como dono (201). |
+| `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só. |
+| `PATCH` | `/boards/{id}` | Renomeia o quadro. Só o dono (403 para os demais). |
+| `DELETE` | `/boards/{id}` | Apaga o quadro; colunas, cards e vínculos vão junto (204). Só o dono. |
+| `POST` | `/boards/{id}/colunas` | Cria uma coluna no fim do quadro (201). |
+| `PATCH` | `/colunas/{id}` | Renomeia a coluna. |
+| `DELETE` | `/colunas/{id}` | Apaga a coluna e os cards dela (204). |
+| `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
+| `PATCH` | `/cards/{id}` | Edita título e descrição, incrementando a versão. |
+| `DELETE` | `/cards/{id}` | Apaga o card (204). |
+
+**404 e 403 querem dizer coisas diferentes.** Quadro de outra pessoa responde
+`404`, e não `403`: dizer "proibido" confirmaria que aquele quadro existe, o que
+basta para varrer ids e mapear o que os outros têm. O `403` fica só para quem
+**já enxerga** o quadro e esbarra no próprio papel — leitor tentando editar,
+editor tentando apagar o quadro. Coluna e card são endereçados pelo próprio id
+e o servidor descobre sozinho a que quadro pertencem (card → coluna → quadro);
+informar um quadro pela URL não daria acesso a nada.
 
 ## Testes
 

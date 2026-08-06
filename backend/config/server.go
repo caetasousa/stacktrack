@@ -71,6 +71,15 @@ func RateLimitLoginPorConta() int {
 	return intDoAmbiente("RATE_LIMIT_LOGIN_POR_CONTA", 5)
 }
 
+// RateLimitAutenticadoPorMinuto é o teto de requisições por SESSÃO por minuto
+// (env RATE_LIMIT_AUTENTICADO_POR_MINUTO; 0 desliga). Depois do login o IP
+// deixa de identificar quem abusa — várias pessoas atrás do mesmo NAT
+// compartilham endereço, e a mesma conta pode trocar de rede. Sem este teto,
+// uma sessão válida dispararia criação de quadros e cards em laço.
+func RateLimitAutenticadoPorMinuto() int {
+	return intDoAmbiente("RATE_LIMIT_AUTENTICADO_POR_MINUTO", 120)
+}
+
 // JanelaLimitePorConta é a janela do teto por conta. Curta de propósito: o
 // preço de errar a senha cinco vezes é esperar alguns minutos, não perder o
 // acesso — e é tempo suficiente para inviabilizar brute-force.

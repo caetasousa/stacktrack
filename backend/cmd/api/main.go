@@ -21,6 +21,7 @@ import (
 	"kanbango/internal/adapter/security"
 	"kanbango/internal/pkg/logging"
 	ucauth "kanbango/internal/usecase/auth"
+	ucboard "kanbango/internal/usecase/board"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
@@ -51,6 +52,10 @@ func main() {
 	// repositórios
 	usuarioRepo := repository.NovoUsuarioPostgres(pool)
 	sessionRepo := repository.NovoSessionPostgres(pool)
+	boardRepo := repository.NovoBoardPostgres(pool)
+	membroRepo := repository.NovoMembroPostgres(pool)
+	colunaRepo := repository.NovoColunaPostgres(pool)
+	cardRepo := repository.NovoCardPostgres(pool)
 
 	// segurança
 	hasher := security.NovoHasherArgon2id()
@@ -61,17 +66,22 @@ func main() {
 	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
 	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
 	perfilUC := ucauth.NovoPerfilUseCase(usuarioRepo)
+	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo)
+	colunaUC := ucboard.NovoColunaUseCase(membroRepo, colunaRepo)
+	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo)
 
 	// handlers e middlewares
 	autenticacao := middleware.NovoAuth(validarSessaoUC, config.CookieSeguro())
+	identidadeDoContexto := func(r *http.Request) (ucauth.Identidade, bool) {
+		return middleware.IdentidadeDoContexto(r.Context())
+	}
 	authHandler := handler.NovoAuthHandler(
 		cadastrarUC, loginUC, logoutUC, perfilUC,
 		config.CookieSeguro(),
 		handler.NovoLimitadorPorConta(config.RateLimitLoginPorConta(), config.JanelaLimitePorConta),
-		func(r *http.Request) (ucauth.Identidade, bool) {
-			return middleware.IdentidadeDoContexto(r.Context())
-		},
+		identidadeDoContexto,
 	)
+	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 
 	r := config.NovoRouter()
 	r.Get("/health", health)
@@ -94,6 +104,38 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(autenticacao.Autenticar)
 			r.Get("/me", authHandler.Me)
+		})
+	})
+
+	// Tudo daqui para baixo exige sessão. O teto por sessão fica no grupo, e
+	// não em cada rota, pela mesma razão dos tetos de /auth: rota nova nasce
+	// coberta em vez de depender de alguém lembrar.
+	r.Group(func(r chi.Router) {
+		r.Use(autenticacao.Autenticar)
+		r.Use(limitePorSessao(config.RateLimitAutenticadoPorMinuto(), config.CookieSeguro()))
+
+		r.Route("/boards", func(r chi.Router) {
+			r.Get("/", boardHandler.Listar)
+			r.Post("/", boardHandler.Criar)
+			r.Get("/{boardID}", boardHandler.Detalhar)
+			r.Patch("/{boardID}", boardHandler.Renomear)
+			r.Delete("/{boardID}", boardHandler.Apagar)
+			r.Post("/{boardID}/colunas", boardHandler.CriarColuna)
+		})
+
+		// Coluna e card são endereçados pelo próprio id, e não sob o caminho
+		// do quadro: o servidor descobre a que quadro pertencem para autorizar
+		// (card → coluna → quadro). Aceitar o quadro pela URL deixaria alguém
+		// mexer em coluna alheia informando o id de um quadro próprio.
+		r.Route("/colunas/{colunaID}", func(r chi.Router) {
+			r.Patch("/", boardHandler.RenomearColuna)
+			r.Delete("/", boardHandler.ApagarColuna)
+			r.Post("/cards", boardHandler.CriarCard)
+		})
+
+		r.Route("/cards/{cardID}", func(r chi.Router) {
+			r.Patch("/", boardHandler.EditarCard)
+			r.Delete("/", boardHandler.ApagarCard)
 		})
 	})
 
@@ -129,16 +171,37 @@ func limitePorIP(porMinuto int) func(http.Handler) http.Handler {
 	return httprate.LimitByIP(porMinuto, time.Minute)
 }
 
+// limitePorSessao devolve o middleware de teto por sessão, chaveado pelo
+// cookie e não pelo IP: depois do login, o IP deixa de identificar quem abusa
+// (um escritório inteiro sai pelo mesmo endereço, e a mesma conta troca de
+// rede). Sem cookie, cai no IP — nesse ponto a requisição já foi autenticada,
+// então isso só cobre um caminho que não deveria existir.
+func limitePorSessao(porMinuto int, cookieSeguro bool) func(http.Handler) http.Handler {
+	if porMinuto <= 0 {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	nome := handler.NomeCookieSessao(cookieSeguro)
+	return httprate.Limit(porMinuto, time.Minute, httprate.WithKeyFuncs(
+		func(r *http.Request) (string, error) {
+			if c, err := r.Cookie(nome); err == nil {
+				return c.Value, nil
+			}
+			return httprate.KeyByIP(r)
+		},
+	))
+}
+
 // avisarSobreTetosDesligados registra um WARN quando algum teto de requisições
 // está em zero. É fácil demais copiar um .env de desenvolvimento (onde os
 // tetos atrapalham os testes) para um ambiente exposto e não perceber que o
 // login ficou sem proteção nenhuma.
 func avisarSobreTetosDesligados() {
-	desligados := make([]string, 0, 3)
+	desligados := make([]string, 0, 4)
 	for nome, limite := range map[string]int{
-		"RATE_LIMIT_LOGIN_POR_MINUTO":    config.RateLimitLoginPorMinuto(),
-		"RATE_LIMIT_CADASTRO_POR_MINUTO": config.RateLimitCadastroPorMinuto(),
-		"RATE_LIMIT_LOGIN_POR_CONTA":     config.RateLimitLoginPorConta(),
+		"RATE_LIMIT_LOGIN_POR_MINUTO":       config.RateLimitLoginPorMinuto(),
+		"RATE_LIMIT_CADASTRO_POR_MINUTO":    config.RateLimitCadastroPorMinuto(),
+		"RATE_LIMIT_LOGIN_POR_CONTA":        config.RateLimitLoginPorConta(),
+		"RATE_LIMIT_AUTENTICADO_POR_MINUTO": config.RateLimitAutenticadoPorMinuto(),
 	} {
 		if limite == 0 {
 			desligados = append(desligados, nome)

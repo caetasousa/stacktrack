@@ -58,6 +58,34 @@ export async function apiPost<TReq, TRes>(caminho: string, corpo: TReq): Promise
 	return resposta.json() as Promise<TRes>;
 }
 
+// apiPatch é para alterações parciais (renomear, editar).
+export async function apiPatch<TReq, TRes>(caminho: string, corpo: TReq): Promise<TRes> {
+	const resposta = await fetch(`${BASE_URL}${caminho}`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify(corpo)
+	});
+
+	if (!resposta.ok) {
+		return parseErro(resposta);
+	}
+
+	return resposta.json() as Promise<TRes>;
+}
+
+// apiDelete é para remoções, que respondem 204 sem corpo.
+export async function apiDelete(caminho: string): Promise<void> {
+	const resposta = await fetch(`${BASE_URL}${caminho}`, {
+		method: 'DELETE',
+		credentials: 'include'
+	});
+
+	if (!resposta.ok) {
+		return parseErro(resposta);
+	}
+}
+
 // apiPostVazio é para rotas que respondem sem corpo (ex: 204 No Content).
 // Chamar apiPost nelas quebraria no resposta.json(), que não tem o que ler.
 export async function apiPostVazio(caminho: string): Promise<void> {

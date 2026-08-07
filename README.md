@@ -7,11 +7,11 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de estudo de cada
 uma, está em [PLANO.md](PLANO.md).
 
-**Fase atual: 3 + template do Trello.** Dá para criar conta, montar um
+**Fase atual: 4 — arrastar e soltar.** Dá para criar conta, montar um
 quadro e dividi-lo com outras pessoas, com papéis de dono, editor e leitor.
-Ainda **sem tempo real**: cada pessoa vê só o que ela mesma faz, e a tela se
-atualiza porque pergunta de novo à API. É esse contraste que a fase 5 resolve.
-Arrastar-e-soltar chega na fase 4.
+Cards e colunas se arrastam. Ainda **sem tempo real**: cada pessoa vê só o que
+ela mesma faz, e a tela se atualiza porque pergunta de novo à API. É esse
+contraste que a fase 5 resolve.
 
 > **Sem envio de email.** Confirmação de cadastro e recuperação de senha ficaram
 > de fora por isso, e o convite virou **link**: quem já tem conta com o email
@@ -116,6 +116,8 @@ Todas as rotas abaixo exigem sessão e têm teto de requisições por sessão.
 | `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro. |
 | `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
+| `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a posição. 409 sem espaço. |
+| `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, pelos vizinhos. |
 | `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
 | `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
@@ -191,3 +193,30 @@ A descrição do card aceita um subconjunto de Markdown, renderizado por
 [`lib/markdown.ts`](frontend/src/lib/markdown.ts) — escrito à mão, sem
 biblioteca: o texto é escapado inteiro **antes** de as marcas virarem tags, então
 nada que alguém escreveu chega ao HTML como marcação.
+
+## Ordenação (arrastar e soltar)
+
+A posição de cards e colunas é **fracionária**, não um inteiro sequencial. Com
+`1, 2, 3, 4`, arrastar um item para o meio obrigaria a reescrever a numeração de
+todos abaixo dele — muitas linhas alteradas e corrida garantida com duas pessoas
+no mesmo quadro. Com fração, inserir entre `2048` e `3072` é gravar `2560`:
+
+```
+antes:   A(2048)   B(3072)            C(4096)
+                       ▲ solta aqui
+depois:  A(2048)   C(2560)   B(3072)          ← só C foi escrito
+```
+
+**A API recebe os vizinhos, não a posição.** O cliente manda `anteriorId` e
+`proximoId`; quem calcula o número é o servidor. Três razões: a cópia do quadro
+na tela pode estar velha e a média entre posições que já mudaram põe o item no
+lugar errado; o esgotamento da precisão só é detectável onde os valores reais
+estão; e posição vinda do cliente é entrada do usuário, que embaralharia a ordem
+de um quadro inteiro. O card continua se movendo na tela na hora — ele só não
+decide o número.
+
+**O limite do `double precision` é real e está medido.** Dividir sempre o mesmo
+intervalo esgota a mantissa de 53 bits em **52 inserções seguidas no mesmo
+ponto** (há teste que mede isso). Quando acontece, o movimento responde `409` em
+vez de gravar em silêncio duas posições iguais. A saída definitiva é trocar o
+float por chave textual — é a fase 9 do plano.

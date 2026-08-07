@@ -416,9 +416,13 @@ do domínio**, nunca por SQL na migration.
 
 ### Depois, se der gosto
 
-Etiquetas, prazo, checklist, comentários, anexos, histórico de atividade, WIP limit por coluna,
-cursor de cada pessoa flutuando na tela. E dois caminhos de estudo que este projeto abre
-naturalmente:
+**Já foram feitos, fora de ordem:** etiquetas, prazo, checklist e anexos entraram junto com a
+adaptação do template do Trello, entre as fases 3 e 4. A consequência a pagar está na fase 5:
+cada uma dessas tabelas é uma fonte de eventos que o hub vai precisar propagar — etiqueta
+aplicada, item marcado, anexo enviado —, e isso não estava no desenho original daquela fase.
+
+O que segue de fora: comentários, histórico de atividade, WIP limit por coluna, cursor de cada
+pessoa flutuando na tela. E dois caminhos de estudo que este projeto abre naturalmente:
 
 - **Múltiplas instâncias da API:** o hub em memória só avisa quem está conectado *naquele*
   processo. A saída caseira é [PostgreSQL LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html);

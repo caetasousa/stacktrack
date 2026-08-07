@@ -1,19 +1,22 @@
 # Bloco de site do stacktrack, para o Caddy que já serve o agendaGo no mesmo VPS.
 #
-# Instalação no host (uma vez):
-#
-#   sudo mkdir -p /opt/caddy/sites
-#   sudo cp deploy/caddy/stacktrack.caddy /opt/caddy/sites/
-#   sudo $EDITOR /opt/caddy/sites/stacktrack.caddy      # troque o domínio
-#   docker compose -f /home/caetasousa/agendaGo/docker-compose.prod.yml \
-#     exec caddy caddy reload --config /etc/caddy/Caddyfile
+# Quem instala é o job `implantar` da esteira: ele copia este arquivo para
+# /home/deploy/caddy/sites/ e recarrega o Caddy — mas SÓ quando o conteúdo muda,
+# porque o proxy pertence ao agendaGo e recarregá-lo a cada deploy daqui seria
+# mexer, sem motivo, num processo que atende outro serviço em produção.
 #
 # O Caddyfile do agendaGo faz `import /etc/caddy/sites/*.caddy` e enxerga este
 # arquivo pelo bind mount. Assim o stacktrack não precisa ser mencionado lá: o
 # vizinho entra e sai sem editar a configuração de quem já estava.
 #
-# Os containers são alcançados pela rede Docker `borda`, compartilhada pelos
-# dois stacks. Crie-a uma vez no host: docker network create borda
+# Os containers são alcançados pela rede Docker `borda`, que o CI do agendaGo
+# cria de forma idempotente a cada deploy.
+#
+# Para instalar à mão (servidor novo, ou antes da primeira esteira):
+#
+#   cp deploy/caddy/stacktrack.caddy /home/deploy/caddy/sites/
+#   docker exec $(docker ps --filter label=com.docker.compose.service=caddy \
+#     --format '{{.Names}}' | head -1) caddy reload --config /etc/caddy/Caddyfile
 
 stacktrack.duckdns.org {
 	encode gzip zstd

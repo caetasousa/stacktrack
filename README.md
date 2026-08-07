@@ -27,10 +27,15 @@ contraste que a fase 5 resolve.
 | Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) · [Vite](https://vite.dev/) |
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) (email de dev, a partir da fase 1) |
-| Produção | imagens no GHCR pelo GitHub Actions · Caddy + Let's Encrypt, dividindo o VPS com o agendaGo — ver [docs/deploy.md](docs/deploy.md) |
+| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · Caddy + Let's Encrypt, dividindo o VPS com o agendaGo |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`) — as
 convenções do projeto estão no [CLAUDE.md](CLAUDE.md).
+
+| Documentação | |
+|---|---|
+| [docs/producao.md](docs/producao.md) | arquitetura no ar, primeiro deploy, backup e operação |
+| [docs/entrega-continua.md](docs/entrega-continua.md) | a esteira, a varredura de vulnerabilidades e o deploy automático |
 
 ## Design
 

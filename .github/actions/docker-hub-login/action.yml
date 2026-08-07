@@ -1,0 +1,44 @@
+# Autentica no Docker Hub para elevar a cota de pull.
+#
+# Pull anônimo no Docker Hub tem cota por IP (100/6h) e os runners do GitHub
+# compartilham IP: quando estoura, qualquer `docker pull` falha por timeout e
+# derruba o job. Autenticado, a cota passa a ser da conta.
+#
+# Sem os secrets configurados a action não faz nada e o job segue com pulls
+# anônimos — o mesmo padrão do deploy, para o repositório continuar
+# funcionando em quem clonar sem configurar segredo nenhum.
+name: Login no Docker Hub
+description: Autentica no Docker Hub quando os segredos existem; caso contrário, não faz nada.
+
+inputs:
+  usuario:
+    description: Usuário do Docker Hub (secrets.DOCKERHUB_USERNAME).
+    required: false
+    default: ''
+  token:
+    description: Token de acesso do Docker Hub (secrets.DOCKERHUB_TOKEN).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Hub configurado?
+      id: cfg
+      shell: bash
+      env:
+        USUARIO: ${{ inputs.usuario }}
+      run: |
+        if [ -n "$USUARIO" ]; then
+          echo "configurado=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "configurado=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::DOCKERHUB_USERNAME não configurado — pulls seguem anônimos, sujeitos à cota por IP."
+        fi
+
+    - name: login
+      if: steps.cfg.outputs.configurado == 'true'
+      uses: docker/login-action@v4
+      with:
+        username: ${{ inputs.usuario }}
+        password: ${{ inputs.token }}

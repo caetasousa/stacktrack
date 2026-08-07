@@ -1,27 +1,57 @@
-# Testa todo push e todo PR; publica as imagens só no que entra na main.
-#
-# A ordem não é decoração: `publicar` depende dos dois jobs de teste, então uma
-# imagem quebrada não chega ao registry — e o VPS nunca puxa o que não passou.
 name: CI
 
+# Commit que só mexe em documentação não roda a esteira. É seguro porque nenhum
+# `.md` é entrada de build: não há markdown importado pelo frontend nem pelo
+# backend, e `docs/` só tem texto.
+#
+# O filtro é por PUSH, não por arquivo isolado: basta um arquivo fora da lista
+# no mesmo push para a esteira rodar inteira.
+#
+# Consequência a conhecer: push só de documentação também não implanta. Está
+# certo — não há o que implantar, já que o deploy sincroniza o compose, o bloco
+# do Caddy e os scripts, nenhum deles markdown. Para reimplantar sem commit
+# novo, use o workflow_dispatch abaixo.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  # Republica as imagens e reimplanta sem precisar de commit novo — útil para
+  # reaplicar um deploy que falhou por causa do servidor.
+  workflow_dispatch:
+  # Varredura semanal de vulnerabilidades. Sem isto, os jobs de segurança só
+  # rodam quando alguém commita: uma CVE publicada numa semana sem push passaria
+  # despercebida. Segunda, 9h UTC (6h em Brasília).
+  schedule:
+    - cron: '0 9 * * 1'
 
-# Um push novo na mesma referência cancela a execução anterior: não adianta
-# terminar de testar um commit que já foi substituído.
+# Cancela execuções antigas do mesmo ref quando um push novo chega — mas só em
+# pull request. Na main não: `cancel-in-progress` é de nível de workflow e
+# alcança TODOS os jobs do run anterior, inclusive o `implantar`. Um segundo
+# push durante o deploy mataria o job no meio do caminho — entre o `pull` e o
+# `up -d`, deixando a stack em versões misturadas, ou durante a reescrita do
+# crontab, que é um `crontab -l | ... | crontab -` e truncaria o agendamento do
+# backup sem avisar.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  REGISTRO: ghcr.io
+# Menor privilégio por padrão: o GITHUB_TOKEN só lê o repositório. Os jobs que
+# precisam de mais elevam o que precisam, e só eles.
+permissions:
+  contents: read
 
 jobs:
   backend:
-    name: backend
+    name: Backend (fmt, vet, testes)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -45,23 +75,17 @@ jobs:
       # -race é obrigatório a partir da fase 5: concorrência sem o detector de
       # corrida é fé, não engenharia. Entra desde já para o hábito estar pronto
       # quando o WebSocket chegar.
+      #
+      # Ainda sem teste de integração contra Postgres de verdade — ele chega com
+      # os Testcontainers da fase 8, e é o que vai exercitar o SQL que os fakes
+      # em memória não tocam.
       - name: go test -race
         working-directory: backend
         run: go test -race ./...
 
-      # Vulnerabilidade conhecida em dependência do Go. O govulncheck só acusa
-      # o que é de fato ALCANÇÁVEL pelo código — não enche o relatório com CVE
-      # de função que o projeto nunca chama.
-      - name: govulncheck
-        working-directory: backend
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
-
-      # A regra do CLAUDE.md que o CI passa a fazer cumprir: migration não
-      # escreve dado. Todo backfill é decisão do domínio, e em SQL ele vira uma
-      # segunda fonte da verdade, sem teste e sem conserto — migration aplicada
-      # não se corrige.
+      # A regra do CLAUDE.md que o CI faz cumprir: migration não escreve dado.
+      # Todo backfill é decisão do domínio, e em SQL ele vira uma segunda fonte
+      # da verdade, sem teste e sem conserto — migration aplicada não se corrige.
       - name: migrations não podem escrever dado
         run: |
           if grep -rniE '^[[:space:]]*(INSERT|UPDATE|DELETE)[[:space:]]' backend/migrations/; then
@@ -70,8 +94,9 @@ jobs:
           fi
 
   frontend:
-    name: frontend
+    name: Frontend (prettier, svelte-check, unit)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -89,67 +114,430 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
 
-  publicar:
-    name: publicar imagens
-    needs: [backend, frontend]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  seguranca-codigo:
+    name: Vulnerabilidades (dependências do código)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # Necessária para o GITHUB_TOKEN poder escrever no GHCR.
-      packages: write
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # Versão FIXA: com @latest uma release nova do govulncheck pode reprovar
+      # um commit que não mexeu em nada, e o build de ontem deixa de ser
+      # reproduzível hoje. A varredura semanal já garante que CVEs novas
+      # apareçam sem depender de atualizar a ferramenta.
+      - name: govulncheck (backend)
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: install (frontend)
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit — dependências de produção (trava o CI)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit — relatório completo (não trava)
+        working-directory: frontend
+        if: always()
+        run: npm audit || true
+
+  # Fonte única da lista de imagens, consumida por `seguranca-imagens` e
+  # `publicar-imagens`. É um job só para isso porque `strategy.matrix` é
+  # resolvida antes de qualquer passo rodar — nenhum job consegue ler a lista de
+  # um arquivo para uso próprio —, e o GitHub Actions não suporta âncora de YAML.
+  #
+  # Duplicá-la nos dois significaria, ao acrescentar uma quarta imagem, esquecer
+  # um dos lados: publicar sem varrer, ou varrer sem publicar. Os dois
+  # silenciosos.
+  imagens:
+    name: Matriz de imagens
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matriz: ${{ steps.definir.outputs.matriz }}
+    steps:
+      - name: define quais imagens a esteira constrói
+        id: definir
+        run: |
+          echo 'matriz={"include":[{"imagem":"stacktrack-api","contexto":"./backend","dockerfile":"./backend/Dockerfile.prod"},{"imagem":"stacktrack-web","contexto":"./frontend","dockerfile":"./frontend/Dockerfile.prod"},{"imagem":"stacktrack-migrations","contexto":"./backend","dockerfile":"./backend/Dockerfile.migrations"}]}' >> "$GITHUB_OUTPUT"
+
+  # Varredura das imagens prontas (sistema base + libs de SO), que o govulncheck
+  # e o npm audit não enxergam. Uma perna por imagem: as TRÊS que vão para
+  # produção, inclusive a de migrations — ela roda no VPS com acesso ao banco.
+  seguranca-imagens:
+    name: Vulnerabilidades (imagens)
+    needs: imagens
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Necessário para publicar os achados do Trivy na aba Security.
+      security-events: write
+    strategy:
+      # Uma imagem reprovada não deve esconder o resultado das outras duas.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.imagens.outputs.matriz) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/docker-hub-login
+        with:
+          usuario: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # O buildx sobe um container do BuildKit vindo do Docker Hub, e o pull
+      # anônimo falha quando o limite por IP do runner estoura.
+      - name: baixa a imagem do BuildKit
+        uses: ./.github/actions/docker-pull
+        with:
+          imagem: moby/buildkit:buildx-stable-1
+
       - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v4
+      # Mesmo scope de cache que `publicar-imagens`: a build daqui alimenta a de
+      # lá (que roda depois, via needs) e nenhuma das duas recompila Go ou npm à
+      # toa. `load: true` deixa a imagem no daemon local para o Trivy varrer.
+      - name: build da imagem (só para varrer, sem publicar)
+        uses: docker/build-push-action@v7
         with:
-          registry: ${{ env.REGISTRO }}
+          context: ${{ matrix.contexto }}
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: ${{ matrix.imagem }}:scan
+          cache-from: type=gha,scope=${{ matrix.imagem }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.imagem }}
+
+      # Relatório legível no log, com HIGH junto. Nunca trava: HIGH em imagem
+      # base costuma não ter correção disponível, e barrar o deploy nisso
+      # transformaria o portão em ruído que se aprende a ignorar.
+      - name: Trivy — relatório (HIGH + CRITICAL, não trava)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.imagem }}:scan
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      # No log o achado se perde no scroll e desaparece no run seguinte; em
+      # SARIF ele vai para a aba Security com histórico, deduplicação e a data
+      # em que apareceu. `category` distinta por imagem: sem isso, a última
+      # perna da matriz sobrescreveria o resultado das anteriores.
+      - name: Trivy — SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.imagem }}:scan
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: sarif
+          output: trivy-${{ matrix.imagem }}.sarif
+
+      - name: publica o SARIF na aba Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-${{ matrix.imagem }}.sarif
+          category: trivy-${{ matrix.imagem }}
+
+      # O portão vem por último, para que o relatório e o SARIF subam mesmo
+      # quando ele reprova — é justamente na execução que falha que o registro
+      # importa mais.
+      - name: Trivy — portão (trava em CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.imagem }}:scan
+          severity: 'CRITICAL'
+          exit-code: '1'
+
+  publicar-imagens:
+    name: Publica imagens no GHCR
+    # A varredura semanal (schedule) não publica nem implanta: ela roda sem
+    # commit novo, e reimplantar produção sozinho toda segunda não é o objetivo.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs: [imagens, backend, frontend, seguranca-codigo, seguranca-imagens]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix: ${{ fromJSON(needs.imagens.outputs.matriz) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/docker-hub-login
+        with:
+          usuario: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: baixa a imagem do BuildKit
+        uses: ./.github/actions/docker-pull
+        with:
+          imagem: moby/buildkit:buildx-stable-1
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: login no GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: api
+      # Duas tags: `latest` (o que o compose puxa por padrão) e o SHA do commit,
+      # que permite fixar uma versão ou voltar atrás via IMAGE_TAG no .env.
+      - name: build e push
         uses: docker/build-push-action@v7
         with:
-          context: ./backend
-          file: ./backend/Dockerfile.prod
+          context: ${{ matrix.contexto }}
+          file: ${{ matrix.dockerfile }}
           push: true
-          # Duas tags: `latest` é o que o VPS segue no dia a dia, e
-          # `sha-<commit>` é o que permite voltar a uma versão exata sem
-          # recompilar nada.
-          tags: |
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-api:latest
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-api:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Os .sql viajam DENTRO da imagem: é o que permite ao VPS rodar sem o
-      # código-fonte, com dois arquivos apenas (compose e .env.prod).
-      - name: migrations
-        uses: docker/build-push-action@v7
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile.migrations
-          push: true
-          tags: |
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-migrations:latest
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-migrations:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: web
-        uses: docker/build-push-action@v7
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile.prod
-          push: true
-          # A URL da API vai embutida no bundle: é decisão de build, não de
-          # runtime. Relativa, porque front e API compartilham o domínio.
+          # O VPS é x86; buildar só amd64 mantém a esteira rápida.
+          platforms: linux/amd64
+          # A URL da API vai embutida no bundle do frontend: é decisão de build,
+          # não de runtime. Relativa, porque front e API compartilham o domínio.
+          # As outras duas imagens não declaram esse ARG e o ignoram.
           build-args: |
             PUBLIC_API_URL=/api
           tags: |
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-web:latest
-            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-web:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.imagem }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.imagem }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.imagem }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.imagem }}
+
+  # Deploy contínuo no VPS. Não sobe binário nem código-fonte: as imagens já
+  # estão no GHCR, então o servidor recebe apenas os arquivos de configuração da
+  # stack (o .env fica no host, com os segredos) e a ordem de puxar a versão
+  # nova. É a mesma sequência do deploy manual em docs/producao.md.
+  #
+  # Segredos necessários (Settings → Secrets and variables → Actions):
+  #   VPS_HOST         IP ou hostname do servidor
+  #   VPS_USER         usuário SSH (não-root, no grupo docker) — `deploy`
+  #   VPS_SSH_KEY      chave PRIVADA de deploy (a pública vai no authorized_keys)
+  #   VPS_PORT         opcional, padrão 22
+  #   VPS_KNOWN_HOSTS  saída de `ssh-keyscan -H HOST`. Obrigatório quando
+  #                    VPS_HOST existe.
+  # E a variável DOMINIO (aba Variables) para a verificação pós-deploy.
+  implantar:
+    name: Deploy no VPS
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs: publicar-imagens
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # Sem os segredos o job passa sem fazer nada, em vez de falhar em
+      # vermelho — o repositório funciona antes de o VPS existir.
+      - name: verifica se o deploy está configurado
+        id: cfg
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          if [ -n "$VPS_HOST" ]; then
+            echo "configurado=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configurado=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VPS_HOST não configurado — deploy ignorado."
+          fi
+
+      - name: prepara a chave SSH
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          CHAVE: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$CHAVE" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Sem known_hosts fixo, um `ssh-keyscan` na hora aceitaria a
+          # identidade de quem respondesse e entregaria a chave de deploy junto.
+          if [ -z "$KNOWN_HOSTS" ]; then
+            echo "::error::VPS_KNOWN_HOSTS não configurado. Gere com: ssh-keyscan -p $PORTA -H $HOST"
+            exit 1
+          fi
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # Mantém o compose e os scripts do servidor iguais aos do repositório: sem
+      # isto, mudar o roteamento ou um limite de memória exigiria copiar arquivo
+      # na mão. O .env NUNCA é enviado — ele mora só no host.
+      - name: sincroniza a configuração da stack
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            'mkdir -p ~/stacktrack/scripts ~/caddy/sites ~/backups'
+          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
+            docker-compose.prod.yml "$USUARIO@$HOST:~/stacktrack/"
+          # backup.sh roda por cron e precisa estar no servidor ANTES do
+          # incidente que o torna necessário.
+          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
+            scripts/backup.sh "$USUARIO@$HOST:~/stacktrack/scripts/"
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            'chmod +x ~/stacktrack/scripts/backup.sh'
+
+      # O bloco de site vive no Caddy do agendaGo, que é quem tem as portas 80 e
+      # 443. Instalar aqui mantém roteamento e cabeçalhos versionados junto com
+      # o app — mas o `caddy reload` só acontece se o arquivo REALMENTE mudou:
+      # recarregar o proxy do vizinho a cada deploy do stacktrack seria mexer,
+      # sem necessidade, num processo que atende outro serviço em produção.
+      - name: instala o bloco do Caddy (e recarrega só se mudou)
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
+            deploy/caddy/stacktrack.caddy "$USUARIO@$HOST:~/stacktrack/stacktrack.caddy.novo"
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
+            set -e
+            destino="$HOME/caddy/sites/stacktrack.caddy"
+            if cmp -s "$HOME/stacktrack/stacktrack.caddy.novo" "$destino"; then
+              rm -f "$HOME/stacktrack/stacktrack.caddy.novo"
+              echo "bloco do Caddy inalterado; o proxy não foi recarregado"
+              exit 0
+            fi
+            mv "$HOME/stacktrack/stacktrack.caddy.novo" "$destino"
+            # Acha o Caddy pelo rótulo do compose, sem depender de saber em qual
+            # stack ele mora nem qual é o nome do container.
+            caddy=$(docker ps --filter label=com.docker.compose.service=caddy --format "{{.Names}}" | head -1)
+            if [ -z "$caddy" ]; then
+              echo "::error::nenhum container de Caddy encontrado — o bloco foi instalado, mas o proxy não recarregou"
+              exit 1
+            fi
+            # --config explícito: sem ele o reload usaria o último config
+            # carregado por API, e não o arquivo.
+            docker exec "$caddy" caddy reload --config /etc/caddy/Caddyfile
+            echo "bloco do Caddy atualizado e $caddy recarregado"
+          '
+
+      # Retrato do banco ANTES da migration deste deploy. O cron das 03:20
+      # sozinho deixa uma janela de até 23 horas: um deploy ruim ao meio-dia
+      # teria como ponto de retorno mais recente o estado da madrugada, e tudo
+      # que entrou no meio se perderia junto.
+      #
+      # A deduplicação por conteúdo do backup.sh evita arquivo extra quando nada
+      # mudou — e como ela também olha schema e imagem, este backup nasce
+      # carimbado com a versão que está SAINDO, que é o par certo para desfazer.
+      #
+      # Não trava o deploy: no primeiro deploy a stack ainda não existe, e um
+      # backup ausente não é motivo para impedir a aplicação de subir.
+      - name: backup do banco antes de migrar
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            '~/stacktrack/scripts/backup.sh' \
+            || echo "::warning::backup pré-deploy não executado (a stack já existe no VPS?)"
+
+      # A rede `borda` é declarada `external` no compose, e external significa
+      # que o Compose NÃO a cria: ele falha com "network borda declared as
+      # external, but could not be found". Criar aqui, e não uma vez na mão,
+      # porque a rede vive fora do ciclo de vida de qualquer stack: um host novo,
+      # ou um `docker network prune` numa faxina, deixaria o deploy quebrado sem
+      # nada no repositório explicando o que restaurar.
+      #
+      # Idempotente pelo inspect: `network create` de rede existente é erro.
+      - name: garante a rede compartilhada do Caddy
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            'docker network inspect borda >/dev/null 2>&1 || docker network create borda'
+
+      # Fixa a tag no SHA deste commit: o servidor sobe exatamente o artefato
+      # que passou nos testes, não um `latest` que pode ter mudado no meio.
+      #
+      # `--quiet` no pull porque o progresso por camada, sem terminal para
+      # reescrever a linha, vira milhares de linhas de "Downloading" no log — e
+      # o erro, quando existe, se perde no meio delas.
+      - name: puxa as imagens e sobe a stack
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            "cd ~/stacktrack \
+             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml pull --quiet \
+             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml up -d \
+             && docker image prune -f"
+
+      # Agenda o backup diário. Deixar isso manual seria o elo fraco da
+      # estratégia: um cron esquecido não avisa, e a descoberta viria no dia em
+      # que o backup fosse necessário.
+      #
+      # Idempotente: reescreve apenas a linha do stacktrack, preservando as
+      # outras entradas do crontab — inclusive a do agendaGo, que divide a
+      # máquina.
+      - name: agenda o backup diário do banco
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+          # Deslocado do backup do agendaGo (03:00) de propósito: dois pg_dump
+          # no mesmo minuto disputam CPU e disco sem necessidade.
+          AGENDA: ${{ vars.BACKUP_CRON || '20 3 * * *' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" "
+            mkdir -p \$HOME/backups
+            ( crontab -l 2>/dev/null | grep -v 'stacktrack/scripts/backup.sh'
+              echo '$AGENDA \$HOME/stacktrack/scripts/backup.sh >> \$HOME/backups/backup.log 2>&1'
+            ) | crontab -
+          "
+          # O cron do Debian/Ubuntu não suporta CRON_TZ: a expressão é sempre
+          # interpretada no fuso do HOST. Imprimir os dois juntos evita o erro
+          # silencioso de agendar "3h" achando que é horário de Brasília num
+          # servidor em UTC.
+          echo 'agendamento efetivo no servidor:'
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
+            'printf "  fuso do servidor: %s (agora: %s)\n" "$(timedatectl show --property=Timezone --value 2>/dev/null || readlink -f /etc/localtime)" "$(date "+%F %T %Z")"; printf "  crontab: %s\n" "$(crontab -l | grep stacktrack)"'
+
+      # Deploy sem verificação é deploy no escuro: se a aplicação não responder,
+      # o job falha e o erro aparece no commit.
+      #
+      # Checa a API e a página inicial. Só /api/health deixaria passar um deploy
+      # em que o container `web` subiu quebrado: a API responde, o job fica
+      # verde e quem descobre é quem usa.
+      - name: verifica se a aplicação respondeu
+        if: steps.cfg.outputs.configurado == 'true' && vars.DOMINIO != ''
+        env:
+          DOMINIO: ${{ vars.DOMINIO }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "https://$DOMINIO/api/health" >/dev/null \
+              && curl -fsS -o /dev/null "https://$DOMINIO/"; then
+              echo "aplicação no ar (API e frontend)"; exit 0
+            fi
+            sleep 5
+          done
+          echo "a aplicação não respondeu em /api/health e/ou / após o deploy"
+          exit 1

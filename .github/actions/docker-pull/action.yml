@@ -1,0 +1,30 @@
+# Baixa uma imagem do Docker Hub antes de ela ser necessária, com retentativa.
+#
+# O Docker Hub limita pulls anônimos por IP e os runners do GitHub compartilham
+# IP: quando a cota estoura, o pull falha por timeout no meio do passo que
+# realmente importa — os testes de integração caem todos juntos sem nenhum ter
+# rodado, ou o "Booting builder" do buildx morre. Com a imagem já no cache
+# local do daemon, quem for usá-la não toca a rede.
+name: Pull de imagem com retentativa
+description: Faz `docker pull` de uma imagem com três tentativas e espera progressiva.
+
+inputs:
+  imagem:
+    description: 'Referência da imagem (ex.: postgres:16-alpine).'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        IMAGEM: ${{ inputs.imagem }}
+      run: |
+        for tentativa in 1 2 3; do
+          if docker pull "$IMAGEM"; then exit 0; fi
+          espera=$((tentativa * 15))
+          echo "::warning::pull de $IMAGEM falhou (tentativa $tentativa/3); nova tentativa em ${espera}s"
+          sleep $espera
+        done
+        echo "::error::não foi possível baixar $IMAGEM do Docker Hub"
+        exit 1

@@ -7,7 +7,7 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de estudo de cada
 uma, está em [PLANO.md](PLANO.md).
 
-**Fase atual: 3 — convites e colaboração.** Dá para criar conta, montar um
+**Fase atual: 3 + template do Trello.** Dá para criar conta, montar um
 quadro e dividi-lo com outras pessoas, com papéis de dono, editor e leitor.
 Ainda **sem tempo real**: cada pessoa vê só o que ela mesma faz, e a tela se
 atualiza porque pergunta de novo à API. É esse contraste que a fase 5 resolve.
@@ -114,6 +114,19 @@ Todas as rotas abaixo exigem sessão e têm teto de requisições por sessão.
 | `DELETE` | `/boards/{id}/membros/{usuarioId}` | Remove do quadro (204). Só o dono. |
 | `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). |
 | `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro. |
+| `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
+| `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
+| `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
+| `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
+| `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
+| `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
+| `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |
+| `PATCH`/`DELETE` | `/checklists/{id}` | Renomeia ou apaga (os itens vão junto). |
+| `POST` | `/checklists/{id}/itens` | Cria uma linha. |
+| `PATCH`/`DELETE` | `/itens/{id}` | Marca, renomeia ou apaga a linha. |
+| `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. |
+| `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). |
+| `GET`/`DELETE` | `/anexos/{id}` | Baixa ou apaga o anexo. |
 
 E uma rota **sem** sessão:
 
@@ -154,3 +167,27 @@ docker compose restart api   # o container baixa e recompila
 ```
 
 Na dúvida, `docker compose logs api` mostra a falha de build.
+
+## Anexos
+
+Arquivo enviado vai para o disco, num **volume próprio** (`ANEXOS_DIR`, padrão
+`/var/lib/kanbango/anexos`) — não para o banco, que incharia backup e restore de
+um schema que guarda texto curto no resto todo, nem para dentro de `./backend`,
+que é a árvore de código montada do host.
+
+Três decisões que valem saber antes de mexer:
+
+- **Lista de permissão de tipos**, não de bloqueio. `text/html` e `image/svg+xml`
+  ficam de fora de propósito: servidos da nossa origem, executariam script na
+  nossa origem.
+- **O nome do arquivo no disco é sorteado**, nunca derivado do que veio de quem
+  enviou — nome de arquivo é entrada do usuário, e entrada do usuário não vira
+  caminho. O nome original sobrevive só como rótulo.
+- **O download passa pela API** (`GET /anexos/{id}`), e não por um caminho
+  estático: é lá que se confere se quem pede participa do quadro. A resposta sai
+  como `attachment` com `nosniff`.
+
+A descrição do card aceita um subconjunto de Markdown, renderizado por
+[`lib/markdown.ts`](frontend/src/lib/markdown.ts) — escrito à mão, sem
+biblioteca: o texto é escapado inteiro **antes** de as marcas virarem tags, então
+nada que alguém escreveu chega ao HTML como marcação.

@@ -39,6 +39,12 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	cards.LigarColunas(colunas)
 	boards := memoria.NovosBoards(membros)
 	membros.LigarUsuarios(usuarios)
+	etiquetas := memoria.NovasEtiquetas()
+	checklists := memoria.NovasChecklists()
+	anexos := memoria.NovosAnexos()
+	etiquetas.LigarQuadro(colunas, cards)
+	checklists.LigarQuadro(colunas, cards)
+	anexos.LigarQuadro(colunas, cards)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -52,9 +58,9 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		false, nil, identidade,
 	)
 	boardHandler := handler.NovoBoardHandler(
-		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards),
+		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos),
 		ucboard.NovoColunaUseCase(membros, colunas),
-		ucboard.NovoCardUseCase(membros, colunas, cards),
+		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos),
 		identidade,
 	)
 	membroHandler := handler.NovoMembroHandler(

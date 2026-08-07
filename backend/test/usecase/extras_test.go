@@ -1,0 +1,421 @@
+// Etiquetas, checklists e anexos. Todos passam pelo mesmo caminho de
+// autorização — card → coluna → quadro —, e é isso que estes testes cobrem,
+// além do que só o armazém de arquivos traz de novo.
+package usecase_test
+
+import (
+	"errors"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	danexo "kanbango/internal/domain/anexo"
+	dchecklist "kanbango/internal/domain/checklist"
+	detiqueta "kanbango/internal/domain/etiqueta"
+	"kanbango/internal/domain/membro"
+	ucboard "kanbango/internal/usecase/board"
+	"kanbango/test/repository/memoria"
+)
+
+type extras struct {
+	*quadro
+	armazem     *memoria.Armazem
+	etiquetaUC  *ucboard.EtiquetaUseCase
+	checklistUC *ucboard.ChecklistUseCase
+	anexoUC     *ucboard.AnexoUseCase
+}
+
+func novoExtras() *extras {
+	q := novoQuadro()
+	armazem := memoria.NovoArmazem()
+
+	return &extras{
+		quadro:      q,
+		armazem:     armazem,
+		etiquetaUC:  ucboard.NovoEtiquetaUseCase(q.membros, q.colunas, q.cards, q.etiquetas),
+		checklistUC: ucboard.NovoChecklistUseCase(q.membros, q.colunas, q.cards, q.checklists),
+		anexoUC:     ucboard.NovoAnexoUseCase(q.membros, q.colunas, q.cards, q.anexos, armazem),
+	}
+}
+
+// montar cria quadro, coluna e card de uma vez, devolvendo os ids.
+func (e *extras) montar(t *testing.T, dono string) (boardID, cardID string) {
+	t.Helper()
+	boardID = e.criarQuadro(t, dono, "Estudos")
+	colunaID := e.criarColuna(t, boardID, dono, "A fazer")
+	return boardID, e.criarCard(t, colunaID, dono, "Tarefa")
+}
+
+// --- etiquetas ------------------------------------------------------------
+
+func TestAplicarERemoverEtiquetaNoCard(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	etq, err := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	if err != nil {
+		t.Fatalf("erro ao criar etiqueta: %v", err)
+	}
+
+	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "ana"); err != nil {
+		t.Fatalf("erro ao aplicar: %v", err)
+	}
+
+	detalhe, err := e.card.Detalhar(cardID, "ana")
+	if err != nil {
+		t.Fatalf("erro ao detalhar: %v", err)
+	}
+	if len(detalhe.Etiquetas) != 1 || detalhe.Etiquetas[0].Nome != "Urgente" {
+		t.Fatalf("etiquetas do card = %+v", detalhe.Etiquetas)
+	}
+
+	if err := e.etiquetaUC.Remover(cardID, etq.ID, "ana"); err != nil {
+		t.Fatalf("erro ao remover: %v", err)
+	}
+	detalhe, _ = e.card.Detalhar(cardID, "ana")
+	if len(detalhe.Etiquetas) != 0 {
+		t.Errorf("a etiqueta devia ter saído do card: %+v", detalhe.Etiquetas)
+	}
+}
+
+// Aplicar duas vezes é o mesmo que aplicar uma: o resultado pretendido já vale,
+// e a segunda chamada não pode virar erro numa tela que só marca uma caixa.
+func TestAplicarEtiquetaDuasVezesNaoEErro(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+
+	e.etiquetaUC.Aplicar(cardID, etq.ID, "ana")
+	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "ana"); err != nil {
+		t.Fatalf("erro na segunda aplicação: %v", err)
+	}
+
+	detalhe, _ := e.card.Detalhar(cardID, "ana")
+	if len(detalhe.Etiquetas) != 1 {
+		t.Errorf("etiquetas = %d, esperado 1", len(detalhe.Etiquetas))
+	}
+}
+
+// Sem essa checagem, quem participa de dois quadros usaria o id de uma etiqueta
+// do quadro A num card do quadro B — e a etiqueta apareceria lá com nome e cor
+// que ninguém do quadro B consegue editar.
+func TestNaoDaParaAplicarEtiquetaDeOutroQuadro(t *testing.T) {
+	e := novoExtras()
+	_, cardDeA := e.montar(t, "ana")
+	boardB := e.criarQuadro(t, "ana", "Outro quadro")
+	etqDeB, _ := e.etiquetaUC.Criar(boardB, "ana", "De outro quadro", detiqueta.CorAzul)
+
+	err := e.etiquetaUC.Aplicar(cardDeA, etqDeB.ID, "ana")
+
+	if !errors.Is(err, detiqueta.ErrNaoEncontrada) {
+		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
+	}
+}
+
+func TestLeitorNaoMexeEmEtiqueta(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	e.convidar(t, boardID, "bob", membro.PapelLeitor)
+
+	// enxerga
+	if _, err := e.etiquetaUC.Listar(boardID, "bob"); err != nil {
+		t.Errorf("o leitor devia ver as etiquetas: %v", err)
+	}
+	// mas não mexe
+	if _, err := e.etiquetaUC.Criar(boardID, "bob", "Nova", detiqueta.CorVerde); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("criar: erro = %v", err)
+	}
+	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("aplicar: erro = %v", err)
+	}
+}
+
+func TestQuemNaoParticipaNaoDescobreAEtiqueta(t *testing.T) {
+	e := novoExtras()
+	boardID, _ := e.montar(t, "ana")
+	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+
+	_, err := e.etiquetaUC.Editar(etq.ID, "bob", "Invadida", detiqueta.CorRoxo)
+
+	if !errors.Is(err, detiqueta.ErrNaoEncontrada) {
+		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
+	}
+	if errors.Is(err, membro.ErrSemPermissao) {
+		t.Error("'sem permissão' confirmaria que a etiqueta existe")
+	}
+}
+
+// --- checklists -----------------------------------------------------------
+
+func TestChecklistComItensEProgresso(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+
+	lista, err := e.checklistUC.Criar(cardID, "ana", "To-do List")
+	if err != nil {
+		t.Fatalf("erro ao criar checklist: %v", err)
+	}
+	primeiro, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Escrever o teste")
+	e.checklistUC.CriarItem(lista.ID, "ana", "Rodar o -race")
+
+	concluido := true
+	if _, err := e.checklistUC.EditarItem(primeiro.ID, "ana", nil, &concluido); err != nil {
+		t.Fatalf("erro ao marcar: %v", err)
+	}
+
+	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	progresso := detalhado.Colunas[0].Cards[0].Checklist
+	if progresso.Concluidos != 1 || progresso.Total != 2 {
+		t.Errorf("progresso = %d/%d, esperado 1/2", progresso.Concluidos, progresso.Total)
+	}
+}
+
+// Marcar a caixa não pode exigir reenviar o texto, e renomear não pode
+// desmarcar sem querer.
+func TestEditarItemMexeSoNoQueFoiInformado(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
+	item, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Texto original")
+
+	marcado := true
+	depoisDeMarcar, _ := e.checklistUC.EditarItem(item.ID, "ana", nil, &marcado)
+	if depoisDeMarcar.Texto != "Texto original" || !depoisDeMarcar.Concluido {
+		t.Fatalf("item = %+v", depoisDeMarcar)
+	}
+
+	novoTexto := "Texto novo"
+	depoisDeRenomear, _ := e.checklistUC.EditarItem(item.ID, "ana", &novoTexto, nil)
+	if depoisDeRenomear.Texto != "Texto novo" || !depoisDeRenomear.Concluido {
+		t.Errorf("item = %+v — renomear não podia ter desmarcado", depoisDeRenomear)
+	}
+}
+
+func TestApagarChecklistLevaOsItens(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
+	e.checklistUC.CriarItem(lista.ID, "ana", "Item")
+
+	if err := e.checklistUC.Apagar(lista.ID, "ana"); err != nil {
+		t.Fatalf("erro ao apagar: %v", err)
+	}
+
+	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	if p := detalhado.Colunas[0].Cards[0].Checklist; p.Total != 0 {
+		t.Errorf("progresso = %d/%d, esperado zerado", p.Concluidos, p.Total)
+	}
+}
+
+func TestChecklistDeCardAlheioNaoEAlcancavel(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
+	item, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Segredo")
+
+	if _, err := e.checklistUC.Criar(cardID, "bob", "Invasora"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
+		if !errors.Is(err, errCardNaoEncontrado()) {
+			t.Errorf("criar: erro = %v", err)
+		}
+	}
+	if _, err := e.checklistUC.Renomear(lista.ID, "bob", "Invadida"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
+		t.Errorf("renomear: erro = %v", err)
+	}
+	marcado := true
+	if _, err := e.checklistUC.EditarItem(item.ID, "bob", nil, &marcado); !errors.Is(err, dchecklist.ErrItemNaoEncontrado) {
+		t.Errorf("marcar item: erro = %v", err)
+	}
+}
+
+// --- anexos ---------------------------------------------------------------
+
+func TestAnexarArquivoGuardaConteudoERegistra(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	conteudo := "id,nome\n1,ana\n"
+
+	a, err := e.anexoUC.AnexarArquivo(cardID, "ana", "relatorio.csv", "text/csv",
+		int64(len(conteudo)), strings.NewReader(conteudo))
+	if err != nil {
+		t.Fatalf("erro ao anexar: %v", err)
+	}
+
+	if a.Tipo != danexo.TipoArquivo || a.Nome != "relatorio.csv" {
+		t.Errorf("anexo = %+v", a)
+	}
+	if e.armazem.Quantidade() != 1 {
+		t.Errorf("arquivos no armazém = %d, esperado 1", e.armazem.Quantidade())
+	}
+
+	baixado, err := e.anexoUC.Baixar(a.ID, "ana")
+	if err != nil {
+		t.Fatalf("erro ao baixar: %v", err)
+	}
+	defer baixado.Leitura.Close()
+	dados, _ := io.ReadAll(baixado.Leitura)
+	if string(dados) != conteudo {
+		t.Errorf("conteúdo baixado = %q", dados)
+	}
+}
+
+// Se o armazém falhar, não pode sobrar linha apontando para arquivo que não
+// existe — a tela mostraria anexo quebrado sem conserto pela interface.
+func TestFalhaNoArmazemNaoDeixaAnexoRegistrado(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	e.armazem.ErroAoGuardar = errors.New("disco cheio")
+
+	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+
+	if err == nil {
+		t.Fatal("a falha do armazém devia ter subido")
+	}
+	if e.anexos.Quantidade() != 0 {
+		t.Error("nenhum anexo podia ter sido registrado")
+	}
+}
+
+// E o inverso: se o banco falhar depois de gravar, o arquivo não pode ficar
+// órfão ocupando disco para sempre.
+func TestFalhaAoRegistrarApagaOArquivoGravado(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	e.anexos.ErroForcado = errors.New("conexão recusada")
+
+	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+
+	if err == nil {
+		t.Fatal("a falha do banco devia ter subido")
+	}
+	if e.armazem.Quantidade() != 0 {
+		t.Errorf("arquivos no armazém = %d — o gravado devia ter sido descartado", e.armazem.Quantidade())
+	}
+}
+
+func TestApagarAnexoTiraDoBancoEDoArmazem(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+
+	if err := e.anexoUC.Apagar(a.ID, "ana"); err != nil {
+		t.Fatalf("erro ao apagar: %v", err)
+	}
+
+	if e.anexos.Quantidade() != 0 || e.armazem.Quantidade() != 0 {
+		t.Errorf("sobrou coisa: banco=%d armazem=%d", e.anexos.Quantidade(), e.armazem.Quantidade())
+	}
+}
+
+// O arquivo não é servido por caminho adivinhável justamente para a checagem de
+// participação valer também para ele.
+func TestQuemNaoParticipaNaoBaixaOAnexo(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "segredo.txt", "text/plain", 5, strings.NewReader("teste"))
+
+	_, err := e.anexoUC.Baixar(a.ID, "bob")
+
+	if !errors.Is(err, danexo.ErrNaoEncontrado) {
+		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
+	}
+}
+
+func TestLeitorBaixaMasNaoAnexaNemApaga(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	e.convidar(t, boardID, "bob", membro.PapelLeitor)
+
+	if _, err := e.anexoUC.Baixar(a.ID, "bob"); err != nil {
+		t.Errorf("o leitor devia poder baixar: %v", err)
+	}
+	if _, err := e.anexoUC.AnexarLink(cardID, "bob", "x", "https://exemplo.com"); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("anexar: erro = %v", err)
+	}
+	if err := e.anexoUC.Apagar(a.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("apagar: erro = %v", err)
+	}
+}
+
+func TestArquivoGrandeNaoChegaAoArmazem(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+
+	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "grande.png", "image/png",
+		danexo.TamanhoMaximoArquivo+1, strings.NewReader("x"))
+
+	if !errors.Is(err, danexo.ErrArquivoGrande) {
+		t.Errorf("erro = %v, esperado ErrArquivoGrande", err)
+	}
+	// Validar antes de gravar: não faz sentido escrever no disco um arquivo
+	// grande demais só para apagá-lo em seguida.
+	if e.armazem.Quantidade() != 0 {
+		t.Error("nada podia ter sido gravado")
+	}
+}
+
+func TestAnexoDeLinkNaoTocaNoArmazem(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+
+	a, err := e.anexoUC.AnexarLink(cardID, "ana", "PR 12", "https://github.com/org/repo/pull/12")
+	if err != nil {
+		t.Fatalf("erro ao anexar link: %v", err)
+	}
+
+	if a.Tipo != danexo.TipoLink || a.Caminho != "" {
+		t.Errorf("anexo = %+v", a)
+	}
+	if e.armazem.Quantidade() != 0 {
+		t.Error("link não gera arquivo")
+	}
+	// E baixar um link não faz sentido: não há conteúdo nosso para entregar.
+	if _, err := e.anexoUC.Baixar(a.ID, "ana"); !errors.Is(err, danexo.ErrNaoEncontrado) {
+		t.Errorf("baixar link: erro = %v", err)
+	}
+}
+
+// errCardNaoEncontrado evita importar o pacote card só para uma comparação.
+func errCardNaoEncontrado() error {
+	_, err := novoExtras().checklistUC.Criar("card-que-nao-existe", "ana", "x")
+	return err
+}
+
+// O prazo passou despercebido pelos testes de unidade porque o fake em memória
+// copia a struct inteira, enquanto o repositório de verdade lista coluna por
+// coluna no SQL — e a coluna nova tinha ficado de fora do INSERT, do UPDATE e
+// dos dois SELECT. Este teste não pega isso (só o Postgres pegaria), mas trava
+// o comportamento que o usecase promete: o prazo sobrevive à releitura.
+func TestPrazoSobreviveAReleituraDoCard(t *testing.T) {
+	e := novoExtras()
+	boardID, cardID := e.montar(t, "ana")
+	prazo := time.Now().Add(48 * time.Hour)
+
+	if _, err := e.card.DefinirPrazo(cardID, "ana", &prazo); err != nil {
+		t.Fatalf("erro ao definir prazo: %v", err)
+	}
+
+	relido, err := e.card.Detalhar(cardID, "ana")
+	if err != nil {
+		t.Fatalf("erro ao detalhar: %v", err)
+	}
+	if relido.Card.Prazo == nil || !relido.Card.Prazo.Equal(prazo) {
+		t.Fatalf("prazo relido = %v, esperado %v", relido.Card.Prazo, prazo)
+	}
+
+	// E o quadro precisa mostrar o mesmo, senão o selo do card mente.
+	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	noQuadro := detalhado.Colunas[0].Cards[0].Card
+	if noQuadro.Prazo == nil {
+		t.Error("o card no quadro veio sem prazo")
+	}
+
+	if _, err := e.card.DefinirPrazo(cardID, "ana", nil); err != nil {
+		t.Fatalf("erro ao limpar prazo: %v", err)
+	}
+	limpo, _ := e.card.Detalhar(cardID, "ana")
+	if limpo.Card.Prazo != nil {
+		t.Error("passar nil devia ter limpado o prazo")
+	}
+}

@@ -9,9 +9,12 @@ package board
 import (
 	"time"
 
+	"kanbango/internal/domain/anexo"
 	"kanbango/internal/domain/board"
 	"kanbango/internal/domain/card"
+	"kanbango/internal/domain/checklist"
 	"kanbango/internal/domain/coluna"
+	"kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
 )
 
@@ -21,17 +24,49 @@ type Resumo struct {
 	Papel membro.Papel
 }
 
+// Progresso é o "2/5" de checklist de um card.
+type Progresso struct {
+	Concluidos int
+	Total      int
+}
+
+// CardNoQuadro é um card com o resumo do que está pendurado nele. Os resumos
+// vêm juntos para a tela do quadro não precisar abrir card por card só para
+// desenhar os selos.
+type CardNoQuadro struct {
+	Card      card.Card
+	Etiquetas []string
+	Checklist Progresso
+	QtdAnexos int
+}
+
 // ColunaComCards é uma coluna e os cards dela, já em ordem de posição.
 type ColunaComCards struct {
 	Coluna coluna.Coluna
-	Cards  []card.Card
+	Cards  []CardNoQuadro
 }
 
 // Detalhado é o quadro inteiro: dados, papel de quem pediu e o conteúdo.
 type Detalhado struct {
-	Board   board.Board
-	Papel   membro.Papel
-	Colunas []ColunaComCards
+	Board     board.Board
+	Papel     membro.Papel
+	Colunas   []ColunaComCards
+	Etiquetas []etiqueta.Etiqueta
+}
+
+// CardDetalhado é o que o modal do card mostra: o card e tudo que pende dele.
+type CardDetalhado struct {
+	Card       card.Card
+	BoardID    string
+	Etiquetas  []etiqueta.Etiqueta
+	Checklists []ChecklistComItens
+	Anexos     []anexo.Anexo
+}
+
+// ChecklistComItens é uma checklist e as linhas dela, em ordem.
+type ChecklistComItens struct {
+	Checklist checklist.Checklist
+	Itens     []checklist.Item
 }
 
 // Participante é alguém que participa do quadro, com os dados que a tela de

@@ -138,8 +138,16 @@ func NovoServidor(r *chi.Mux) *Servidor {
 	}
 }
 
-// maxBytesCorpo limita o corpo de qualquer requisição — a API só troca JSONs pequenos.
-const maxBytesCorpo = 1 << 20 // 1 MiB
+const (
+	// maxBytesJSON limita o corpo das requisições comuns — a API só troca
+	// JSONs pequenos.
+	maxBytesJSON = 1 << 20 // 1 MiB
+	// maxBytesUpload é o teto de transporte do envio de anexo: o limite do
+	// domínio (10 MiB) mais folga para o cabeçalho do multipart, que viaja
+	// junto. Sem essa folga, um arquivo no limite exato seria cortado pelo
+	// transporte antes de o domínio poder responder direito.
+	maxBytesUpload = (10 << 20) + (1 << 20)
+)
 
 // NovoRouter cria um roteador chi com middlewares de request ID, IP real
 // (atrás do proxy), log estruturado de acesso, recuperação de panics, limite
@@ -153,7 +161,7 @@ func NovoRouter() *chi.Mux {
 	r.Use(appmiddleware.IPReal)
 	r.Use(logging.Middleware)
 	r.Use(middleware.Recoverer)
-	r.Use(appmiddleware.LimitarCorpo(maxBytesCorpo))
+	r.Use(appmiddleware.LimitarCorpo(maxBytesJSON, maxBytesUpload))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{OrigemFrontend()},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -161,4 +169,15 @@ func NovoRouter() *chi.Mux {
 		AllowCredentials: true,
 	}))
 	return r
+}
+
+// DiretorioDeAnexos é onde os arquivos enviados são gravados
+// (env ANEXOS_DIR). O padrão aponta para fora da árvore de código: o
+// diretório do projeto é montado do host em desenvolvimento, e arquivo de
+// usuário não pode aparecer no `git status`.
+func DiretorioDeAnexos() string {
+	if d := os.Getenv("ANEXOS_DIR"); d != "" {
+		return d
+	}
+	return "/var/lib/kanbango/anexos"
 }

@@ -1,10 +1,15 @@
 package board
 
 import (
+	"io"
+
+	"kanbango/internal/domain/anexo"
 	dboard "kanbango/internal/domain/board"
 	"kanbango/internal/domain/card"
+	"kanbango/internal/domain/checklist"
 	"kanbango/internal/domain/coluna"
 	"kanbango/internal/domain/convite"
+	"kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
 	"kanbango/internal/domain/usuario"
 )
@@ -41,6 +46,60 @@ type repositorioMembro interface {
 type buscadorUsuario interface {
 	BuscarPorID(id string) (*usuario.Usuario, error)
 	BuscarPorEmail(email string) (*usuario.Usuario, error)
+}
+
+type repositorioEtiqueta interface {
+	Salvar(e *etiqueta.Etiqueta) error
+	Atualizar(e *etiqueta.Etiqueta) error
+	BuscarPorID(id string) (*etiqueta.Etiqueta, error)
+	ListarDoBoard(boardID string) ([]etiqueta.Etiqueta, error)
+	Apagar(id string) error
+	UltimaPosicao(boardID string) (float64, error)
+	// Aplicar e Remover ligam e desligam a etiqueta de um card.
+	Aplicar(cardID, etiquetaID string) error
+	Remover(cardID, etiquetaID string) error
+	// EtiquetasDoBoardPorCard devolve, para cada card do quadro, os ids das
+	// etiquetas aplicadas — numa consulta só, para a tela do quadro não fazer
+	// uma por card.
+	EtiquetasDoBoardPorCard(boardID string) (map[string][]string, error)
+	EtiquetasDoCard(cardID string) ([]etiqueta.Etiqueta, error)
+}
+
+type repositorioChecklist interface {
+	Salvar(c *checklist.Checklist) error
+	Atualizar(c *checklist.Checklist) error
+	BuscarPorID(id string) (*checklist.Checklist, error)
+	ListarDoCard(cardID string) ([]checklist.Checklist, error)
+	Apagar(id string) error
+	UltimaPosicao(cardID string) (float64, error)
+
+	SalvarItem(i *checklist.Item) error
+	AtualizarItem(i *checklist.Item) error
+	BuscarItem(id string) (*checklist.Item, error)
+	ListarItens(checklistID string) ([]checklist.Item, error)
+	ApagarItem(id string) error
+	UltimaPosicaoItem(checklistID string) (float64, error)
+	// ProgressoDoBoard devolve, por card, quantos itens estão concluídos e
+	// quantos existem — é o "2/5" do card sem uma consulta por card.
+	ProgressoDoBoard(boardID string) (map[string]Progresso, error)
+}
+
+type repositorioAnexo interface {
+	Salvar(a *anexo.Anexo) error
+	BuscarPorID(id string) (*anexo.Anexo, error)
+	ListarDoCard(cardID string) ([]anexo.Anexo, error)
+	Apagar(id string) error
+	// ContarPorCardDoBoard devolve quantos anexos cada card do quadro tem.
+	ContarPorCardDoBoard(boardID string) (map[string]int, error)
+}
+
+// armazemDeArquivos guarda e devolve o conteúdo dos anexos. É porta porque o
+// disco de hoje pode virar S3 amanhã sem o usecase saber.
+type armazemDeArquivos interface {
+	// Guardar grava o conteúdo e devolve o nome do arquivo gravado.
+	Guardar(conteudo io.Reader, extensao string) (string, error)
+	Abrir(caminho string) (io.ReadCloser, error)
+	Remover(caminho string) error
 }
 
 type repositorioConvite interface {

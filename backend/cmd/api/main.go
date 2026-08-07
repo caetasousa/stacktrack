@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"kanbango/config"
+	"kanbango/internal/adapter/armazem"
 	"kanbango/internal/adapter/http/handler"
 	"kanbango/internal/adapter/http/middleware"
 	"kanbango/internal/adapter/repository"
@@ -57,6 +58,18 @@ func main() {
 	colunaRepo := repository.NovoColunaPostgres(pool)
 	cardRepo := repository.NovoCardPostgres(pool)
 	conviteRepo := repository.NovoConvitePostgres(pool)
+	etiquetaRepo := repository.NovoEtiquetaPostgres(pool)
+	checklistRepo := repository.NovoChecklistPostgres(pool)
+	anexoRepo := repository.NovoAnexoPostgres(pool)
+
+	// armazém de anexos: disco, num volume próprio. O binário não vai para o
+	// banco — incharia backup e restore de um schema que guarda texto curto no
+	// resto todo.
+	armazemAnexos, err := armazem.NovoDisco(config.DiretorioDeAnexos())
+	if err != nil {
+		slog.Error("erro ao preparar o diretório de anexos", slog.String("erro", err.Error()))
+		os.Exit(1)
+	}
 
 	// segurança
 	hasher := security.NovoHasherArgon2id()
@@ -67,9 +80,12 @@ func main() {
 	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
 	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
 	perfilUC := ucauth.NovoPerfilUseCase(usuarioRepo)
-	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo)
+	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo)
 	colunaUC := ucboard.NovoColunaUseCase(membroRepo, colunaRepo)
-	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo)
+	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo)
+	etiquetaUC := ucboard.NovoEtiquetaUseCase(membroRepo, colunaRepo, cardRepo, etiquetaRepo)
+	checklistUC := ucboard.NovoChecklistUseCase(membroRepo, colunaRepo, cardRepo, checklistRepo)
+	anexoUC := ucboard.NovoAnexoUseCase(membroRepo, colunaRepo, cardRepo, anexoRepo, armazemAnexos)
 	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo)
 
 	// handlers e middlewares
@@ -85,6 +101,7 @@ func main() {
 	)
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
+	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, identidadeDoContexto)
 
 	r := config.NovoRouter()
 	r.Get("/health", health)
@@ -139,6 +156,31 @@ func main() {
 			r.Patch("/{boardID}/membros/{usuarioID}", membroHandler.AlterarPapel)
 			r.Delete("/{boardID}/membros/{usuarioID}", membroHandler.Remover)
 			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
+
+			r.Patch("/{boardID}/fundo", boardHandler.DefinirFundo)
+			r.Get("/{boardID}/etiquetas", extrasHandler.ListarEtiquetas)
+			r.Post("/{boardID}/etiquetas", extrasHandler.CriarEtiqueta)
+		})
+
+		r.Route("/etiquetas/{etiquetaID}", func(r chi.Router) {
+			r.Patch("/", extrasHandler.EditarEtiqueta)
+			r.Delete("/", extrasHandler.ApagarEtiqueta)
+		})
+
+		r.Route("/checklists/{checklistID}", func(r chi.Router) {
+			r.Patch("/", extrasHandler.RenomearChecklist)
+			r.Delete("/", extrasHandler.ApagarChecklist)
+			r.Post("/itens", extrasHandler.CriarItem)
+		})
+
+		r.Route("/itens/{itemID}", func(r chi.Router) {
+			r.Patch("/", extrasHandler.EditarItem)
+			r.Delete("/", extrasHandler.ApagarItem)
+		})
+
+		r.Route("/anexos/{anexoID}", func(r chi.Router) {
+			r.Get("/", extrasHandler.BaixarAnexo)
+			r.Delete("/", extrasHandler.ApagarAnexo)
 		})
 
 		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
@@ -154,8 +196,15 @@ func main() {
 		})
 
 		r.Route("/cards/{cardID}", func(r chi.Router) {
+			r.Get("/", boardHandler.DetalharCard)
 			r.Patch("/", boardHandler.EditarCard)
 			r.Delete("/", boardHandler.ApagarCard)
+			r.Patch("/prazo", boardHandler.DefinirPrazo)
+			r.Put("/etiquetas/{etiquetaID}", extrasHandler.AplicarEtiqueta)
+			r.Delete("/etiquetas/{etiquetaID}", extrasHandler.RemoverEtiqueta)
+			r.Post("/checklists", extrasHandler.CriarChecklist)
+			r.Post("/anexos/link", extrasHandler.AnexarLink)
+			r.Post("/anexos/arquivo", extrasHandler.AnexarArquivo)
 		})
 	})
 

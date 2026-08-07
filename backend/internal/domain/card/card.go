@@ -35,14 +35,33 @@ var (
 // mesmo tempo e a segunda precisar receber 409 em vez de sobrescrever a
 // primeira em silêncio.
 type Card struct {
-	ID           string
-	ColunaID     string
-	Titulo       string
-	Descricao    string
-	Posicao      float64
-	Version      int
+	ID        string
+	ColunaID  string
+	Titulo    string
+	Descricao string
+	Posicao   float64
+	Version   int
+	// Prazo é nil quando o card não tem data de entrega — o caso normal.
+	Prazo        *time.Time
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
+}
+
+// DefinirPrazo marca a data de entrega do card. Passar nil limpa o prazo.
+//
+// Prazo no passado é aceito de propósito: registrar que algo venceu ontem é
+// informação legítima, e recusar obrigaria a pessoa a mentir a data para
+// conseguir cadastrar o atraso.
+func (c *Card) DefinirPrazo(prazo *time.Time) {
+	c.Prazo = prazo
+	c.Version++
+	c.AtualizadoEm = time.Now()
+}
+
+// Vencido informa se o prazo já passou em relação a agora. Card sem prazo
+// nunca vence.
+func (c *Card) Vencido(agora time.Time) bool {
+	return c.Prazo != nil && agora.After(*c.Prazo)
 }
 
 // Novo cria um card na posição informada. A descrição é opcional; o título,

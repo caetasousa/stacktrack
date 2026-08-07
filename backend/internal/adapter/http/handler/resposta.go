@@ -6,6 +6,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -74,4 +75,16 @@ func mensagemDeValidacao(err error) string {
 	default:
 		return campo + " é inválido"
 	}
+}
+
+// copiarParaResposta transmite o conteúdo de um anexo para o cliente.
+func copiarParaResposta(w http.ResponseWriter, leitura io.Reader) (int64, error) {
+	return io.Copy(w, leitura)
+}
+
+// logarFalhaDeDownload registra uma entrega interrompida no meio. Não há
+// resposta a corrigir: o cabeçalho já foi enviado quando isso acontece.
+func logarFalhaDeDownload(r *http.Request, anexoID string, err error) {
+	logging.RequisicaoLogger(r).Warn("download de anexo interrompido",
+		slog.String("anexo_id", anexoID), slog.String("erro", err.Error()))
 }

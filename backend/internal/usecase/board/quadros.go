@@ -14,15 +14,29 @@ import (
 // structs só multiplicaria construtor e fiação, sem separar responsabilidade
 // nenhuma.
 type QuadroUseCase struct {
-	boards  repositorioBoard
-	membros repositorioMembro
-	colunas repositorioColuna
-	cards   repositorioCard
+	boards     repositorioBoard
+	membros    repositorioMembro
+	colunas    repositorioColuna
+	cards      repositorioCard
+	etiquetas  repositorioEtiqueta
+	checklists repositorioChecklist
+	anexos     repositorioAnexo
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
-func NovoQuadroUseCase(boards repositorioBoard, membros repositorioMembro, colunas repositorioColuna, cards repositorioCard) *QuadroUseCase {
-	return &QuadroUseCase{boards: boards, membros: membros, colunas: colunas, cards: cards}
+func NovoQuadroUseCase(
+	boards repositorioBoard,
+	membros repositorioMembro,
+	colunas repositorioColuna,
+	cards repositorioCard,
+	etiquetas repositorioEtiqueta,
+	checklists repositorioChecklist,
+	anexos repositorioAnexo,
+) *QuadroUseCase {
+	return &QuadroUseCase{
+		boards: boards, membros: membros, colunas: colunas, cards: cards,
+		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
+	}
 }
 
 // Criar cria um quadro e vincula quem criou como dono. Retorna os erros de
@@ -84,11 +98,55 @@ func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error)
 		return nil, err
 	}
 
+	// Os três resumos vêm do banco numa consulta cada, e não card a card: a
+	// tela do quadro mostra selo de etiqueta, "2/5" de checklist e contagem de
+	// anexos em TODO card, e uma consulta por card seria um N+1 que piora
+	// justamente nos quadros grandes.
+	etiquetasPorCard, err := uc.etiquetas.EtiquetasDoBoardPorCard(boardID)
+	if err != nil {
+		return nil, err
+	}
+	progressoPorCard, err := uc.checklists.ProgressoDoBoard(boardID)
+	if err != nil {
+		return nil, err
+	}
+	anexosPorCard, err := uc.anexos.ContarPorCardDoBoard(boardID)
+	if err != nil {
+		return nil, err
+	}
+	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(boardID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Detalhado{
-		Board:   *b,
-		Papel:   vinculo.Papel,
-		Colunas: agrupar(listaColunas, listaCards),
+		Board:     *b,
+		Papel:     vinculo.Papel,
+		Colunas:   agrupar(listaColunas, listaCards, etiquetasPorCard, progressoPorCard, anexosPorCard),
+		Etiquetas: etiquetasDoBoard,
 	}, nil
+}
+
+// DefinirFundo troca o fundo do quadro. Exige papel de administração.
+func (uc *QuadroUseCase) DefinirFundo(boardID, usuarioID, fundo string) (*dboard.Board, error) {
+	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+		return nil, err
+	}
+
+	b, err := uc.boards.BuscarPorID(boardID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, dboard.ErrNaoEncontrado
+	}
+	if err := b.DefinirFundo(fundo); err != nil {
+		return nil, err
+	}
+	if err := uc.boards.Atualizar(b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // Renomear troca o título do quadro. Exige papel de administração (dono).
@@ -123,11 +181,27 @@ func (uc *QuadroUseCase) Apagar(boardID, usuarioID string) error {
 }
 
 // agrupar distribui os cards nas colunas a que pertencem, preservando a ordem
-// em que cada lista chegou do repositório (ambas por posição).
-func agrupar(colunas []coluna.Coluna, cards []card.Card) []ColunaComCards {
-	porColuna := make(map[string][]card.Card, len(colunas))
+// em que cada lista chegou do repositório (ambas por posição), e pendura em
+// cada card o resumo do que ele carrega.
+func agrupar(
+	colunas []coluna.Coluna,
+	cards []card.Card,
+	etiquetasPorCard map[string][]string,
+	progressoPorCard map[string]Progresso,
+	anexosPorCard map[string]int,
+) []ColunaComCards {
+	porColuna := make(map[string][]CardNoQuadro, len(colunas))
 	for _, c := range cards {
-		porColuna[c.ColunaID] = append(porColuna[c.ColunaID], c)
+		etiquetas := etiquetasPorCard[c.ID]
+		if etiquetas == nil {
+			etiquetas = []string{}
+		}
+		porColuna[c.ColunaID] = append(porColuna[c.ColunaID], CardNoQuadro{
+			Card:      c,
+			Etiquetas: etiquetas,
+			Checklist: progressoPorCard[c.ID],
+			QtdAnexos: anexosPorCard[c.ID],
+		})
 	}
 
 	resultado := make([]ColunaComCards, 0, len(colunas))
@@ -136,7 +210,7 @@ func agrupar(colunas []coluna.Coluna, cards []card.Card) []ColunaComCards {
 		if cardsDaColuna == nil {
 			// Slice vazia, e não nil: o JSON de uma coluna sem cards precisa
 			// sair como [] e não null, senão o frontend teria de tratar os dois.
-			cardsDaColuna = []card.Card{}
+			cardsDaColuna = []CardNoQuadro{}
 		}
 		resultado = append(resultado, ColunaComCards{Coluna: col, Cards: cardsDaColuna})
 	}

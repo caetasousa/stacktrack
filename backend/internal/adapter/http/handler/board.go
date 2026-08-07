@@ -3,11 +3,15 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"kanbango/internal/adapter/http/dto"
+	danexo "kanbango/internal/domain/anexo"
 	dboard "kanbango/internal/domain/board"
 	dcard "kanbango/internal/domain/card"
+	dchecklist "kanbango/internal/domain/checklist"
 	dcoluna "kanbango/internal/domain/coluna"
+	detiqueta "kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
 	ucauth "kanbango/internal/usecase/auth"
 	ucboard "kanbango/internal/usecase/board"
@@ -52,6 +56,7 @@ func (h *BoardHandler) Listar(w http.ResponseWriter, r *http.Request) {
 			ID:       resumo.Board.ID,
 			Titulo:   resumo.Board.Titulo,
 			Papel:    string(resumo.Papel),
+			Fundo:    resumo.Board.FundoEfetivo(),
 			CriadoEm: resumo.Board.CriadoEm,
 		})
 	}
@@ -75,7 +80,8 @@ func (h *BoardHandler) Criar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderJSON(w, http.StatusCreated, dto.BoardResponse{
-		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono), CriadoEm: b.CriadoEm,
+		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono),
+		Fundo: b.FundoEfetivo(), CriadoEm: b.CriadoEm,
 	})
 }
 
@@ -96,7 +102,7 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 	for _, cc := range detalhado.Colunas {
 		cards := make([]dto.CardResponse, 0, len(cc.Cards))
 		for _, c := range cc.Cards {
-			cards = append(cards, paraCardResponse(c.ID, c.ColunaID, c.Titulo, c.Descricao, c.Posicao, c.Version))
+			cards = append(cards, paraCardNoQuadro(c))
 		}
 		colunas = append(colunas, dto.ColunaResponse{
 			ID: cc.Coluna.ID, BoardID: cc.Coluna.BoardID, Titulo: cc.Coluna.Titulo,
@@ -106,7 +112,8 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 
 	responderJSON(w, http.StatusOK, dto.BoardDetalhadoResponse{
 		ID: detalhado.Board.ID, Titulo: detalhado.Board.Titulo,
-		Papel: string(detalhado.Papel), Colunas: colunas,
+		Papel: string(detalhado.Papel), Fundo: detalhado.Board.FundoEfetivo(),
+		Colunas: colunas, Etiquetas: paraEtiquetasResponse(detalhado.Etiquetas),
 	})
 }
 
@@ -127,7 +134,8 @@ func (h *BoardHandler) Renomear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderJSON(w, http.StatusOK, dto.BoardResponse{
-		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono), CriadoEm: b.CriadoEm,
+		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono),
+		Fundo: b.FundoEfetivo(), CriadoEm: b.CriadoEm,
 	})
 }
 
@@ -217,7 +225,7 @@ func (h *BoardHandler) CriarCard(w http.ResponseWriter, r *http.Request) {
 		responderErroDeQuadro(w, r, "erro ao criar card", err)
 		return
 	}
-	responderJSON(w, http.StatusCreated, paraCardResponse(c.ID, c.ColunaID, c.Titulo, c.Descricao, c.Posicao, c.Version))
+	responderJSON(w, http.StatusCreated, paraCardResponse(*c))
 }
 
 // EditarCard troca título e descrição do card.
@@ -236,7 +244,7 @@ func (h *BoardHandler) EditarCard(w http.ResponseWriter, r *http.Request) {
 		responderErroDeQuadro(w, r, "erro ao editar card", err)
 		return
 	}
-	responderJSON(w, http.StatusOK, paraCardResponse(c.ID, c.ColunaID, c.Titulo, c.Descricao, c.Posicao, c.Version))
+	responderJSON(w, http.StatusOK, paraCardResponse(*c))
 }
 
 // ApagarCard remove o card.
@@ -265,11 +273,36 @@ func (h *BoardHandler) usuario(w http.ResponseWriter, r *http.Request) (string, 
 	return identidade.UsuarioID, true
 }
 
-func paraCardResponse(id, colunaID, titulo, descricao string, posicao float64, version int) dto.CardResponse {
+// paraCardResponse converte o card do domínio, sem os resumos — usado onde a
+// resposta é de um card só (criar, editar), e a tela já sabe o resto.
+func paraCardResponse(c dcard.Card) dto.CardResponse {
 	return dto.CardResponse{
-		ID: id, ColunaID: colunaID, Titulo: titulo, Descricao: descricao,
-		Posicao: posicao, Version: version,
+		ID: c.ID, ColunaID: c.ColunaID, Titulo: c.Titulo, Descricao: c.Descricao,
+		Posicao: c.Posicao, Version: c.Version, Prazo: c.Prazo,
+		Vencido:   c.Vencido(time.Now()),
+		Etiquetas: []string{},
 	}
+}
+
+// paraCardNoQuadro converte o card com os selos que a tela do quadro mostra.
+func paraCardNoQuadro(c ucboard.CardNoQuadro) dto.CardResponse {
+	resposta := paraCardResponse(c.Card)
+	resposta.Etiquetas = c.Etiquetas
+	resposta.Checklist = dto.ProgressoResponse{Concluidos: c.Checklist.Concluidos, Total: c.Checklist.Total}
+	resposta.QtdAnexos = c.QtdAnexos
+	return resposta
+}
+
+func paraEtiquetaResponse(e detiqueta.Etiqueta) dto.EtiquetaResponse {
+	return dto.EtiquetaResponse{ID: e.ID, Nome: e.Nome, Cor: string(e.Cor), Posicao: e.Posicao}
+}
+
+func paraEtiquetasResponse(etiquetas []detiqueta.Etiqueta) []dto.EtiquetaResponse {
+	lista := make([]dto.EtiquetaResponse, 0, len(etiquetas))
+	for _, e := range etiquetas {
+		lista = append(lista, paraEtiquetaResponse(e))
+	}
+	return lista
 }
 
 // responderErroDeQuadro traduz os erros do domínio em códigos HTTP.
@@ -283,18 +316,139 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	switch {
 	case errors.Is(err, dboard.ErrNaoEncontrado),
 		errors.Is(err, dcoluna.ErrNaoEncontrada),
-		errors.Is(err, dcard.ErrNaoEncontrado):
+		errors.Is(err, dcard.ErrNaoEncontrado),
+		errors.Is(err, detiqueta.ErrNaoEncontrada),
+		errors.Is(err, dchecklist.ErrNaoEncontrada),
+		errors.Is(err, dchecklist.ErrItemNaoEncontrado),
+		errors.Is(err, danexo.ErrNaoEncontrado):
 		responderErro(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, membro.ErrSemPermissao):
 		responderErro(w, http.StatusForbidden, err.Error())
+	// 413 e não 400: o corpo em si é válido, o que não serve é o tamanho — e é
+	// o código que o navegador e os proxies entendem como "arquivo grande".
+	case errors.Is(err, danexo.ErrArquivoGrande):
+		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())
+	// 415: o tipo do conteúdo é que não é aceito.
+	case errors.Is(err, danexo.ErrTipoNaoPermitido):
+		responderErro(w, http.StatusUnsupportedMediaType, err.Error())
 	case errors.Is(err, dboard.ErrTituloObrigatorio),
 		errors.Is(err, dboard.ErrTituloLongo),
+		errors.Is(err, dboard.ErrFundoInvalido),
 		errors.Is(err, dcard.ErrTituloObrigatorio),
 		errors.Is(err, dcard.ErrTituloLongo),
 		errors.Is(err, dcard.ErrDescricaoLonga),
-		errors.Is(err, membro.ErrPapelInvalido):
+		errors.Is(err, membro.ErrPapelInvalido),
+		errors.Is(err, detiqueta.ErrNomeObrigatorio),
+		errors.Is(err, detiqueta.ErrNomeLongo),
+		errors.Is(err, detiqueta.ErrCorInvalida),
+		errors.Is(err, dchecklist.ErrTituloObrigatorio),
+		errors.Is(err, dchecklist.ErrTituloLongo),
+		errors.Is(err, dchecklist.ErrTextoObrigatorio),
+		errors.Is(err, dchecklist.ErrTextoLongo),
+		errors.Is(err, danexo.ErrNomeObrigatorio),
+		errors.Is(err, danexo.ErrNomeLongo),
+		errors.Is(err, danexo.ErrURLInvalida),
+		errors.Is(err, danexo.ErrArquivoVazio):
 		responderErro(w, http.StatusBadRequest, err.Error())
 	default:
 		responderErroInterno(w, r, contexto, err)
 	}
+}
+
+// DefinirPrazo marca ou limpa a data de entrega do card.
+func (h *BoardHandler) DefinirPrazo(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.PrazoRequest](w, r)
+	if !ok {
+		return
+	}
+
+	c, err := h.cards.DefinirPrazo(chi.URLParam(r, "cardID"), usuarioID, req.Prazo)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao definir prazo", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraCardResponse(*c))
+}
+
+// DetalharCard devolve o card com etiquetas, checklists e anexos — é o que o
+// modal mostra, numa requisição só.
+func (h *BoardHandler) DetalharCard(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	detalhe, err := h.cards.Detalhar(chi.URLParam(r, "cardID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao carregar card", err)
+		return
+	}
+
+	checklists := make([]dto.ChecklistResponse, 0, len(detalhe.Checklists))
+	for _, lista := range detalhe.Checklists {
+		itens := make([]dto.ChecklistItemResponse, 0, len(lista.Itens))
+		for _, item := range lista.Itens {
+			itens = append(itens, paraItemResponse(item))
+		}
+		checklists = append(checklists, dto.ChecklistResponse{
+			ID: lista.Checklist.ID, CardID: lista.Checklist.CardID,
+			Titulo: lista.Checklist.Titulo, Posicao: lista.Checklist.Posicao, Itens: itens,
+		})
+	}
+
+	responderJSON(w, http.StatusOK, dto.CardDetalhadoResponse{
+		CardResponse:    paraCardResponse(detalhe.Card),
+		BoardID:         detalhe.BoardID,
+		EtiquetasDoCard: paraEtiquetasResponse(detalhe.Etiquetas),
+		Checklists:      checklists,
+		Anexos:          paraAnexosResponse(detalhe.Anexos),
+	})
+}
+
+// DefinirFundo troca o fundo do quadro. Só o dono.
+func (h *BoardHandler) DefinirFundo(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.FundoRequest](w, r)
+	if !ok {
+		return
+	}
+
+	b, err := h.quadros.DefinirFundo(chi.URLParam(r, "boardID"), usuarioID, req.Fundo)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao trocar o fundo", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.BoardResponse{
+		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono),
+		Fundo: b.FundoEfetivo(), CriadoEm: b.CriadoEm,
+	})
+}
+
+func paraItemResponse(i dchecklist.Item) dto.ChecklistItemResponse {
+	return dto.ChecklistItemResponse{
+		ID: i.ID, ChecklistID: i.ChecklistID, Texto: i.Texto,
+		Concluido: i.Concluido, Posicao: i.Posicao,
+	}
+}
+
+func paraAnexoResponse(a danexo.Anexo) dto.AnexoResponse {
+	return dto.AnexoResponse{
+		ID: a.ID, CardID: a.CardID, Tipo: string(a.Tipo), Nome: a.Nome,
+		URL: a.URL, Tamanho: a.Tamanho, MIME: a.MIME, CriadoEm: a.CriadoEm,
+	}
+}
+
+func paraAnexosResponse(anexos []danexo.Anexo) []dto.AnexoResponse {
+	lista := make([]dto.AnexoResponse, 0, len(anexos))
+	for _, a := range anexos {
+		lista = append(lista, paraAnexoResponse(a))
+	}
+	return lista
 }

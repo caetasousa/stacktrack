@@ -16,13 +16,16 @@ import (
 )
 
 type quadro struct {
-	boards  *memoria.Boards
-	membros *memoria.Membros
-	colunas *memoria.Colunas
-	cards   *memoria.Cards
-	quadros *ucboard.QuadroUseCase
-	coluna  *ucboard.ColunaUseCase
-	card    *ucboard.CardUseCase
+	boards     *memoria.Boards
+	membros    *memoria.Membros
+	colunas    *memoria.Colunas
+	cards      *memoria.Cards
+	etiquetas  *memoria.Etiquetas
+	checklists *memoria.Checklists
+	anexos     *memoria.Anexos
+	quadros    *ucboard.QuadroUseCase
+	coluna     *ucboard.ColunaUseCase
+	card       *ucboard.CardUseCase
 }
 
 func novoQuadro() *quadro {
@@ -31,15 +34,24 @@ func novoQuadro() *quadro {
 	colunas := memoria.NovasColunas(cards)
 	cards.LigarColunas(colunas)
 	boards := memoria.NovosBoards(membros)
+	etiquetas := memoria.NovasEtiquetas()
+	checklists := memoria.NovasChecklists()
+	anexos := memoria.NovosAnexos()
+	etiquetas.LigarQuadro(colunas, cards)
+	checklists.LigarQuadro(colunas, cards)
+	anexos.LigarQuadro(colunas, cards)
 
 	return &quadro{
-		boards:  boards,
-		membros: membros,
-		colunas: colunas,
-		cards:   cards,
-		quadros: ucboard.NovoQuadroUseCase(boards, membros, colunas, cards),
-		coluna:  ucboard.NovoColunaUseCase(membros, colunas),
-		card:    ucboard.NovoCardUseCase(membros, colunas, cards),
+		boards:     boards,
+		membros:    membros,
+		colunas:    colunas,
+		cards:      cards,
+		etiquetas:  etiquetas,
+		checklists: checklists,
+		anexos:     anexos,
+		quadros:    ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos),
+		coluna:     ucboard.NovoColunaUseCase(membros, colunas),
+		card:       ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos),
 	}
 }
 
@@ -166,8 +178,8 @@ func TestDetalharTrazColunasECardsEmOrdem(t *testing.T) {
 	if len(detalhado.Colunas[0].Cards) != 2 {
 		t.Fatalf("cards da primeira coluna = %d, esperado 2", len(detalhado.Colunas[0].Cards))
 	}
-	if detalhado.Colunas[0].Cards[0].Titulo != "Card 1" {
-		t.Errorf("o card criado primeiro devia vir primeiro, veio %q", detalhado.Colunas[0].Cards[0].Titulo)
+	if detalhado.Colunas[0].Cards[0].Card.Titulo != "Card 1" {
+		t.Errorf("o card criado primeiro devia vir primeiro, veio %q", detalhado.Colunas[0].Cards[0].Card.Titulo)
 	}
 	if detalhado.Papel != membro.PapelDono {
 		t.Errorf("papel = %q, esperado dono", detalhado.Papel)

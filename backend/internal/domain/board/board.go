@@ -24,12 +24,56 @@ var (
 	ErrNaoEncontrado = errors.New("quadro não encontrado")
 )
 
+// FundoPadrao é o fundo de quem nunca escolheu um.
+const FundoPadrao = "padrao"
+
+// Fundos é a paleta de fundos disponíveis, na ordem em que a tela os oferece.
+//
+// Guardamos o NOME, e não a cor: a paleta muda com o tema claro/escuro, e um
+// hex gravado aqui congelaria no dado uma escolha que pertence ao CSS.
+var Fundos = []string{FundoPadrao, "ardosia", "oceano", "floresta", "ameixa", "brasa"}
+
+// ErrFundoInvalido é retornado quando o fundo não está na paleta.
+var ErrFundoInvalido = errors.New("fundo de quadro inválido")
+
+// FundoValido informa se o fundo pertence à paleta.
+func FundoValido(fundo string) bool {
+	for _, conhecido := range Fundos {
+		if fundo == conhecido {
+			return true
+		}
+	}
+	return false
+}
+
 // Board representa um quadro Kanban.
 type Board struct {
-	ID           string
-	Titulo       string
+	ID     string
+	Titulo string
+	// Fundo é o nome do fundo escolhido; vazio significa FundoPadrao.
+	Fundo        string
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
+}
+
+// FundoEfetivo devolve o fundo a usar, resolvendo o vazio para o padrão. O
+// padrão vive aqui, e não num DEFAULT do banco: qual fundo um quadro sem
+// escolha tem é decisão do domínio.
+func (b *Board) FundoEfetivo() string {
+	if b.Fundo == "" {
+		return FundoPadrao
+	}
+	return b.Fundo
+}
+
+// DefinirFundo troca o fundo do quadro.
+func (b *Board) DefinirFundo(fundo string) error {
+	if !FundoValido(fundo) {
+		return ErrFundoInvalido
+	}
+	b.Fundo = fundo
+	b.AtualizadoEm = time.Now()
+	return nil
 }
 
 // Novo cria um quadro. Retorna ErrTituloObrigatorio se o título for vazio e

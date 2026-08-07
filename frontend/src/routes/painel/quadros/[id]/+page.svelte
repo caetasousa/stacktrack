@@ -49,9 +49,10 @@
 	let renomeando = $state(false);
 	let titulo = $state('');
 	let tituloDaColuna = $state('');
+	let criandoColuna = $state(false);
 	// Qual card está aberto no modal — null é modal fechado.
 	let cardAberto = $state<string | null>(null);
-	let painelDeEtiquetas = $state(false);
+	let painelDeAjustes = $state(false);
 	let nomeDaEtiqueta = $state('');
 	let corDaEtiqueta = $state<Cor>('azul');
 
@@ -142,6 +143,7 @@
 		try {
 			await criarColuna(data.quadro.id, tituloDaColuna);
 			tituloDaColuna = '';
+			criandoColuna = false;
 			await recarregar();
 		} catch (e) {
 			tratar(e, 'não foi possível criar a coluna');
@@ -233,11 +235,18 @@
 			</span>
 			{#if podeEditar}
 				<button
-					onclick={() => (painelDeEtiquetas = !painelDeEtiquetas)}
-					class="cursor-pointer hover:text-ink"
-					aria-expanded={painelDeEtiquetas}
+					onclick={() => (criandoColuna = !criandoColuna)}
+					class="botao w-auto px-3 py-1 text-xs"
+					aria-expanded={criandoColuna}
 				>
-					Etiquetas
+					+ Nova coluna
+				</button>
+				<button
+					onclick={() => (painelDeAjustes = !painelDeAjustes)}
+					class="cursor-pointer hover:text-ink"
+					aria-expanded={painelDeAjustes}
+				>
+					Ajustes
 				</button>
 			{/if}
 			<a href="/painel/quadros/{data.quadro.id}/membros" class="hover:text-ink">Membros</a>
@@ -257,77 +266,120 @@
 	<p class="erro-form mt-4">{erro}</p>
 {/if}
 
-{#if painelDeEtiquetas && podeEditar}
-	<section class="mt-5 rounded-lg border border-hairline bg-surface p-5 shadow-ficha">
-		<h2 class="text-sm font-semibold text-ink">Etiquetas do quadro</h2>
-		<p class="mt-1 text-xs text-mute">
-			Valem para todos os cards. Renomear ou trocar a cor muda em todos de uma vez.
-		</p>
-
-		<ul class="mt-4 space-y-2">
-			{#each data.quadro.etiquetas as etiqueta (etiqueta.id)}
-				<li class="flex flex-wrap items-center gap-2">
-					<span class="etiqueta cor-{etiqueta.cor} min-w-24">{etiqueta.nome}</span>
-					<div class="flex gap-1">
-						{#each cores as cor (cor)}
-							<button
-								class="etiqueta-barra cor-{cor} cursor-pointer {etiqueta.cor === cor
-									? 'ring-2 ring-accent ring-offset-1 ring-offset-surface'
-									: 'opacity-50'}"
-								onclick={() => trocarCor(etiqueta.id, etiqueta.nome, cor)}
-								aria-label="Mudar {etiqueta.nome} para {cor}"
-							></button>
-						{/each}
-					</div>
-					<button
-						class="ml-auto cursor-pointer text-xs text-mute hover:text-negativo"
-						onclick={() => removerEtiquetaDoQuadro(etiqueta.id, etiqueta.nome)}
-					>
-						Apagar
-					</button>
-				</li>
-			{/each}
-			{#if data.quadro.etiquetas.length === 0}
-				<li class="text-xs text-mute">Nenhuma etiqueta ainda.</li>
-			{/if}
-		</ul>
-
-		<form onsubmit={adicionarEtiqueta} class="mt-4 flex flex-wrap gap-2">
+<!-- O formulário mora aqui, no cabeçalho, e não no fim da faixa de colunas:
+     lá ele saía da tela junto com a rolagem horizontal assim que o quadro
+     ganhava colunas demais. -->
+{#if criandoColuna && podeEditar}
+	<section class="mt-4 rounded-lg border border-hairline bg-surface p-4 shadow-ficha">
+		<form onsubmit={adicionarColuna} class="flex flex-wrap items-center gap-3">
 			<input
-				class="campo min-w-0 flex-1 py-1 text-xs"
-				bind:value={nomeDaEtiqueta}
-				placeholder="Nome da nova etiqueta"
+				class="campo min-w-0 flex-1 text-sm"
+				bind:value={tituloDaColuna}
+				placeholder="Nome da coluna"
 				required
-				maxlength="60"
-				aria-label="Nome da nova etiqueta"
+				maxlength="120"
+				aria-label="Título da nova coluna"
 			/>
-			<select class="campo w-auto py-1 text-xs" bind:value={corDaEtiqueta} aria-label="Cor">
-				{#each cores as cor (cor)}
-					<option value={cor}>{cor}</option>
-				{/each}
-			</select>
 			<button type="submit" class="botao w-auto px-4 py-1 text-xs">Criar</button>
+			<button
+				type="button"
+				class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
+				onclick={() => (criandoColuna = false)}>Cancelar</button
+			>
 		</form>
 	</section>
 {/if}
 
-{#if podeAdministrar}
-	<div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-mute">
-		<span>Fundo:</span>
-		{#each FUNDOS as fundo (fundo)}
-			<button
-				class="cursor-pointer rounded-sm border px-2 py-0.5 {data.quadro.fundo === fundo
-					? 'border-accent text-accent-texto'
-					: 'border-hairline-strong hover:text-ink'}"
-				onclick={() => trocarFundo(fundo)}
-			>
-				{nomeDoFundo[fundo]}
-			</button>
-		{/each}
-	</div>
+{#if painelDeAjustes && podeEditar}
+	<section class="mt-5 space-y-6 rounded-lg border border-hairline bg-surface p-5 shadow-ficha">
+		<div>
+			<h2 class="text-sm font-semibold text-ink">Etiquetas do quadro</h2>
+			<p class="mt-1 text-xs text-mute">
+				Valem para todos os cards. Renomear ou trocar a cor muda em todos de uma vez.
+			</p>
+
+			<ul class="mt-4 space-y-2">
+				{#each data.quadro.etiquetas as etiqueta (etiqueta.id)}
+					<li class="flex flex-wrap items-center gap-2">
+						<span class="etiqueta cor-{etiqueta.cor} min-w-24">{etiqueta.nome}</span>
+						<div class="flex gap-1">
+							{#each cores as cor (cor)}
+								<button
+									class="etiqueta-barra cor-{cor} cursor-pointer {etiqueta.cor === cor
+										? 'ring-2 ring-accent ring-offset-1 ring-offset-surface'
+										: 'opacity-50'}"
+									onclick={() => trocarCor(etiqueta.id, etiqueta.nome, cor)}
+									aria-label="Mudar {etiqueta.nome} para {cor}"
+								></button>
+							{/each}
+						</div>
+						<button
+							class="ml-auto cursor-pointer text-xs text-mute hover:text-negativo"
+							onclick={() => removerEtiquetaDoQuadro(etiqueta.id, etiqueta.nome)}
+						>
+							Apagar
+						</button>
+					</li>
+				{/each}
+				{#if data.quadro.etiquetas.length === 0}
+					<li class="text-xs text-mute">Nenhuma etiqueta ainda.</li>
+				{/if}
+			</ul>
+
+			<form onsubmit={adicionarEtiqueta} class="mt-4 flex flex-wrap gap-2">
+				<input
+					class="campo min-w-0 flex-1 py-1 text-xs"
+					bind:value={nomeDaEtiqueta}
+					placeholder="Nome da nova etiqueta"
+					required
+					maxlength="60"
+					aria-label="Nome da nova etiqueta"
+				/>
+				<select
+					class="campo w-auto py-1 text-xs font-semibold"
+					style="color: var(--cor-{corDaEtiqueta})"
+					bind:value={corDaEtiqueta}
+					aria-label="Cor"
+				>
+					{#each cores as cor (cor)}
+						<option value={cor} style="color: var(--cor-{cor})">{cor}</option>
+					{/each}
+				</select>
+				<button type="submit" class="botao w-auto px-4 py-1 text-xs">Criar</button>
+			</form>
+		</div>
+
+		{#if podeAdministrar}
+			<div class="border-t border-hairline pt-5">
+				<h2 class="text-sm font-semibold text-ink">Fundo do quadro</h2>
+				<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+					{#each FUNDOS as fundo (fundo)}
+						<button
+							class="fundo-{fundo} flex cursor-pointer items-center gap-1.5 rounded-sm border px-2 py-1"
+							style="color: var(--fundo-cor); border-color: color-mix(in srgb, var(--fundo-cor) {data
+								.quadro.fundo === fundo
+								? '70%'
+								: '25%'}, transparent)"
+							onclick={() => trocarFundo(fundo)}
+							aria-pressed={data.quadro.fundo === fundo}
+						>
+							<i
+								class="size-2.5 rounded-full"
+								style="background-color: color-mix(in srgb, var(--fundo-cor) {data.quadro.fundo ===
+								fundo
+									? '100%'
+									: '45%'}, transparent)"
+							></i>
+							{nomeDoFundo[fundo]}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	</section>
 {/if}
 
-<div class="painel-fundo fundo-{data.quadro.fundo} mt-6 -mx-6 rounded-lg px-6 py-4">
+<div class="painel-fundo fundo-{data.quadro.fundo} mt-6 rounded-lg p-4">
 	<div class="flex items-start gap-4 overflow-x-auto pb-4">
 		<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
 		     faz o arraste começar na zona certa: um card é filho do <ul> de
@@ -362,23 +414,14 @@
 				</div>
 			{/each}
 		</div>
-
-		{#if podeEditar}
-			<form onsubmit={adicionarColuna} class="w-72 shrink-0">
-				<input
-					class="campo"
-					bind:value={tituloDaColuna}
-					placeholder="+ nova coluna"
-					required
-					maxlength="120"
-					aria-label="Título da nova coluna"
-				/>
-			</form>
-		{/if}
 	</div>
 
-	{#if colunas.length === 0 && !podeEditar}
-		<p class="py-8 text-center text-sm text-mute">Este quadro ainda não tem colunas.</p>
+	{#if colunas.length === 0}
+		<p class="py-8 text-center text-sm text-mute">
+			{podeEditar
+				? 'Este quadro ainda não tem colunas — comece por "+ Nova coluna", ali em cima.'
+				: 'Este quadro ainda não tem colunas.'}
+		</p>
 	{/if}
 </div>
 

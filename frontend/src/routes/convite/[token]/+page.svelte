@@ -38,11 +38,15 @@
 
 <svelte:head><title>Convite · kanbanGo</title></svelte:head>
 
-<div class="mx-auto w-full max-w-md rounded-lg border border-hairline bg-surface p-7 shadow-flutuante">
+<div
+	class="mx-auto w-full max-w-md rounded-lg border border-hairline bg-surface p-7 shadow-flutuante"
+>
 	<span class="chip">convite</span>
 
 	<h1 class="mt-4 text-xl font-semibold tracking-tight text-ink">
-		{data.convite.convidadoPor ? `${data.convite.convidadoPor} convidou você` : 'Você foi convidado'}
+		{data.convite.convidadoPor
+			? `${data.convite.convidadoPor} convidou você`
+			: 'Você foi convidado'}
 	</h1>
 	<p class="mt-2 text-sm text-mute">
 		para participar do quadro <b class="font-semibold text-ink">{data.convite.quadro}</b> como
@@ -64,8 +68,8 @@
 
 	{#if !logado}
 		<p class="mt-5 text-sm text-mute">
-			Entre com <b class="text-ink">{data.convite.email}</b> para aceitar. Se ainda não tem conta,
-			crie uma com esse email.
+			Entre com <b class="text-ink">{data.convite.email}</b> para aceitar. Se ainda não tem conta, crie
+			uma com esse email.
 		</p>
 		<div class="mt-4 flex flex-wrap gap-2">
 			<a href="/cadastro?voltar={encodeURIComponent(voltar)}" class="botao w-auto px-5">
@@ -84,8 +88,7 @@
 		     colocaria qualquer pessoa dentro do quadro. -->
 		<p class="mt-5 text-sm text-mute">
 			Você está com a conta <b class="text-ink">{data.usuario?.email}</b>, e este convite é para
-			<b class="text-ink">{data.convite.email}</b>. Saia e entre com a conta convidada para
-			aceitar.
+			<b class="text-ink">{data.convite.email}</b>. Saia e entre com a conta convidada para aceitar.
 		</p>
 		<a href="/painel" class="botao-secundario mt-4 inline-block w-auto px-5">Ir para o painel</a>
 	{/if}

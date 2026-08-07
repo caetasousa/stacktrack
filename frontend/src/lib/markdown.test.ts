@@ -4,8 +4,20 @@ import { renderizarMarkdown } from './markdown';
 // TAGS_PERMITIDAS é tudo que o renderizador pode emitir. Qualquer outra tag na
 // saída veio do texto de quem escreveu — ou seja, escapou.
 const TAGS_PERMITIDAS = new Set([
-	'p', 'h3', 'h4', 'h5', 'ul', 'ol', 'li', 'strong', 'em', 'del',
-	'code', 'pre', 'blockquote', 'a'
+	'p',
+	'h3',
+	'h4',
+	'h5',
+	'ul',
+	'ol',
+	'li',
+	'strong',
+	'em',
+	'del',
+	'code',
+	'pre',
+	'blockquote',
+	'a'
 ]);
 
 // tagsDe extrai os nomes das tags VIVAS da saída (o que foi escapado virou

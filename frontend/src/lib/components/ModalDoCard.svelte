@@ -210,7 +210,11 @@
 	}
 
 	const formatarTamanho = (bytes?: number) =>
-		!bytes ? '' : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+		!bytes
+			? ''
+			: bytes < 1024 * 1024
+				? `${Math.round(bytes / 1024)} KB`
+				: `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 	// O input date precisa de AAAA-MM-DD; a API devolve ISO completo.
 	const prazoParaInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
@@ -242,15 +246,20 @@
 				<div class="min-w-0 flex-1">
 					{#if editandoTexto}
 						<form onsubmit={salvarTexto} class="space-y-3">
-							<input class="campo" bind:value={titulo} required maxlength="200" aria-label="Título" />
+							<input
+								class="campo"
+								bind:value={titulo}
+								required
+								maxlength="200"
+								aria-label="Título"
+							/>
 							<textarea
 								class="campo font-mono text-xs"
 								bind:value={descricao}
 								rows="8"
 								maxlength="5000"
 								placeholder="Descrição — aceita markdown: **negrito**, listas, [links](https://…)"
-								aria-label="Descrição"
-							></textarea>
+								aria-label="Descrição"></textarea>
 							<div class="flex gap-2">
 								<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Salvar</button>
 								<button
@@ -348,7 +357,8 @@
 								<div class="flex items-center justify-between gap-2">
 									<b class="text-sm font-medium text-ink">{lista.titulo}</b>
 									<div class="flex items-center gap-2">
-										<span class="text-xs tabular-nums text-mute">{feitos}/{lista.itens.length}</span>
+										<span class="text-xs tabular-nums text-mute">{feitos}/{lista.itens.length}</span
+										>
 										{#if podeEditar}
 											<button
 												class="cursor-pointer text-xs text-mute hover:text-negativo"
@@ -370,7 +380,9 @@
 												aria-label={item.texto}
 												onchange={(e) => marcar(item.id, e.currentTarget.checked)}
 											/>
-											<span class="flex-1 {item.concluido ? 'text-mute line-through' : 'text-body'}">
+											<span
+												class="flex-1 {item.concluido ? 'text-mute line-through' : 'text-body'}"
+											>
 												{item.texto}
 											</span>
 											{#if podeEditar}

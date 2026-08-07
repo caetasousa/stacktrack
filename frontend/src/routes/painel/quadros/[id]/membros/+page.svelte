@@ -182,7 +182,9 @@
 		Quem participa ({data.participacao.membros.length})
 	</h2>
 
-	<ul class="mt-3 divide-y divide-hairline overflow-hidden rounded-lg border border-hairline bg-surface">
+	<ul
+		class="mt-3 divide-y divide-hairline overflow-hidden rounded-lg border border-hairline bg-surface"
+	>
 		{#each data.participacao.membros as membro (membro.usuarioId)}
 			<li class="flex flex-wrap items-center justify-between gap-3 p-4">
 				<div class="min-w-0">

@@ -25,7 +25,9 @@ describe('listarBoards', () => {
 	// A API envelopa a lista num objeto para caber paginação depois; o cliente
 	// desembrulha para as telas não conhecerem esse detalhe.
 	it('desembrulha o envelope { boards }', async () => {
-		const boards = [{ id: '1', titulo: 'Estudos', papel: 'dono', criadoEm: '2026-01-01T00:00:00Z' }];
+		const boards = [
+			{ id: '1', titulo: 'Estudos', papel: 'dono', criadoEm: '2026-01-01T00:00:00Z' }
+		];
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respostaFalsa({ boards })));
 
 		await expect(listarBoards()).resolves.toEqual(boards);
@@ -34,9 +36,11 @@ describe('listarBoards', () => {
 
 describe('criarBoard', () => {
 	it('envia o título e devolve o quadro criado', async () => {
-		const fetchFalso = vi.fn().mockResolvedValue(
-			respostaFalsa({ id: '1', titulo: 'Estudos', papel: 'dono', criadoEm: '' }, 201)
-		);
+		const fetchFalso = vi
+			.fn()
+			.mockResolvedValue(
+				respostaFalsa({ id: '1', titulo: 'Estudos', papel: 'dono', criadoEm: '' }, 201)
+			);
 		vi.stubGlobal('fetch', fetchFalso);
 
 		await criarBoard('Estudos');

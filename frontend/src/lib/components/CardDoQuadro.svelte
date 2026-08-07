@@ -59,7 +59,8 @@
 		role="button"
 		tabindex="0"
 		onclick={() => aoAbrirCard(card.id)}
-		onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
+		onkeydown={(e) =>
+			(e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
 	>
 		{#if etiquetas.length > 0}
 			<div class="mb-2 flex flex-wrap gap-1">

@@ -76,7 +76,9 @@
 {/if}
 
 {#if data.boards.length === 0}
-	<p class="mt-10 rounded-lg border border-dashed border-hairline-strong p-8 text-center text-sm text-mute">
+	<p
+		class="mt-10 rounded-lg border border-dashed border-hairline-strong p-8 text-center text-sm text-mute"
+	>
 		Nenhum quadro ainda. Crie o primeiro acima.
 	</p>
 {:else}

@@ -32,7 +32,9 @@
 
 <svelte:head><title>Entrar · kanbanGo</title></svelte:head>
 
-<div class="mx-auto w-full max-w-sm rounded-lg border border-hairline bg-surface p-7 shadow-flutuante">
+<div
+	class="mx-auto w-full max-w-sm rounded-lg border border-hairline bg-surface p-7 shadow-flutuante"
+>
 	<h1 class="text-xl font-semibold tracking-tight text-ink">Entrar</h1>
 	<p class="mt-1.5 text-sm text-mute">Bem-vindo de volta.</p>
 

@@ -131,7 +131,13 @@
 <div class="flex flex-wrap items-baseline justify-between gap-4">
 	{#if renomeando}
 		<form onsubmit={renomear} class="flex flex-1 gap-2">
-			<input class="campo" bind:value={titulo} required maxlength="120" aria-label="Título do quadro" />
+			<input
+				class="campo"
+				bind:value={titulo}
+				required
+				maxlength="120"
+				aria-label="Título do quadro"
+			/>
 			<button type="submit" class="botao w-auto px-4">Salvar</button>
 			<button
 				type="button"

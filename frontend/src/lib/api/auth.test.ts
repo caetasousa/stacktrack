@@ -20,9 +20,9 @@ describe('cadastrar', () => {
 		const fetchFalso = vi.fn().mockResolvedValue(respostaFalsa(conta, 201));
 		vi.stubGlobal('fetch', fetchFalso);
 
-		await expect(cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })).resolves.toEqual(
-			conta
-		);
+		await expect(
+			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })
+		).resolves.toEqual(conta);
 		expect(fetchFalso).toHaveBeenCalledWith(`${BASE_URL}/auth/cadastro`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -37,7 +37,9 @@ describe('cadastrar', () => {
 			vi.fn().mockResolvedValue(respostaFalsa({ erro: 'já existe uma conta com este email' }, 409))
 		);
 
-		await expect(cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })).rejects.toThrowError(
+		await expect(
+			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })
+		).rejects.toThrowError(
 			expect.objectContaining({ status: 409, message: 'já existe uma conta com este email' })
 		);
 	});
@@ -45,7 +47,9 @@ describe('cadastrar', () => {
 
 describe('entrar', () => {
 	it('chama /auth/login com as credenciais', async () => {
-		const fetchFalso = vi.fn().mockResolvedValue(respostaFalsa({ id: '1', nome: 'Ana', email: 'ana@exemplo.com' }));
+		const fetchFalso = vi
+			.fn()
+			.mockResolvedValue(respostaFalsa({ id: '1', nome: 'Ana', email: 'ana@exemplo.com' }));
 		vi.stubGlobal('fetch', fetchFalso);
 
 		await entrar({ email: 'ana@exemplo.com', senha: 'senha-boa-123' });
@@ -88,7 +92,9 @@ describe('sair', () => {
 
 describe('me', () => {
 	it('consulta /auth/me enviando o cookie de sessão', async () => {
-		const fetchFalso = vi.fn().mockResolvedValue(respostaFalsa({ id: '1', nome: 'Ana', email: 'ana@exemplo.com' }));
+		const fetchFalso = vi
+			.fn()
+			.mockResolvedValue(respostaFalsa({ id: '1', nome: 'Ana', email: 'ana@exemplo.com' }));
 		vi.stubGlobal('fetch', fetchFalso);
 
 		await me();

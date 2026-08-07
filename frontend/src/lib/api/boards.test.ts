@@ -68,16 +68,28 @@ describe('detalharBoard', () => {
 });
 
 describe('criarCard', () => {
-	// A descrição é opcional na tela, mas o corpo precisa levá-la sempre: sem o
-	// campo, o JSON omitiria a string vazia e a API receberia undefined.
-	it('manda descrição vazia quando não informada', async () => {
+	// Descrição e cor são opcionais na tela, mas o corpo precisa levá-las
+	// sempre: sem o campo, o JSON omitiria a string vazia e a API receberia
+	// undefined.
+	it('manda descrição e cor vazias quando não informadas', async () => {
 		const fetchFalso = vi.fn().mockResolvedValue(respostaFalsa({}, 201));
 		vi.stubGlobal('fetch', fetchFalso);
 
 		await criarCard('col-1', 'Tarefa');
 
 		expect(fetchFalso.mock.calls[0][1].body).toBe(
-			JSON.stringify({ titulo: 'Tarefa', descricao: '' })
+			JSON.stringify({ titulo: 'Tarefa', descricao: '', cor: '' })
+		);
+	});
+
+	it('manda a cor escolhida', async () => {
+		const fetchFalso = vi.fn().mockResolvedValue(respostaFalsa({}, 201));
+		vi.stubGlobal('fetch', fetchFalso);
+
+		await criarCard('col-1', 'Tarefa', '', 'verde');
+
+		expect(fetchFalso.mock.calls[0][1].body).toBe(
+			JSON.stringify({ titulo: 'Tarefa', descricao: '', cor: 'verde' })
 		);
 	});
 });

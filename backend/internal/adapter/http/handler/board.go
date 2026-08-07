@@ -11,6 +11,7 @@ import (
 	dcard "kanbango/internal/domain/card"
 	dchecklist "kanbango/internal/domain/checklist"
 	dcoluna "kanbango/internal/domain/coluna"
+	dcor "kanbango/internal/domain/cor"
 	detiqueta "kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
 	"kanbango/internal/domain/ordem"
@@ -107,7 +108,7 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 		}
 		colunas = append(colunas, dto.ColunaResponse{
 			ID: cc.Coluna.ID, BoardID: cc.Coluna.BoardID, Titulo: cc.Coluna.Titulo,
-			Posicao: cc.Coluna.Posicao, Cards: cards,
+			Cor: string(cc.Coluna.Cor), Posicao: cc.Coluna.Posicao, Cards: cards,
 		})
 	}
 
@@ -165,13 +166,14 @@ func (h *BoardHandler) CriarColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.colunas.Criar(chi.URLParam(r, "boardID"), usuarioID, req.Titulo)
+	c, err := h.colunas.Criar(chi.URLParam(r, "boardID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar coluna", err)
 		return
 	}
 	responderJSON(w, http.StatusCreated, dto.ColunaResponse{
-		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Posicao: c.Posicao, Cards: []dto.CardResponse{},
+		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Cor: string(c.Cor),
+		Posicao: c.Posicao, Cards: []dto.CardResponse{},
 	})
 }
 
@@ -186,13 +188,14 @@ func (h *BoardHandler) RenomearColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.colunas.Renomear(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo)
+	c, err := h.colunas.Renomear(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao renomear coluna", err)
 		return
 	}
 	responderJSON(w, http.StatusOK, dto.ColunaResponse{
-		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Posicao: c.Posicao, Cards: []dto.CardResponse{},
+		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Cor: string(c.Cor),
+		Posicao: c.Posicao, Cards: []dto.CardResponse{},
 	})
 }
 
@@ -221,7 +224,7 @@ func (h *BoardHandler) CriarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Criar(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, req.Descricao)
+	c, err := h.cards.Criar(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar card", err)
 		return
@@ -240,7 +243,7 @@ func (h *BoardHandler) EditarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Editar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao)
+	c, err := h.cards.Editar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao editar card", err)
 		return
@@ -279,7 +282,7 @@ func (h *BoardHandler) usuario(w http.ResponseWriter, r *http.Request) (string, 
 func paraCardResponse(c dcard.Card) dto.CardResponse {
 	return dto.CardResponse{
 		ID: c.ID, ColunaID: c.ColunaID, Titulo: c.Titulo, Descricao: c.Descricao,
-		Posicao: c.Posicao, Version: c.Version, Prazo: c.Prazo,
+		Cor: string(c.Cor), Posicao: c.Posicao, Version: c.Version, Prazo: c.Prazo,
 		Vencido:   c.Vencido(time.Now()),
 		Etiquetas: []string{},
 	}
@@ -343,6 +346,7 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		errors.Is(err, dcard.ErrTituloLongo),
 		errors.Is(err, dcard.ErrDescricaoLonga),
 		errors.Is(err, membro.ErrPapelInvalido),
+		errors.Is(err, dcor.ErrInvalida),
 		errors.Is(err, detiqueta.ErrNomeObrigatorio),
 		errors.Is(err, detiqueta.ErrNomeLongo),
 		errors.Is(err, detiqueta.ErrCorInvalida),

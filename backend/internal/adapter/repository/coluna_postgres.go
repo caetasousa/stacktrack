@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"kanbango/internal/domain/coluna"
+	"kanbango/internal/domain/cor"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,9 +24,9 @@ func NovoColunaPostgres(pool *pgxpool.Pool) *ColunaPostgres {
 // Salvar persiste uma coluna nova.
 func (r *ColunaPostgres) Salvar(c *coluna.Coluna) error {
 	_, err := r.pool.Exec(context.Background(),
-		`INSERT INTO colunas (id, board_id, titulo, posicao, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		c.ID, c.BoardID, c.Titulo, c.Posicao, c.CriadoEm, c.AtualizadoEm,
+		`INSERT INTO colunas (id, board_id, titulo, cor, posicao, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		c.ID, c.BoardID, c.Titulo, vazioParaNulo(string(c.Cor)), c.Posicao, c.CriadoEm, c.AtualizadoEm,
 	)
 	return err
 }
@@ -33,8 +34,8 @@ func (r *ColunaPostgres) Salvar(c *coluna.Coluna) error {
 // Atualizar grava as alterações de uma coluna existente.
 func (r *ColunaPostgres) Atualizar(c *coluna.Coluna) error {
 	_, err := r.pool.Exec(context.Background(),
-		`UPDATE colunas SET titulo = $2, posicao = $3, atualizado_em = $4 WHERE id = $1`,
-		c.ID, c.Titulo, c.Posicao, c.AtualizadoEm,
+		`UPDATE colunas SET titulo = $2, cor = $3, posicao = $4, atualizado_em = $5 WHERE id = $1`,
+		c.ID, c.Titulo, vazioParaNulo(string(c.Cor)), c.Posicao, c.AtualizadoEm,
 	)
 	return err
 }
@@ -42,15 +43,17 @@ func (r *ColunaPostgres) Atualizar(c *coluna.Coluna) error {
 // BuscarPorID retorna (coluna, nil) quando encontra e (nil, nil) quando não existe.
 func (r *ColunaPostgres) BuscarPorID(id string) (*coluna.Coluna, error) {
 	var c coluna.Coluna
+	var corLida *string
 	err := r.pool.QueryRow(context.Background(),
-		`SELECT id, board_id, titulo, posicao, criado_em, atualizado_em FROM colunas WHERE id = $1`, id,
-	).Scan(&c.ID, &c.BoardID, &c.Titulo, &c.Posicao, &c.CriadoEm, &c.AtualizadoEm)
+		`SELECT id, board_id, titulo, cor, posicao, criado_em, atualizado_em FROM colunas WHERE id = $1`, id,
+	).Scan(&c.ID, &c.BoardID, &c.Titulo, &corLida, &c.Posicao, &c.CriadoEm, &c.AtualizadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	c.Cor = cor.Cor(valorOuVazio(corLida))
 	return &c, nil
 }
 
@@ -61,7 +64,7 @@ func (r *ColunaPostgres) BuscarPorID(id string) (*coluna.Coluna, error) {
 // entre consultas, e a tela reordenaria sozinha a cada F5.
 func (r *ColunaPostgres) ListarDoBoard(boardID string) ([]coluna.Coluna, error) {
 	linhas, err := r.pool.Query(context.Background(),
-		`SELECT id, board_id, titulo, posicao, criado_em, atualizado_em
+		`SELECT id, board_id, titulo, cor, posicao, criado_em, atualizado_em
 		 FROM colunas WHERE board_id = $1 ORDER BY posicao, id`, boardID,
 	)
 	if err != nil {
@@ -72,9 +75,11 @@ func (r *ColunaPostgres) ListarDoBoard(boardID string) ([]coluna.Coluna, error) 
 	colunas := make([]coluna.Coluna, 0)
 	for linhas.Next() {
 		var c coluna.Coluna
-		if err := linhas.Scan(&c.ID, &c.BoardID, &c.Titulo, &c.Posicao, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+		var corLida *string
+		if err := linhas.Scan(&c.ID, &c.BoardID, &c.Titulo, &corLida, &c.Posicao, &c.CriadoEm, &c.AtualizadoEm); err != nil {
 			return nil, err
 		}
+		c.Cor = cor.Cor(valorOuVazio(corLida))
 		colunas = append(colunas, c)
 	}
 	return colunas, linhas.Err()

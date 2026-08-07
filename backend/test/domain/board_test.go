@@ -101,11 +101,11 @@ func TestNovoMembroRecusaPapelInvalido(t *testing.T) {
 }
 
 func TestColunaUsaAMesmaReguaDeTituloDoQuadro(t *testing.T) {
-	if _, err := coluna.Nova("id-1", "b-1", "  ", 1); !errors.Is(err, board.ErrTituloObrigatorio) {
+	if _, err := coluna.Nova("id-1", "b-1", "  ", "", 1); !errors.Is(err, board.ErrTituloObrigatorio) {
 		t.Errorf("erro = %v, esperado ErrTituloObrigatorio", err)
 	}
 
-	c, err := coluna.Nova("id-1", "b-1", "  A fazer ", 1)
+	c, err := coluna.Nova("id-1", "b-1", "  A fazer ", "", 1)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestPosicaoNoFimDeixaEspacoParaInserirNoMeio(t *testing.T) {
 }
 
 func TestNovoCardNasceNaVersaoUm(t *testing.T) {
-	c, err := card.Novo("id-1", "col-1", "Migração", "", 1)
+	c, err := card.Novo("id-1", "col-1", "Migração", "", "", 1)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -142,9 +142,9 @@ func TestNovoCardNasceNaVersaoUm(t *testing.T) {
 // A versão é o contador do bloqueio otimista da fase 6: se ela não subir a cada
 // edição, a checagem que virá depois não terá o que comparar.
 func TestEditarCardIncrementaAVersao(t *testing.T) {
-	c, _ := card.Novo("id-1", "col-1", "Migração", "", 1)
+	c, _ := card.Novo("id-1", "col-1", "Migração", "", "", 1)
 
-	if err := c.Editar("Migração V2", "com rollback"); err != nil {
+	if err := c.Editar("Migração V2", "com rollback", ""); err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
 
@@ -157,10 +157,10 @@ func TestEditarCardIncrementaAVersao(t *testing.T) {
 }
 
 func TestCardExigeTituloMasNaoDescricao(t *testing.T) {
-	if _, err := card.Novo("id-1", "col-1", "  ", "descrição", 1); !errors.Is(err, card.ErrTituloObrigatorio) {
+	if _, err := card.Novo("id-1", "col-1", "  ", "descrição", "", 1); !errors.Is(err, card.ErrTituloObrigatorio) {
 		t.Errorf("erro = %v, esperado ErrTituloObrigatorio", err)
 	}
-	if _, err := card.Novo("id-1", "col-1", "Tarefa", "", 1); err != nil {
+	if _, err := card.Novo("id-1", "col-1", "Tarefa", "", "", 1); err != nil {
 		t.Errorf("descrição vazia devia ser aceita: %v", err)
 	}
 }
@@ -168,7 +168,7 @@ func TestCardExigeTituloMasNaoDescricao(t *testing.T) {
 // Título é rótulo curto e ganha trim; descrição é texto livre, onde quebra de
 // linha e indentação podem ser intencionais.
 func TestDescricaoDoCardNaoEAparada(t *testing.T) {
-	c, err := card.Novo("id-1", "col-1", "Tarefa", "\n  passo 1\n  passo 2\n", 1)
+	c, err := card.Novo("id-1", "col-1", "Tarefa", "\n  passo 1\n  passo 2\n", "", 1)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -178,10 +178,10 @@ func TestDescricaoDoCardNaoEAparada(t *testing.T) {
 }
 
 func TestCardRecusaTextoLongoDemais(t *testing.T) {
-	if _, err := card.Novo("id-1", "col-1", strings.Repeat("a", card.TamanhoMaximoTitulo+1), "", 1); !errors.Is(err, card.ErrTituloLongo) {
+	if _, err := card.Novo("id-1", "col-1", strings.Repeat("a", card.TamanhoMaximoTitulo+1), "", "", 1); !errors.Is(err, card.ErrTituloLongo) {
 		t.Error("título longo demais devia ser recusado")
 	}
-	if _, err := card.Novo("id-1", "col-1", "Tarefa", strings.Repeat("a", card.TamanhoMaximoDescricao+1), 1); !errors.Is(err, card.ErrDescricaoLonga) {
+	if _, err := card.Novo("id-1", "col-1", "Tarefa", strings.Repeat("a", card.TamanhoMaximoDescricao+1), "", 1); !errors.Is(err, card.ErrDescricaoLonga) {
 		t.Error("descrição longa demais devia ser recusada")
 	}
 }

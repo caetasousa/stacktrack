@@ -2,7 +2,8 @@
 	// O modal do card: descrição em markdown, etiquetas, prazo, checklists e
 	// anexos. É onde cabe o que não cabe no card da coluna.
 	import { ApiError } from '$lib/api/client';
-	import { editarCard, type Etiqueta } from '$lib/api/boards';
+	import { editarCard, type Cor, type Etiqueta } from '$lib/api/boards';
+	import SeletorDeCor from './SeletorDeCor.svelte';
 	import {
 		anexarArquivo,
 		anexarLink,
@@ -87,11 +88,23 @@
 	async function salvarTexto(evento: SubmitEvent) {
 		evento.preventDefault();
 		try {
-			await editarCard(cardId, titulo, descricao);
+			// A cor vai junto porque o PATCH grava o card inteiro: omiti-la aqui
+			// apagaria a cor do card a cada edição de texto.
+			await editarCard(cardId, titulo, descricao, card?.cor ?? '');
 			editandoTexto = false;
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível salvar o card');
+		}
+	}
+
+	async function mudarCor(nova: Cor | '') {
+		if (!card) return;
+		try {
+			await editarCard(cardId, card.titulo, card.descricao, nova);
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível mudar a cor do card');
 		}
 	}
 
@@ -311,6 +324,22 @@
 						</div>
 					</section>
 				{/if}
+
+				<!-- cor: propriedade do card, como etiqueta e prazo. Vale por si — a
+				     cor é do card, não do momento em que ele foi criado — e por isso
+				     grava no clique, sem passar pelo formulário de editar texto. -->
+				<section>
+					<h3 class="text-xs font-semibold tracking-widest text-mute uppercase">Cor</h3>
+					<div class="mt-2">
+						{#if podeEditar}
+							<SeletorDeCor cor={card.cor} aoEscolher={mudarCor} rotulo="Cor do card" />
+						{:else if card.cor}
+							<span class="etiqueta cor-{card.cor}">{card.cor}</span>
+						{:else}
+							<span class="text-xs text-mute">sem cor</span>
+						{/if}
+					</div>
+				</section>
 
 				<!-- prazo -->
 				<section>

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"kanbango/internal/domain/card"
+	"kanbango/internal/domain/cor"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,9 +24,10 @@ func NovoCardPostgres(pool *pgxpool.Pool) *CardPostgres {
 // Salvar persiste um card novo.
 func (r *CardPostgres) Salvar(c *card.Card) error {
 	_, err := r.pool.Exec(context.Background(),
-		`INSERT INTO cards (id, coluna_id, titulo, descricao, posicao, version, prazo, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		c.ID, c.ColunaID, c.Titulo, c.Descricao, c.Posicao, c.Version, c.Prazo, c.CriadoEm, c.AtualizadoEm,
+		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
+		c.Posicao, c.Version, c.Prazo, c.CriadoEm, c.AtualizadoEm,
 	)
 	return err
 }
@@ -37,10 +39,11 @@ func (r *CardPostgres) Salvar(c *card.Card) error {
 // fase 6; até lá, a última escrita vence.
 func (r *CardPostgres) Atualizar(c *card.Card) error {
 	_, err := r.pool.Exec(context.Background(),
-		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, posicao = $5,
-		        version = $6, prazo = $7, atualizado_em = $8
+		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, cor = $5, posicao = $6,
+		        version = $7, prazo = $8, atualizado_em = $9
 		 WHERE id = $1`,
-		c.ID, c.ColunaID, c.Titulo, c.Descricao, c.Posicao, c.Version, c.Prazo, c.AtualizadoEm,
+		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
+		c.Posicao, c.Version, c.Prazo, c.AtualizadoEm,
 	)
 	return err
 }
@@ -48,16 +51,18 @@ func (r *CardPostgres) Atualizar(c *card.Card) error {
 // BuscarPorID retorna (card, nil) quando encontra e (nil, nil) quando não existe.
 func (r *CardPostgres) BuscarPorID(id string) (*card.Card, error) {
 	var c card.Card
+	var corLida *string
 	err := r.pool.QueryRow(context.Background(),
-		`SELECT id, coluna_id, titulo, descricao, posicao, version, prazo, criado_em, atualizado_em
+		`SELECT id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em
 		 FROM cards WHERE id = $1`, id,
-	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
+	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	c.Cor = cor.Cor(valorOuVazio(corLida))
 	return &c, nil
 }
 
@@ -65,7 +70,7 @@ func (r *CardPostgres) BuscarPorID(id string) (*card.Card, error) {
 // consulta só — uma por coluna seria um N+1 que piora conforme o quadro cresce.
 func (r *CardPostgres) ListarDoBoard(boardID string) ([]card.Card, error) {
 	linhas, err := r.pool.Query(context.Background(),
-		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.posicao, c.version, c.prazo, c.criado_em, c.atualizado_em
+		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.posicao, c.version, c.prazo, c.criado_em, c.atualizado_em
 		 FROM cards c
 		 JOIN colunas col ON col.id = c.coluna_id
 		 WHERE col.board_id = $1
@@ -79,9 +84,11 @@ func (r *CardPostgres) ListarDoBoard(boardID string) ([]card.Card, error) {
 	cards := make([]card.Card, 0)
 	for linhas.Next() {
 		var c card.Card
-		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+		var corLida *string
+		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
 			return nil, err
 		}
+		c.Cor = cor.Cor(valorOuVazio(corLida))
 		cards = append(cards, c)
 	}
 	return cards, linhas.Err()

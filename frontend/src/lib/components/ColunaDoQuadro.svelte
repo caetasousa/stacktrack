@@ -7,6 +7,7 @@
 		renomearColuna,
 		type Card,
 		type Coluna,
+		type Cor,
 		type Etiqueta
 	} from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
@@ -20,6 +21,7 @@
 		TIPO_CARD
 	} from '$lib/arrastar';
 	import CardDoQuadro from './CardDoQuadro.svelte';
+	import SeletorDeCor from './SeletorDeCor.svelte';
 
 	let {
 		coluna,
@@ -46,19 +48,21 @@
 	let renomeando = $state(false);
 	// Preenchido ao entrar em modo de renomear — ver o comentário em CardDoQuadro.
 	let titulo = $state('');
+	let corEmEdicao = $state<Cor | ''>('');
 	let tituloDoCard = $state('');
 	let criando = $state(false);
 
 	function abrirRenomear() {
 		if (!podeEditar) return;
 		titulo = coluna.titulo;
+		corEmEdicao = coluna.cor;
 		renomeando = true;
 	}
 
 	async function renomear(evento: SubmitEvent) {
 		evento.preventDefault();
 		try {
-			await renomearColuna(coluna.id, titulo);
+			await renomearColuna(coluna.id, titulo, corEmEdicao);
 			renomeando = false;
 			await aoMudar();
 		} catch (e) {
@@ -80,6 +84,8 @@
 		evento.preventDefault();
 		criando = true;
 		try {
+			// Sem cor: ela é propriedade do card e se escolhe dentro dele, junto
+			// com etiqueta e prazo.
 			await criarCard(coluna.id, tituloDoCard);
 			tituloDoCard = '';
 			await aoMudar();
@@ -91,8 +97,26 @@
 	}
 </script>
 
-<section class="flex w-72 shrink-0 flex-col rounded-lg border border-hairline bg-surface-elevated">
-	<header class="flex items-center gap-2 border-b border-hairline px-4 py-3">
+<!-- A cor tinge a coluna inteira, e não só o cabeçalho: é o que dá significado
+     à etapa de relance — verde no começo, amarelo no meio, azul no fim. Os
+     cards têm fundo opaco e continuam saltando por cima dela. -->
+<section
+	class="flex w-72 shrink-0 flex-col rounded-lg border {coluna.cor
+		? `cor-${coluna.cor}`
+		: 'border-hairline bg-surface-elevated'}"
+	style={coluna.cor
+		? 'background-color: color-mix(in srgb, var(--etq-texto) 16%, var(--surface-elevated));' +
+			'border-color: color-mix(in srgb, var(--etq-texto) 32%, transparent)'
+		: ''}
+>
+	<header
+		class="flex items-center gap-2 border-b px-4 py-3 {coluna.cor ? '' : 'border-hairline'}"
+		style={coluna.cor
+			? 'background-color: color-mix(in srgb, var(--etq-texto) 26%, var(--surface-elevated));' +
+				'border-bottom-color: color-mix(in srgb, var(--etq-texto) 30%, transparent);' +
+				'border-top: 3px solid var(--etq-texto)'
+			: ''}
+	>
 		{#if podeEditar && !renomeando}
 			<!-- Pista visual de que a coluna se arrasta. Não é botão nem alça: a
 			     coluna inteira é a área de arraste, e pegar num card move só o
@@ -101,17 +125,29 @@
 			<span class="text-mute" aria-hidden="true" title="Arraste a coluna para reordenar">⠿</span>
 		{/if}
 		{#if renomeando}
-			<!-- svelte-ignore a11y_autofocus -->
-			<form onsubmit={renomear} class="flex-1">
+			<!-- Enquanto o formulário está aberto, o gesto é dele: sem isto, apertar
+			     uma bolinha de cor e escorregar 3px começaria a arrastar a coluna
+			     em vez de escolher a cor. -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<form onsubmit={renomear} onmousedown={(e) => e.stopPropagation()} class="flex-1 space-y-2">
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					class="campo text-sm"
 					bind:value={titulo}
 					required
 					maxlength="120"
 					autofocus
-					onblur={() => (renomeando = false)}
 					aria-label="Título da coluna"
 				/>
+				<SeletorDeCor bind:cor={corEmEdicao} rotulo="Cor da coluna" />
+				<div class="flex gap-2">
+					<button type="submit" class="botao w-auto px-3 py-1 text-xs">Salvar</button>
+					<button
+						type="button"
+						class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
+						onclick={() => (renomeando = false)}>Cancelar</button
+					>
+				</div>
 			</form>
 		{:else}
 			<button
@@ -174,7 +210,13 @@
 	{/if}
 
 	{#if podeEditar}
-		<form onsubmit={adicionarCard} class="border-t border-hairline p-3">
+		<form
+			onsubmit={adicionarCard}
+			class="space-y-2 border-t p-3 {coluna.cor ? '' : 'border-hairline'}"
+			style={coluna.cor
+				? 'border-top-color: color-mix(in srgb, var(--etq-texto) 26%, transparent)'
+				: ''}
+		>
 			<input
 				class="campo text-sm"
 				bind:value={tituloDoCard}

@@ -2,6 +2,7 @@ package board
 
 import (
 	dcoluna "kanbango/internal/domain/coluna"
+	dcor "kanbango/internal/domain/cor"
 
 	"github.com/google/uuid"
 )
@@ -18,7 +19,7 @@ func NovoColunaUseCase(membros repositorioMembro, colunas repositorioColuna) *Co
 }
 
 // Criar acrescenta uma coluna no fim do quadro. Exige papel de edição.
-func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string) (*dcoluna.Coluna, error) {
+func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
 	if _, err := acessoDeEdicao(uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
@@ -28,7 +29,7 @@ func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string) (*dcoluna.Colu
 		return nil, err
 	}
 
-	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, dcoluna.PosicaoNoFim(ultima))
+	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, dcoluna.PosicaoNoFim(ultima))
 	if err != nil {
 		return nil, err
 	}
@@ -38,13 +39,17 @@ func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string) (*dcoluna.Colu
 	return c, nil
 }
 
-// Renomear troca o título da coluna. Exige papel de edição no quadro dela.
-func (uc *ColunaUseCase) Renomear(colunaID, usuarioID, titulo string) (*dcoluna.Coluna, error) {
+// Renomear troca o título e a cor da coluna. Exige papel de edição no quadro
+// dela.
+func (uc *ColunaUseCase) Renomear(colunaID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
 	c, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
 	if err := c.Renomear(titulo); err != nil {
+		return nil, err
+	}
+	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
 	if err := uc.colunas.Atualizar(c); err != nil {

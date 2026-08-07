@@ -34,6 +34,8 @@ export interface Card {
 	// vencido vem calculado pelo servidor: o relógio do navegador pode estar
 	// errado, e um card vermelho por engano confunde mais do que ajuda.
 	vencido: boolean;
+	// Cor opcional do card: vira uma tarja na lateral. Vazio é o visual padrão.
+	cor: Cor | '';
 	// Só os ids: os dados da etiqueta vêm uma vez em BoardDetalhado.etiquetas.
 	etiquetas: string[];
 	checklist: Progresso;
@@ -53,10 +55,26 @@ export type Fundo = 'padrao' | 'ardosia' | 'oceano' | 'floresta' | 'ameixa' | 'b
 
 export const FUNDOS: Fundo[] = ['padrao', 'ardosia', 'oceano', 'floresta', 'ameixa', 'brasa'];
 
+// CORES é a paleta compartilhada por etiqueta, coluna e card — a mesma do
+// backend (internal/domain/cor).
+export const CORES: Cor[] = [
+	'cinza',
+	'vermelho',
+	'laranja',
+	'amarelo',
+	'verde',
+	'azul',
+	'roxo',
+	'rosa'
+];
+
 export interface Coluna {
 	id: string;
 	boardId: string;
 	titulo: string;
+	// Cor opcional da coluna: tinge o cabeçalho, para a etapa ter significado
+	// de relance — verde no começo, amarelo no meio, azul no fim.
+	cor: Cor | '';
 	posicao: number;
 	cards: Card[];
 }
@@ -96,29 +114,43 @@ export function apagarBoard(id: string): Promise<void> {
 	return apiDelete(`/boards/${id}`);
 }
 
-export function criarColuna(boardId: string, titulo: string): Promise<Coluna> {
-	return apiPost<{ titulo: string }, Coluna>(`/boards/${boardId}/colunas`, { titulo });
+export function criarColuna(boardId: string, titulo: string, cor: Cor | '' = ''): Promise<Coluna> {
+	return apiPost<{ titulo: string; cor: string }, Coluna>(`/boards/${boardId}/colunas`, {
+		titulo,
+		cor
+	});
 }
 
-export function renomearColuna(id: string, titulo: string): Promise<Coluna> {
-	return apiPatch<{ titulo: string }, Coluna>(`/colunas/${id}`, { titulo });
+export function renomearColuna(id: string, titulo: string, cor: Cor | '' = ''): Promise<Coluna> {
+	return apiPatch<{ titulo: string; cor: string }, Coluna>(`/colunas/${id}`, { titulo, cor });
 }
 
 export function apagarColuna(id: string): Promise<void> {
 	return apiDelete(`/colunas/${id}`);
 }
 
-export function criarCard(colunaId: string, titulo: string, descricao = ''): Promise<Card> {
-	return apiPost<{ titulo: string; descricao: string }, Card>(`/colunas/${colunaId}/cards`, {
-		titulo,
-		descricao
-	});
+export function criarCard(
+	colunaId: string,
+	titulo: string,
+	descricao = '',
+	cor: Cor | '' = ''
+): Promise<Card> {
+	return apiPost<{ titulo: string; descricao: string; cor: string }, Card>(
+		`/colunas/${colunaId}/cards`,
+		{ titulo, descricao, cor }
+	);
 }
 
-export function editarCard(id: string, titulo: string, descricao: string): Promise<Card> {
-	return apiPatch<{ titulo: string; descricao: string }, Card>(`/cards/${id}`, {
+export function editarCard(
+	id: string,
+	titulo: string,
+	descricao: string,
+	cor: Cor | '' = ''
+): Promise<Card> {
+	return apiPatch<{ titulo: string; descricao: string; cor: string }, Card>(`/cards/${id}`, {
 		titulo,
-		descricao
+		descricao,
+		cor
 	});
 }
 

@@ -9,31 +9,30 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"kanbango/internal/domain/cor"
 )
 
 // TamanhoMaximoNome é o limite de caracteres do nome da etiqueta.
 const TamanhoMaximoNome = 60
 
-// Cor é o nome de uma cor da paleta — e não um hex.
-//
-// O banco guarda 'vermelho', não '#F04438': a paleta é decisão de design e
-// muda com o tema claro/escuro. Gravar o hex congelaria no dado uma escolha
-// que pertence ao CSS.
-type Cor string
+// Cor é a cor da etiqueta. Alias do pacote cor, que é onde a paleta vive desde
+// que coluna e card também passaram a ter cor.
+type Cor = cor.Cor
 
 const (
-	CorCinza    Cor = "cinza"
-	CorVermelho Cor = "vermelho"
-	CorLaranja  Cor = "laranja"
-	CorAmarelo  Cor = "amarelo"
-	CorVerde    Cor = "verde"
-	CorAzul     Cor = "azul"
-	CorRoxo     Cor = "roxo"
-	CorRosa     Cor = "rosa"
+	CorCinza    = cor.Cinza
+	CorVermelho = cor.Vermelho
+	CorLaranja  = cor.Laranja
+	CorAmarelo  = cor.Amarelo
+	CorVerde    = cor.Verde
+	CorAzul     = cor.Azul
+	CorRoxo     = cor.Roxo
+	CorRosa     = cor.Rosa
 )
 
 // Cores é a paleta inteira, na ordem em que a tela deve oferecê-la.
-var Cores = []Cor{CorCinza, CorVermelho, CorLaranja, CorAmarelo, CorVerde, CorAzul, CorRoxo, CorRosa}
+var Cores = cor.Paleta
 
 var (
 	// ErrNomeObrigatorio é retornado quando o nome está vazio ou só com espaços.
@@ -47,14 +46,10 @@ var (
 	ErrNaoEncontrada = errors.New("etiqueta não encontrada")
 )
 
-// CorValida informa se a cor pertence à paleta.
+// CorValida informa se a cor pertence à paleta. Etiqueta EXIGE cor: sem ela,
+// a marcação não seria reconhecível de relance, que é o ponto de existir.
 func CorValida(c Cor) bool {
-	for _, conhecida := range Cores {
-		if c == conhecida {
-			return true
-		}
-	}
-	return false
+	return cor.Valida(c)
 }
 
 // Etiqueta é uma marcação nomeada e colorida do quadro.

@@ -29,6 +29,7 @@
 	} from '$lib/arrastar';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
+	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
 
 	let { data } = $props();
 
@@ -49,6 +50,7 @@
 	let renomeando = $state(false);
 	let titulo = $state('');
 	let tituloDaColuna = $state('');
+	let corDaColuna = $state<Cor | ''>('');
 	let criandoColuna = $state(false);
 	// Qual card está aberto no modal — null é modal fechado.
 	let cardAberto = $state<string | null>(null);
@@ -141,8 +143,9 @@
 	async function adicionarColuna(evento: SubmitEvent) {
 		evento.preventDefault();
 		try {
-			await criarColuna(data.quadro.id, tituloDaColuna);
+			await criarColuna(data.quadro.id, tituloDaColuna, corDaColuna);
 			tituloDaColuna = '';
+			corDaColuna = '';
 			criandoColuna = false;
 			await recarregar();
 		} catch (e) {
@@ -280,6 +283,7 @@
 				maxlength="120"
 				aria-label="Título da nova coluna"
 			/>
+			<SeletorDeCor bind:cor={corDaColuna} rotulo="Cor da nova coluna" />
 			<button type="submit" class="botao w-auto px-4 py-1 text-xs">Criar</button>
 			<button
 				type="button"

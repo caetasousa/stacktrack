@@ -6,6 +6,9 @@ import "time"
 // mesma régua de título.
 type TituloRequest struct {
 	Titulo string `json:"titulo" validate:"required,max=120"`
+	// Cor é opcional em coluna e card: vazio significa visual padrão. Por isso
+	// omitempty na validação — `required` recusaria a ausência de cor.
+	Cor string `json:"cor" validate:"omitempty,oneof=cinza vermelho laranja amarelo verde azul roxo rosa"`
 }
 
 // Validar checa o formato dos campos informados.
@@ -17,6 +20,7 @@ func (r TituloRequest) Validar() error {
 type CardRequest struct {
 	Titulo    string `json:"titulo" validate:"required,max=200"`
 	Descricao string `json:"descricao" validate:"max=5000"`
+	Cor       string `json:"cor" validate:"omitempty,oneof=cinza vermelho laranja amarelo verde azul roxo rosa"`
 }
 
 // Validar checa o formato dos campos informados.
@@ -53,6 +57,7 @@ type CardResponse struct {
 	ColunaID  string  `json:"colunaId"`
 	Titulo    string  `json:"titulo"`
 	Descricao string  `json:"descricao"`
+	Cor       string  `json:"cor"`
 	Posicao   float64 `json:"posicao"`
 	Version   int     `json:"version"`
 	// Prazo é nulo quando o card não tem data de entrega.
@@ -205,6 +210,7 @@ type ColunaResponse struct {
 	ID      string         `json:"id"`
 	BoardID string         `json:"boardId"`
 	Titulo  string         `json:"titulo"`
+	Cor     string         `json:"cor"`
 	Posicao float64        `json:"posicao"`
 	Cards   []CardResponse `json:"cards"`
 }

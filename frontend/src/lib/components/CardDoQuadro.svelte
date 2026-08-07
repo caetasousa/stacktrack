@@ -58,8 +58,18 @@
 	}
 </script>
 
+<!-- A cor do card pinta o card inteiro e engrossa a borda esquerda. O fundo é
+     opaco (a cor é misturada na superfície, não sobreposta a ela) para o card
+     continuar destacado da coluna, que também pode estar colorida. -->
 <div
-	class="w-full cursor-pointer rounded-sm border border-hairline bg-surface p-3 text-left shadow-ficha hover:border-hairline-strong"
+	class="w-full cursor-pointer rounded-sm border p-3 text-left shadow-ficha {card.cor
+		? `cor-${card.cor} border-l-4`
+		: 'border-hairline bg-surface hover:border-hairline-strong'}"
+	style={card.cor
+		? 'background-color: color-mix(in srgb, var(--etq-texto) 14%, var(--surface));' +
+			'border-color: color-mix(in srgb, var(--etq-texto) 34%, transparent);' +
+			'border-left-color: var(--etq-texto)'
+		: ''}
 	role="button"
 	tabindex="0"
 	{...clique}
@@ -95,7 +105,7 @@
 		<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
 			{#if card.prazo}
 				<!-- Vencido vem do servidor: o relógio do navegador pode estar
-				     errado, e um card vermelho por engano confunde mais que ajuda. -->
+					     errado, e um card vermelho por engano confunde mais que ajuda. -->
 				<span
 					class="rounded-xs px-1.5 py-0.5 tabular-nums"
 					class:bg-negativo={card.vencido}

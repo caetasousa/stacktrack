@@ -185,7 +185,7 @@ func TestTipoPermitidoIgnoraOCharset(t *testing.T) {
 // --- prazo e fundo --------------------------------------------------------
 
 func TestCardNasceSemPrazoEAceitaDataNoPassado(t *testing.T) {
-	c, _ := card.Novo("c-1", "col-1", "Tarefa", "", 1)
+	c, _ := card.Novo("c-1", "col-1", "Tarefa", "", "", 1)
 	if c.Prazo != nil {
 		t.Error("card novo não tem prazo")
 	}

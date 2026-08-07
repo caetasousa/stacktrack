@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"kanbango/internal/domain/board"
+	"kanbango/internal/domain/cor"
 	"kanbango/internal/domain/ordem"
 )
 
@@ -16,20 +17,36 @@ var ErrNaoEncontrada = errors.New("coluna não encontrada")
 
 // Coluna é uma etapa do fluxo dentro de um quadro.
 type Coluna struct {
-	ID           string
-	BoardID      string
-	Titulo       string
+	ID      string
+	BoardID string
+	Titulo  string
+	// Cor é opcional: coluna sem cor usa o visual padrão. Serve para dar
+	// significado à etapa — verde no começo, amarelo no meio, azul no fim.
+	Cor          cor.Cor
 	Posicao      float64
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
 }
 
+// DefinirCor troca a cor da coluna. Cor vazia volta ao visual padrão.
+func (c *Coluna) DefinirCor(nova cor.Cor) error {
+	if !cor.ValidaOuVazia(nova) {
+		return cor.ErrInvalida
+	}
+	c.Cor = nova
+	c.AtualizadoEm = time.Now()
+	return nil
+}
+
 // Nova cria uma coluna na posição informada. O título segue a mesma régua do
 // quadro (board.ValidarTitulo).
-func Nova(id, boardID, titulo string, posicao float64) (*Coluna, error) {
+func Nova(id, boardID, titulo string, cores cor.Cor, posicao float64) (*Coluna, error) {
 	titulo, err := board.ValidarTitulo(titulo)
 	if err != nil {
 		return nil, err
+	}
+	if !cor.ValidaOuVazia(cores) {
+		return nil, cor.ErrInvalida
 	}
 
 	agora := time.Now()
@@ -37,6 +54,7 @@ func Nova(id, boardID, titulo string, posicao float64) (*Coluna, error) {
 		ID:           id,
 		BoardID:      boardID,
 		Titulo:       titulo,
+		Cor:          cores,
 		Posicao:      posicao,
 		CriadoEm:     agora,
 		AtualizadoEm: agora,

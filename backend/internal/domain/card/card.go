@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"kanbango/internal/domain/cor"
 )
 
 const (
@@ -41,6 +43,9 @@ type Card struct {
 	Descricao string
 	Posicao   float64
 	Version   int
+	// Cor é opcional: card sem cor usa o visual padrão. Vira uma tarja na
+	// lateral — as etiquetas já ocupam o topo do card.
+	Cor cor.Cor
 	// Prazo é nil quando o card não tem data de entrega — o caso normal.
 	Prazo        *time.Time
 	CriadoEm     time.Time
@@ -79,10 +84,13 @@ func (c *Card) Vencido(agora time.Time) bool {
 
 // Novo cria um card na posição informada. A descrição é opcional; o título,
 // não.
-func Novo(id, colunaID, titulo, descricao string, posicao float64) (*Card, error) {
+func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64) (*Card, error) {
 	titulo, descricao, err := validar(titulo, descricao)
 	if err != nil {
 		return nil, err
+	}
+	if !cor.ValidaOuVazia(cores) {
+		return nil, cor.ErrInvalida
 	}
 
 	agora := time.Now()
@@ -91,6 +99,7 @@ func Novo(id, colunaID, titulo, descricao string, posicao float64) (*Card, error
 		ColunaID:     colunaID,
 		Titulo:       titulo,
 		Descricao:    descricao,
+		Cor:          cores,
 		Posicao:      posicao,
 		Version:      1,
 		CriadoEm:     agora,
@@ -98,14 +107,18 @@ func Novo(id, colunaID, titulo, descricao string, posicao float64) (*Card, error
 	}, nil
 }
 
-// Editar troca título e descrição, incrementando a versão do card.
-func (c *Card) Editar(titulo, descricao string) error {
+// Editar troca título, descrição e cor, incrementando a versão do card.
+func (c *Card) Editar(titulo, descricao string, cores cor.Cor) error {
 	titulo, descricao, err := validar(titulo, descricao)
 	if err != nil {
 		return err
 	}
+	if !cor.ValidaOuVazia(cores) {
+		return cor.ErrInvalida
+	}
 	c.Titulo = titulo
 	c.Descricao = descricao
+	c.Cor = cores
 	c.Version++
 	c.AtualizadoEm = time.Now()
 	return nil

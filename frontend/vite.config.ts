@@ -54,8 +54,14 @@ export default defineConfig(({ mode }) => {
 				}
 			})
 		],
+		// Sem a condição `browser`, o Vite entrega a build de SERVIDOR do Svelte
+		// para os testes, e `mount()` — que monta o componente de verdade para
+		// conferir o que ele pinta — falha com "not available on the server".
+		resolve: mode === 'test' ? { conditions: ['browser'] } : undefined,
 		test: {
 			include: ['src/**/*.test.ts'],
+			// Node é o padrão porque quase todo teste aqui é de função pura; quem
+			// precisa de DOM pede jsdom no cabeçalho do próprio arquivo.
 			environment: 'node'
 		}
 	};

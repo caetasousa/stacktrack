@@ -9,6 +9,7 @@ import (
 	dcard "kanbango/internal/domain/card"
 	dchecklist "kanbango/internal/domain/checklist"
 	dcoluna "kanbango/internal/domain/coluna"
+	dcor "kanbango/internal/domain/cor"
 	detiqueta "kanbango/internal/domain/etiqueta"
 
 	"github.com/google/uuid"
@@ -103,7 +104,7 @@ func (uc *CardUseCase) DefinirPrazo(cardID, usuarioID string, prazo *time.Time) 
 
 // Criar acrescenta um card no fim da coluna. Exige papel de edição no quadro
 // da coluna.
-func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string) (*dcard.Card, error) {
+func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
 	col, err := uc.colunas.BuscarPorID(colunaID)
 	if err != nil {
 		return nil, err
@@ -120,7 +121,7 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string) (*dc
 		return nil, err
 	}
 
-	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, dcoluna.PosicaoNoFim(ultima))
+	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, dcoluna.PosicaoNoFim(ultima))
 	if err != nil {
 		return nil, err
 	}
@@ -130,14 +131,14 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string) (*dc
 	return c, nil
 }
 
-// Editar troca título e descrição do card, incrementando a versão. Exige papel
-// de edição.
-func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string) (*dcard.Card, error) {
+// Editar troca título, descrição e cor do card, incrementando a versão. Exige
+// papel de edição.
+func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
 	c, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Editar(titulo, descricao); err != nil {
+	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err
 	}
 	if err := uc.cards.Atualizar(c); err != nil {

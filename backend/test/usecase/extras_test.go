@@ -12,6 +12,7 @@ import (
 
 	danexo "kanbango/internal/domain/anexo"
 	dchecklist "kanbango/internal/domain/checklist"
+	dcor "kanbango/internal/domain/cor"
 	detiqueta "kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
 	ucboard "kanbango/internal/usecase/board"
@@ -417,5 +418,56 @@ func TestPrazoSobreviveAReleituraDoCard(t *testing.T) {
 	limpo, _ := e.card.Detalhar(cardID, "ana")
 	if limpo.Card.Prazo != nil {
 		t.Error("passar nil devia ter limpado o prazo")
+	}
+}
+
+// A cor entrou em coluna e card depois que o prazo já tinha ensinado a lição:
+// coluna nova no domínio que fica de fora do INSERT, do UPDATE ou dos SELECT do
+// repositório passa despercebida, porque o fake em memória copia a struct
+// inteira. Este teste trava a promessa do usecase; quem confere o SQL é a
+// verificação contra o Postgres de verdade.
+func TestCorSobreviveAReleituraDeColunaEDeCard(t *testing.T) {
+	e := novoExtras()
+	boardID := e.criarQuadro(t, "ana", "Estudos")
+
+	col, err := e.coluna.Criar(boardID, "ana", "Start", dcor.Verde)
+	if err != nil {
+		t.Fatalf("erro ao criar coluna: %v", err)
+	}
+	card, err := e.card.Criar(col.ID, "ana", "Migrar o site", "", dcor.Azul)
+	if err != nil {
+		t.Fatalf("erro ao criar card: %v", err)
+	}
+
+	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	if detalhado.Colunas[0].Coluna.Cor != dcor.Verde {
+		t.Errorf("cor da coluna = %q, esperado verde", detalhado.Colunas[0].Coluna.Cor)
+	}
+	if detalhado.Colunas[0].Cards[0].Card.Cor != dcor.Azul {
+		t.Errorf("cor do card = %q, esperado azul", detalhado.Colunas[0].Cards[0].Card.Cor)
+	}
+
+	// e dá para tirar a cor voltando ao visual padrão
+	if _, err := e.coluna.Renomear(col.ID, "ana", "Start", ""); err != nil {
+		t.Fatalf("erro ao limpar a cor: %v", err)
+	}
+	semCor, _ := e.quadros.Detalhar(boardID, "ana")
+	if semCor.Colunas[0].Coluna.Cor != "" {
+		t.Errorf("cor = %q, esperado vazia", semCor.Colunas[0].Coluna.Cor)
+	}
+	_ = card
+}
+
+func TestCorForaDaPaletaERecusada(t *testing.T) {
+	e := novoExtras()
+	boardID := e.criarQuadro(t, "ana", "Estudos")
+
+	if _, err := e.coluna.Criar(boardID, "ana", "Start", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
+		t.Errorf("coluna: erro = %v, esperado ErrInvalida", err)
+	}
+
+	col, _ := e.coluna.Criar(boardID, "ana", "Start", "")
+	if _, err := e.card.Criar(col.ID, "ana", "Tarefa", "", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
+		t.Errorf("card: erro = %v, esperado ErrInvalida", err)
 	}
 }

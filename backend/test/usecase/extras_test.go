@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	danexo "kanbango/internal/domain/anexo"
-	dchecklist "kanbango/internal/domain/checklist"
-	dcor "kanbango/internal/domain/cor"
-	detiqueta "kanbango/internal/domain/etiqueta"
-	"kanbango/internal/domain/membro"
-	ucboard "kanbango/internal/usecase/board"
-	"kanbango/test/repository/memoria"
+	danexo "stacktrack/internal/domain/anexo"
+	dchecklist "stacktrack/internal/domain/checklist"
+	dcor "stacktrack/internal/domain/cor"
+	detiqueta "stacktrack/internal/domain/etiqueta"
+	"stacktrack/internal/domain/membro"
+	ucboard "stacktrack/internal/usecase/board"
+	"stacktrack/test/repository/memoria"
 )
 
 type extras struct {

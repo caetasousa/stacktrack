@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"kanbango/config"
+	"stacktrack/config"
 )
 
 func TestPortaCaiNoPadraoQuandoEnvAusente(t *testing.T) {
@@ -74,11 +74,11 @@ func TestMaxConexoesBancoIgnoraValorInvalido(t *testing.T) {
 func TestDSNBancoEscapaSenhaComCaracteresReservados(t *testing.T) {
 	const senha = "s3nh@/forte+com=reservados"
 
-	t.Setenv("DB_USER", "kanbango")
+	t.Setenv("DB_USER", "stacktrack")
 	t.Setenv("DB_PASSWORD", senha)
 	t.Setenv("DB_HOST", "postgres")
 	t.Setenv("DB_PORT", "5432")
-	t.Setenv("DB_NAME", "kanbango")
+	t.Setenv("DB_NAME", "stacktrack")
 
 	u, err := url.Parse(config.DSNBanco())
 	if err != nil {
@@ -88,14 +88,14 @@ func TestDSNBancoEscapaSenhaComCaracteresReservados(t *testing.T) {
 	if got, _ := u.User.Password(); got != senha {
 		t.Errorf("senha do DSN = %q, esperado %q", got, senha)
 	}
-	if u.User.Username() != "kanbango" {
-		t.Errorf("usuário do DSN = %q, esperado %q", u.User.Username(), "kanbango")
+	if u.User.Username() != "stacktrack" {
+		t.Errorf("usuário do DSN = %q, esperado %q", u.User.Username(), "stacktrack")
 	}
 	if u.Host != "postgres:5432" {
 		t.Errorf("host do DSN = %q, esperado %q", u.Host, "postgres:5432")
 	}
-	if u.Path != "/kanbango" {
-		t.Errorf("banco do DSN = %q, esperado %q", u.Path, "/kanbango")
+	if u.Path != "/stacktrack" {
+		t.Errorf("banco do DSN = %q, esperado %q", u.Path, "/stacktrack")
 	}
 	if u.Query().Get("sslmode") != "disable" {
 		t.Errorf("sslmode do DSN = %q, esperado %q", u.Query().Get("sslmode"), "disable")

@@ -203,7 +203,7 @@
 	}
 </script>
 
-<svelte:head><title>{data.quadro.titulo} · kanbanGo</title></svelte:head>
+<svelte:head><title>{data.quadro.titulo} · stacktrack</title></svelte:head>
 
 <div class="flex flex-wrap items-baseline justify-between gap-4">
 	{#if renomeando}

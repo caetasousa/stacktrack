@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"kanbango/internal/pkg/token"
+	"stacktrack/internal/pkg/token"
 )
 
 // ValidarSessaoUseCase valida um token de sessão e devolve a identidade do

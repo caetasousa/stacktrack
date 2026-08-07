@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"kanbango/internal/domain/card"
-	"kanbango/internal/domain/cor"
+	"stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/cor"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

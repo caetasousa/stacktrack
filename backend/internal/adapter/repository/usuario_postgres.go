@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/usuario"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

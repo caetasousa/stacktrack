@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"kanbango/internal/pkg/logging"
+	"stacktrack/internal/pkg/logging"
 
 	"github.com/go-playground/validator/v10"
 )

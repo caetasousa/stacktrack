@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"kanbango/internal/domain/anexo"
-	"kanbango/internal/domain/board"
-	"kanbango/internal/domain/card"
-	"kanbango/internal/domain/checklist"
-	"kanbango/internal/domain/etiqueta"
+	"stacktrack/internal/domain/anexo"
+	"stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/checklist"
+	"stacktrack/internal/domain/etiqueta"
 )
 
 // --- etiqueta -------------------------------------------------------------

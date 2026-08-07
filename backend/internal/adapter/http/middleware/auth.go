@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"kanbango/internal/adapter/http/handler"
-	ucauth "kanbango/internal/usecase/auth"
+	"stacktrack/internal/adapter/http/handler"
+	ucauth "stacktrack/internal/usecase/auth"
 )
 
 type identidadeContextKey struct{}

@@ -26,7 +26,7 @@
 		<div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
 			<a href="/" class="flex items-center gap-2 text-sm font-semibold tracking-tight text-ink">
 				<span class="inline-block size-5 rounded-sm bg-accent"></span>
-				kanbanGo
+				stacktrack
 			</a>
 
 			<nav class="flex items-center gap-2 text-sm">
@@ -60,7 +60,7 @@
 		<div
 			class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-mute"
 		>
-			<span>kanbanGo — quadro colaborativo em tempo real.</span>
+			<span>stacktrack — quadro colaborativo em tempo real.</span>
 			<span>Projeto de estudo · Go + SvelteKit</span>
 		</div>
 	</footer>

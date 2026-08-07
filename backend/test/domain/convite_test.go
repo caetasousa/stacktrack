@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"kanbango/internal/domain/convite"
-	"kanbango/internal/domain/membro"
+	"stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/membro"
 )
 
 func novoConvite(t *testing.T, email string, papel membro.Papel) *convite.Convite {

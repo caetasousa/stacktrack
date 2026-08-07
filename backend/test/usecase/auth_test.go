@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"kanbango/internal/domain/session"
-	"kanbango/internal/domain/usuario"
-	"kanbango/internal/pkg/token"
-	ucauth "kanbango/internal/usecase/auth"
-	"kanbango/test/repository/memoria"
+	"stacktrack/internal/domain/session"
+	"stacktrack/internal/domain/usuario"
+	"stacktrack/internal/pkg/token"
+	ucauth "stacktrack/internal/usecase/auth"
+	"stacktrack/test/repository/memoria"
 )
 
 type ambiente struct {

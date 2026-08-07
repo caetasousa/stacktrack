@@ -1,8 +1,8 @@
 package board
 
 import (
-	dboard "kanbango/internal/domain/board"
-	"kanbango/internal/domain/membro"
+	dboard "stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/membro"
 )
 
 // acesso resolve o vínculo entre o usuário e o quadro.

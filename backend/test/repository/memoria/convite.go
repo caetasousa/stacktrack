@@ -4,8 +4,8 @@ import (
 	"sort"
 	"time"
 
-	"kanbango/internal/domain/convite"
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/usuario"
 )
 
 // Convites guarda convites de quadro em memória.

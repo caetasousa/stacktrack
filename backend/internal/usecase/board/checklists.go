@@ -1,8 +1,8 @@
 package board
 
 import (
-	dcard "kanbango/internal/domain/card"
-	dchecklist "kanbango/internal/domain/checklist"
+	dcard "stacktrack/internal/domain/card"
+	dchecklist "stacktrack/internal/domain/checklist"
 
 	"github.com/google/uuid"
 )

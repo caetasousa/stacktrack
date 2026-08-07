@@ -9,13 +9,13 @@ package board
 import (
 	"time"
 
-	"kanbango/internal/domain/anexo"
-	"kanbango/internal/domain/board"
-	"kanbango/internal/domain/card"
-	"kanbango/internal/domain/checklist"
-	"kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/etiqueta"
-	"kanbango/internal/domain/membro"
+	"stacktrack/internal/domain/anexo"
+	"stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/checklist"
+	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/etiqueta"
+	"stacktrack/internal/domain/membro"
 )
 
 // Resumo é um quadro na listagem, com o papel de quem pediu.

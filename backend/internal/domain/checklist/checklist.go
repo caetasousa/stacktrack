@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"kanbango/internal/domain/ordem"
+	"stacktrack/internal/domain/ordem"
 )
 
 const (

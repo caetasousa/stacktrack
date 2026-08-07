@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"kanbango/internal/domain/convite"
-	"kanbango/internal/domain/membro"
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/usuario"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"kanbango/internal/domain/board"
-	"kanbango/internal/domain/cor"
-	"kanbango/internal/domain/ordem"
+	"stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/cor"
+	"stacktrack/internal/domain/ordem"
 )
 
 // ErrNaoEncontrada é retornado quando a coluna não existe — ou quando quem

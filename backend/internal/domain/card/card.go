@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"kanbango/internal/domain/cor"
+	"stacktrack/internal/domain/cor"
 )
 
 const (

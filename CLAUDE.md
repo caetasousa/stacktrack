@@ -1,4 +1,4 @@
-# kanbanGo
+# stacktrack
 
 Quadro Kanban colaborativo em tempo real (Go + SvelteKit). O roteiro completo,
 fase a fase, com as fontes de estudo de cada uma, está em [PLANO.md](PLANO.md).

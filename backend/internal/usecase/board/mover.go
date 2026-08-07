@@ -1,9 +1,9 @@
 package board
 
 import (
-	dcard "kanbango/internal/domain/card"
-	dcoluna "kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/ordem"
+	dcard "stacktrack/internal/domain/card"
+	dcoluna "stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/ordem"
 )
 
 // Vizinhos identifica onde um item foi solto: entre quem fica acima e quem fica

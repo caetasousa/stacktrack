@@ -4,13 +4,13 @@ import (
 	"errors"
 	"time"
 
-	danexo "kanbango/internal/domain/anexo"
-	dboard "kanbango/internal/domain/board"
-	dcard "kanbango/internal/domain/card"
-	dchecklist "kanbango/internal/domain/checklist"
-	dcoluna "kanbango/internal/domain/coluna"
-	dcor "kanbango/internal/domain/cor"
-	detiqueta "kanbango/internal/domain/etiqueta"
+	danexo "stacktrack/internal/domain/anexo"
+	dboard "stacktrack/internal/domain/board"
+	dcard "stacktrack/internal/domain/card"
+	dchecklist "stacktrack/internal/domain/checklist"
+	dcoluna "stacktrack/internal/domain/coluna"
+	dcor "stacktrack/internal/domain/cor"
+	detiqueta "stacktrack/internal/domain/etiqueta"
 
 	"github.com/google/uuid"
 )

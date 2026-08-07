@@ -9,12 +9,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"kanbango/internal/adapter/http/handler"
-	"kanbango/internal/adapter/http/middleware"
-	"kanbango/internal/domain/membro"
-	ucauth "kanbango/internal/usecase/auth"
-	ucboard "kanbango/internal/usecase/board"
-	"kanbango/test/repository/memoria"
+	"stacktrack/internal/adapter/http/handler"
+	"stacktrack/internal/adapter/http/middleware"
+	"stacktrack/internal/domain/membro"
+	ucauth "stacktrack/internal/usecase/auth"
+	ucboard "stacktrack/internal/usecase/board"
+	"stacktrack/test/repository/memoria"
 
 	"github.com/go-chi/chi/v5"
 )

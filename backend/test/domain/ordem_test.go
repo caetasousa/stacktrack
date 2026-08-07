@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"kanbango/internal/domain/ordem"
+	"stacktrack/internal/domain/ordem"
 )
 
 func TestEntreDevolveOMeio(t *testing.T) {

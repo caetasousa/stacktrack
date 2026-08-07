@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"kanbango/internal/adapter/http/dto"
-	detiqueta "kanbango/internal/domain/etiqueta"
-	ucauth "kanbango/internal/usecase/auth"
-	ucboard "kanbango/internal/usecase/board"
+	"stacktrack/internal/adapter/http/dto"
+	detiqueta "stacktrack/internal/domain/etiqueta"
+	ucauth "stacktrack/internal/usecase/auth"
+	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/go-chi/chi/v5"
 )

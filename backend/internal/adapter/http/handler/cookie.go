@@ -9,12 +9,12 @@ const (
 	// nomeCookieSessaoInseguro é o nome usado fora de produção, onde o cookie
 	// não pode ser Secure (o navegador não entrega cookies Secure de forma
 	// confiável em http://localhost).
-	nomeCookieSessaoInseguro = "kanbango_session"
+	nomeCookieSessaoInseguro = "stacktrack_session"
 	// nomeCookieSessaoSeguro leva o prefixo __Host-, que o navegador só aceita
 	// com Secure, Path=/ e SEM atributo Domain. Na prática isso amarra o cookie
 	// a esta origem exata: um subdomínio comprometido (ou um ataque que consiga
 	// escrever cookies para o domínio pai) não consegue sobrescrever a sessão.
-	nomeCookieSessaoSeguro = "__Host-kanbango_session"
+	nomeCookieSessaoSeguro = "__Host-stacktrack_session"
 )
 
 // NomeCookieSessao devolve o nome do cookie que carrega o token opaco de

@@ -7,12 +7,12 @@ import (
 	"errors"
 	"testing"
 
-	dboard "kanbango/internal/domain/board"
-	dcard "kanbango/internal/domain/card"
-	dcoluna "kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/membro"
-	ucboard "kanbango/internal/usecase/board"
-	"kanbango/test/repository/memoria"
+	dboard "stacktrack/internal/domain/board"
+	dcard "stacktrack/internal/domain/card"
+	dcoluna "stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/membro"
+	ucboard "stacktrack/internal/usecase/board"
+	"stacktrack/test/repository/memoria"
 )
 
 type quadro struct {

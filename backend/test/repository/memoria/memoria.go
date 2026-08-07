@@ -10,8 +10,8 @@ import (
 	"errors"
 	"time"
 
-	"kanbango/internal/domain/session"
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/session"
+	"stacktrack/internal/domain/usuario"
 )
 
 // Usuarios guarda contas em memória, indexadas por id.

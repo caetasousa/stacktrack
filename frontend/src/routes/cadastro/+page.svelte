@@ -30,7 +30,7 @@
 	}
 </script>
 
-<svelte:head><title>Criar conta · kanbanGo</title></svelte:head>
+<svelte:head><title>Criar conta · stacktrack</title></svelte:head>
 
 <div
 	class="mx-auto w-full max-w-sm rounded-lg border border-hairline bg-surface p-7 shadow-flutuante"

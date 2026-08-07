@@ -1,8 +1,8 @@
 package board
 
 import (
-	dcoluna "kanbango/internal/domain/coluna"
-	detiqueta "kanbango/internal/domain/etiqueta"
+	dcoluna "stacktrack/internal/domain/coluna"
+	detiqueta "stacktrack/internal/domain/etiqueta"
 
 	"github.com/google/uuid"
 )

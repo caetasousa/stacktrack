@@ -1,4 +1,4 @@
-# kanbanGo
+# stacktrack
 
 Quadro Kanban colaborativo em tempo real: várias pessoas movem cards no mesmo
 quadro e todas veem na hora, sem recarregar a página.
@@ -173,7 +173,7 @@ Na dúvida, `docker compose logs api` mostra a falha de build.
 ## Anexos
 
 Arquivo enviado vai para o disco, num **volume próprio** (`ANEXOS_DIR`, padrão
-`/var/lib/kanbango/anexos`) — não para o banco, que incharia backup e restore de
+`/var/lib/stacktrack/anexos`) — não para o banco, que incharia backup e restore de
 um schema que guarda texto curto no resto todo, nem para dentro de `./backend`,
 que é a árvore de código montada do host.
 

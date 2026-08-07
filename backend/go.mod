@@ -1,4 +1,4 @@
-module kanbango
+module stacktrack
 
 go 1.26.2
 

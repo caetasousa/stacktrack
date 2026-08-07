@@ -3,7 +3,7 @@ package token_test
 import (
 	"testing"
 
-	"kanbango/internal/pkg/token"
+	"stacktrack/internal/pkg/token"
 )
 
 // Dois tokens iguais em 1000 gerações significaria gerador quebrado — e

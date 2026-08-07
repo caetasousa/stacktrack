@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"kanbango/internal/domain/session"
+	"stacktrack/internal/domain/session"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

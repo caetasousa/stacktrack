@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/usuario"
 )
 
 func TestNovoUsuarioNormalizaOEmail(t *testing.T) {

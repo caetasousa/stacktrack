@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"kanbango/internal/adapter/http/dto"
-	"kanbango/internal/domain/usuario"
-	"kanbango/internal/pkg/logging"
-	ucauth "kanbango/internal/usecase/auth"
+	"stacktrack/internal/adapter/http/dto"
+	"stacktrack/internal/domain/usuario"
+	"stacktrack/internal/pkg/logging"
+	ucauth "stacktrack/internal/usecase/auth"
 )
 
 // AuthHandler concentra os handlers de cadastro, login, logout e perfil.

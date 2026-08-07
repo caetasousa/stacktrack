@@ -1,6 +1,6 @@
 package auth
 
-import "kanbango/internal/pkg/token"
+import "stacktrack/internal/pkg/token"
 
 // LogoutUseCase encerra a sessão atual.
 type LogoutUseCase struct {

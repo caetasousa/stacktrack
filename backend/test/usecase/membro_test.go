@@ -6,12 +6,12 @@ import (
 	"errors"
 	"testing"
 
-	dconvite "kanbango/internal/domain/convite"
-	"kanbango/internal/domain/membro"
-	"kanbango/internal/domain/usuario"
-	ucauth "kanbango/internal/usecase/auth"
-	ucboard "kanbango/internal/usecase/board"
-	"kanbango/test/repository/memoria"
+	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/usuario"
+	ucauth "stacktrack/internal/usecase/auth"
+	ucboard "stacktrack/internal/usecase/board"
+	"stacktrack/test/repository/memoria"
 )
 
 type colaboracao struct {

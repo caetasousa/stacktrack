@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"kanbango/internal/domain/session"
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/session"
+	"stacktrack/internal/domain/usuario"
 )
 
 // As portas ficam neste pacote, e não junto dos adapters, porque quem define o

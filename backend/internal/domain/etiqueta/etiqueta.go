@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"kanbango/internal/domain/cor"
+	"stacktrack/internal/domain/cor"
 )
 
 // TamanhoMaximoNome é o limite de caracteres do nome da etiqueta.

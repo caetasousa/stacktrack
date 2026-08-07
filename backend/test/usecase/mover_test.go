@@ -7,10 +7,10 @@ import (
 	"errors"
 	"testing"
 
-	dcoluna "kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/membro"
-	"kanbango/internal/domain/ordem"
-	ucboard "kanbango/internal/usecase/board"
+	dcoluna "stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/ordem"
+	ucboard "stacktrack/internal/usecase/board"
 )
 
 // ordemDaColuna devolve os títulos dos cards de uma coluna, na ordem em que o

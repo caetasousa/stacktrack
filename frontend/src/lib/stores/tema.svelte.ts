@@ -3,7 +3,7 @@
 // no <html>, deixa trocar e grava a escolha.
 export type Tema = 'dark' | 'light';
 
-export const CHAVE_TEMA = 'kanbango:tema';
+export const CHAVE_TEMA = 'stacktrack:tema';
 export const TEMA_PADRAO: Tema = 'dark';
 
 function ehTema(valor: unknown): valor is Tema {

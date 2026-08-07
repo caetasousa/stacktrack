@@ -102,7 +102,7 @@
 		new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 </script>
 
-<svelte:head><title>Membros · {data.quadro.titulo} · kanbanGo</title></svelte:head>
+<svelte:head><title>Membros · {data.quadro.titulo} · stacktrack</title></svelte:head>
 
 <div class="flex flex-wrap items-baseline justify-between gap-3">
 	<div>

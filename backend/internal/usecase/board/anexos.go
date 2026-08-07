@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	danexo "kanbango/internal/domain/anexo"
-	dcard "kanbango/internal/domain/card"
+	danexo "stacktrack/internal/domain/anexo"
+	dcard "stacktrack/internal/domain/card"
 
 	"github.com/google/uuid"
 )

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"kanbango/internal/adapter/http/handler"
-	"kanbango/internal/adapter/http/middleware"
-	ucauth "kanbango/internal/usecase/auth"
-	"kanbango/test/repository/memoria"
+	"stacktrack/internal/adapter/http/handler"
+	"stacktrack/internal/adapter/http/middleware"
+	ucauth "stacktrack/internal/usecase/auth"
+	"stacktrack/test/repository/memoria"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -65,7 +65,7 @@ func chamar(api http.Handler, metodo, caminho, corpo string, cookies ...*http.Co
 func cookieDeSessao(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
 	for _, c := range rec.Result().Cookies() {
-		if strings.Contains(c.Name, "kanbango_session") {
+		if strings.Contains(c.Name, "stacktrack_session") {
 			return c
 		}
 	}
@@ -129,8 +129,8 @@ func TestCookieDeSessaoEHttpOnlyESameSiteLax(t *testing.T) {
 	if cookie.Secure {
 		t.Error("em desenvolvimento o cookie não pode ser Secure: o navegador não o entrega em http://localhost")
 	}
-	if cookie.Name != "kanbango_session" {
-		t.Errorf("nome = %q, esperado kanbango_session fora de produção", cookie.Name)
+	if cookie.Name != "stacktrack_session" {
+		t.Errorf("nome = %q, esperado stacktrack_session fora de produção", cookie.Name)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestEmProducaoOCookieUsaPrefixoHostESecure(t *testing.T) {
 
 	cookie := cookieDeSessao(t, chamar(api, http.MethodPost, "/auth/cadastro", cadastroValido))
 
-	if cookie.Name != "__Host-kanbango_session" {
+	if cookie.Name != "__Host-stacktrack_session" {
 		t.Errorf("nome = %q, esperado com prefixo __Host-", cookie.Name)
 	}
 	if !cookie.Secure {
@@ -265,7 +265,7 @@ func TestMeComCookieInventadoResponde401(t *testing.T) {
 	api, _ := montarAPI(false)
 
 	rec := chamar(api, http.MethodGet, "/auth/me", "",
-		&http.Cookie{Name: "kanbango_session", Value: "token-inventado"})
+		&http.Cookie{Name: "stacktrack_session", Value: "token-inventado"})
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, esperado 401", rec.Code)

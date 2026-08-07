@@ -10,7 +10,7 @@
 (function () {
 	'use strict';
 
-	var CHAVE = 'kanbango:tema';
+	var CHAVE = 'stacktrack:tema';
 	var PADRAO = 'dark';
 
 	var escolhido = null;

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"kanbango/internal/domain/membro"
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/usuario"
 )
 
 // TTL é a validade de um convite a partir da criação.

@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"kanbango/internal/domain/usuario"
+	"stacktrack/internal/domain/usuario"
 
 	"github.com/google/uuid"
 )

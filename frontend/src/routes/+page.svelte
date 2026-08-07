@@ -80,7 +80,7 @@
 	];
 </script>
 
-<svelte:head><title>kanbanGo</title></svelte:head>
+<svelte:head><title>stacktrack</title></svelte:head>
 
 <section class="flex flex-col items-center gap-5 py-10 text-center">
 	<span

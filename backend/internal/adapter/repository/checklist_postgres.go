@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"kanbango/internal/domain/checklist"
-	ucboard "kanbango/internal/usecase/board"
+	"stacktrack/internal/domain/checklist"
+	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

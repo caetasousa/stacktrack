@@ -1,8 +1,8 @@
 package board
 
 import (
-	dcoluna "kanbango/internal/domain/coluna"
-	dcor "kanbango/internal/domain/cor"
+	dcoluna "stacktrack/internal/domain/coluna"
+	dcor "stacktrack/internal/domain/cor"
 
 	"github.com/google/uuid"
 )

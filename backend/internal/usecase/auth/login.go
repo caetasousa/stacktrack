@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"kanbango/internal/domain/usuario"
-	"kanbango/internal/pkg/token"
+	"stacktrack/internal/domain/usuario"
+	"stacktrack/internal/pkg/token"
 )
 
 // LoginUseCase autentica um usuário e abre uma nova sessão.

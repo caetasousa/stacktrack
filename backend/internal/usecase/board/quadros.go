@@ -1,10 +1,10 @@
 package board
 
 import (
-	dboard "kanbango/internal/domain/board"
-	"kanbango/internal/domain/card"
-	"kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/membro"
+	dboard "stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/membro"
 
 	"github.com/google/uuid"
 )

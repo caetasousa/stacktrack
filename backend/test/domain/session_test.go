@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"kanbango/internal/domain/session"
+	"stacktrack/internal/domain/session"
 )
 
 func TestNovaSessaoExpiraDepoisDoTTL(t *testing.T) {

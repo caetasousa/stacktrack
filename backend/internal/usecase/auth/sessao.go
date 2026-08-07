@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"kanbango/internal/domain/session"
-	"kanbango/internal/domain/usuario"
-	"kanbango/internal/pkg/token"
+	"stacktrack/internal/domain/session"
+	"stacktrack/internal/domain/usuario"
+	"stacktrack/internal/pkg/token"
 )
 
 // abrirSessao gera o token opaco, persiste a sessão com o hash dele e devolve

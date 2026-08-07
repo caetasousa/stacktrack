@@ -3,11 +3,11 @@ package memoria
 import (
 	"sort"
 
-	"kanbango/internal/domain/board"
-	"kanbango/internal/domain/card"
-	"kanbango/internal/domain/coluna"
-	"kanbango/internal/domain/membro"
-	ucboard "kanbango/internal/usecase/board"
+	"stacktrack/internal/domain/board"
+	"stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/membro"
+	ucboard "stacktrack/internal/usecase/board"
 )
 
 // Boards guarda quadros em memória.

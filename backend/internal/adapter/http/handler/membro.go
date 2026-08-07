@@ -6,11 +6,11 @@ import (
 	"net/url"
 	"time"
 
-	"kanbango/internal/adapter/http/dto"
-	dconvite "kanbango/internal/domain/convite"
-	"kanbango/internal/domain/membro"
-	ucauth "kanbango/internal/usecase/auth"
-	ucboard "kanbango/internal/usecase/board"
+	"stacktrack/internal/adapter/http/dto"
+	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/membro"
+	ucauth "stacktrack/internal/usecase/auth"
+	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/go-chi/chi/v5"
 )

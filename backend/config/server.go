@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	appmiddleware "kanbango/internal/adapter/http/middleware"
-	"kanbango/internal/pkg/logging"
+	appmiddleware "stacktrack/internal/adapter/http/middleware"
+	"stacktrack/internal/pkg/logging"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -179,5 +179,5 @@ func DiretorioDeAnexos() string {
 	if d := os.Getenv("ANEXOS_DIR"); d != "" {
 		return d
 	}
-	return "/var/lib/kanbango/anexos"
+	return "/var/lib/stacktrack/anexos"
 }

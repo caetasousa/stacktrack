@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kanbango_postgres
+    container_name: stacktrack_postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -21,7 +21,7 @@ services:
   # atrás do código que vai usá-lo.
   flyway:
     image: flyway/flyway:13-alpine
-    container_name: kanbango_flyway
+    container_name: stacktrack_flyway
     command: migrate
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
@@ -39,7 +39,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: kanbango_api
+    container_name: stacktrack_api
     ports:
       - "8080:8080"
     environment:
@@ -50,14 +50,14 @@ services:
       DB_NAME: ${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      ANEXOS_DIR: /var/lib/kanbango/anexos
+      ANEXOS_DIR: /var/lib/stacktrack/anexos
     volumes:
       - ./backend:/app
       # Os arquivos anexados vão para um volume próprio, e NÃO para dentro de
       # ./backend: aquele diretório é a árvore de código montada do host, e
       # arquivo de usuário não pode aparecer no `git status` — nem sumir num
       # `git clean`. Volume nomeado também sobrevive ao recreate do container.
-      - anexos:/var/lib/kanbango/anexos
+      - anexos:/var/lib/stacktrack/anexos
     depends_on:
       flyway:
         condition: service_completed_successfully
@@ -68,7 +68,7 @@ services:
   # ora nenhum serviço fala com ele.
   mailpit:
     image: axllent/mailpit
-    container_name: kanbango_mailpit
+    container_name: stacktrack_mailpit
     ports:
       - "8025:8025" # UI web
       - "1025:1025" # SMTP
@@ -78,7 +78,7 @@ services:
     # desenvolver numa versão e publicar em outra esconde incompatibilidade até
     # o deploy.
     image: node:24-alpine
-    container_name: kanbango_web
+    container_name: stacktrack_web
     working_dir: /app
     # `npm ci`, não `npm install`: o ci instala a partir do package-lock.json e
     # NUNCA o reescreve. Como o container roda como root e o lock está no bind

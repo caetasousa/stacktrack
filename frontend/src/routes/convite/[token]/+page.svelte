@@ -36,7 +36,7 @@
 	}
 </script>
 
-<svelte:head><title>Convite · kanbanGo</title></svelte:head>
+<svelte:head><title>Convite · stacktrack</title></svelte:head>
 
 <div
 	class="mx-auto w-full max-w-md rounded-lg border border-hairline bg-surface p-7 shadow-flutuante"

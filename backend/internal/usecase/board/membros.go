@@ -3,11 +3,11 @@ package board
 import (
 	"time"
 
-	dboard "kanbango/internal/domain/board"
-	dconvite "kanbango/internal/domain/convite"
-	"kanbango/internal/domain/membro"
-	dusuario "kanbango/internal/domain/usuario"
-	"kanbango/internal/pkg/token"
+	dboard "stacktrack/internal/domain/board"
+	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/membro"
+	dusuario "stacktrack/internal/domain/usuario"
+	"stacktrack/internal/pkg/token"
 
 	"github.com/google/uuid"
 )

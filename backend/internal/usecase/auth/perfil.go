@@ -1,6 +1,6 @@
 package auth
 
-import "kanbango/internal/domain/usuario"
+import "stacktrack/internal/domain/usuario"
 
 // PerfilUseCase devolve os dados da conta autenticada.
 type PerfilUseCase struct {

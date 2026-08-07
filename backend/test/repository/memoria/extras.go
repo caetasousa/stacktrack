@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strconv"
 
-	"kanbango/internal/domain/anexo"
-	"kanbango/internal/domain/checklist"
-	"kanbango/internal/domain/etiqueta"
-	ucboard "kanbango/internal/usecase/board"
+	"stacktrack/internal/domain/anexo"
+	"stacktrack/internal/domain/checklist"
+	"stacktrack/internal/domain/etiqueta"
+	ucboard "stacktrack/internal/usecase/board"
 )
 
 // Etiquetas guarda etiquetas e a aplicação delas nos cards.

@@ -1,4 +1,4 @@
-// Package usuario modela a identidade de quem loga no kanbanGo. Um Usuario não
+// Package usuario modela a identidade de quem loga no stacktrack. Um Usuario não
 // sabe nada de quadros, colunas ou cards: o que liga a pessoa a um quadro é o
 // domínio membro, que chega na fase 3.
 package usuario

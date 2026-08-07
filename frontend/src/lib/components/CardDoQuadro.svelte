@@ -1,51 +1,48 @@
 <script lang="ts">
-	// Um card do quadro, com edição no lugar (clicar no título abre o
-	// formulário) para não precisar de modal nesta fase.
-	import { apagarCard, editarCard, type Card } from '$lib/api/boards';
+	// Um card na coluna. Mostra o RESUMO do que carrega — barras de etiqueta,
+	// prazo, progresso de checklist e contagem de anexos — e abre o modal no
+	// clique, que é onde tudo isso pode ser mexido.
+	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 
 	let {
 		card,
+		etiquetasDoQuadro,
 		podeEditar,
+		aoAbrirCard,
 		aoMudar,
 		aoFalhar
 	}: {
 		card: Card;
+		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
+		aoAbrirCard: (cardId: string) => void;
 		aoMudar: () => Promise<void>;
 		aoFalhar: (mensagem: string) => void;
 	} = $props();
 
-	let editando = $state(false);
-	// Começam vazios e são preenchidos em abrir(): inicializá-los com o card
-	// capturaria só o valor do primeiro render, e o formulário mostraria texto
-	// velho depois que a lista fosse recarregada.
-	let titulo = $state('');
-	let descricao = $state('');
-	let salvando = $state(false);
+	// O card traz só os ids; os dados da etiqueta vêm uma vez, com o quadro.
+	const etiquetas = $derived(
+		card.etiquetas
+			.map((id) => etiquetasDoQuadro.find((e) => e.id === id))
+			.filter((e): e is Etiqueta => e !== undefined)
+	);
 
-	function abrir() {
-		if (!podeEditar) return;
-		titulo = card.titulo;
-		descricao = card.descricao;
-		editando = true;
-	}
+	const temChecklist = $derived(card.checklist.total > 0);
+	const checklistCompleta = $derived(
+		temChecklist && card.checklist.concluidos === card.checklist.total
+	);
 
-	async function salvar(evento: SubmitEvent) {
-		evento.preventDefault();
-		salvando = true;
-		try {
-			await editarCard(card.id, titulo, descricao);
-			editando = false;
-			await aoMudar();
-		} catch (e) {
-			aoFalhar(e instanceof ApiError ? e.message : 'não foi possível salvar o card');
-		} finally {
-			salvando = false;
-		}
-	}
+	// Só dia e mês: o ano só interessa quando não é este, e isso é raro num
+	// quadro de trabalho.
+	const prazoCurto = $derived(
+		card.prazo
+			? new Date(card.prazo).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+			: ''
+	);
 
-	async function apagar() {
+	async function apagar(evento: MouseEvent) {
+		evento.stopPropagation();
 		if (!confirm(`Apagar o card "${card.titulo}"?`)) return;
 		try {
 			await apagarCard(card.id);
@@ -56,39 +53,28 @@
 	}
 </script>
 
-<li class="rounded-sm border border-hairline bg-surface p-3 shadow-ficha">
-	{#if editando}
-		<form onsubmit={salvar} class="space-y-2">
-			<input class="campo text-sm" bind:value={titulo} required maxlength="200" aria-label="Título do card" />
-			<textarea
-				class="campo text-sm"
-				bind:value={descricao}
-				rows="3"
-				maxlength="5000"
-				placeholder="Descrição (opcional)"
-				aria-label="Descrição do card"
-			></textarea>
-			<div class="flex gap-2">
-				<button type="submit" class="botao w-auto px-3 py-1 text-xs" disabled={salvando}>
-					{salvando ? 'Salvando…' : 'Salvar'}
-				</button>
-				<button
-					type="button"
-					onclick={() => (editando = false)}
-					class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
-				>
-					Cancelar
-				</button>
+<li>
+	<div
+		class="w-full cursor-pointer rounded-sm border border-hairline bg-surface p-3 text-left shadow-ficha hover:border-hairline-strong"
+		role="button"
+		tabindex="0"
+		onclick={() => aoAbrirCard(card.id)}
+		onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
+	>
+		{#if etiquetas.length > 0}
+			<div class="mb-2 flex flex-wrap gap-1">
+				{#each etiquetas as etiqueta (etiqueta.id)}
+					<span
+						class="etiqueta-barra cor-{etiqueta.cor}"
+						title={etiqueta.nome}
+						aria-label="Etiqueta {etiqueta.nome}"
+					></span>
+				{/each}
 			</div>
-		</form>
-	{:else}
+		{/if}
+
 		<div class="flex items-start justify-between gap-2">
-			<button
-				onclick={abrir}
-				class="flex-1 text-left text-sm text-body {podeEditar ? 'cursor-pointer hover:text-ink' : ''}"
-			>
-				{card.titulo}
-			</button>
+			<b class="flex-1 text-sm font-medium text-body">{card.titulo}</b>
 			{#if podeEditar}
 				<button
 					onclick={apagar}
@@ -99,8 +85,33 @@
 				</button>
 			{/if}
 		</div>
-		{#if card.descricao}
-			<p class="mt-2 text-xs whitespace-pre-wrap text-mute">{card.descricao}</p>
+
+		{#if card.prazo || temChecklist || card.qtdAnexos > 0 || card.descricao}
+			<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
+				{#if card.prazo}
+					<!-- Vencido vem do servidor: o relógio do navegador pode estar
+					     errado, e um card vermelho por engano confunde mais que ajuda. -->
+					<span
+						class="rounded-xs px-1.5 py-0.5 tabular-nums"
+						class:bg-negativo={card.vencido}
+						class:text-canvas={card.vencido}
+						class:bg-surface-elevated={!card.vencido}
+					>
+						🕑 {prazoCurto}
+					</span>
+				{/if}
+				{#if temChecklist}
+					<span class="tabular-nums" class:text-positivo={checklistCompleta}>
+						☑ {card.checklist.concluidos}/{card.checklist.total}
+					</span>
+				{/if}
+				{#if card.qtdAnexos > 0}
+					<span class="tabular-nums">📎 {card.qtdAnexos}</span>
+				{/if}
+				{#if card.descricao}
+					<span title="Tem descrição">≡</span>
+				{/if}
+			</div>
 		{/if}
-	{/if}
+	</div>
 </li>

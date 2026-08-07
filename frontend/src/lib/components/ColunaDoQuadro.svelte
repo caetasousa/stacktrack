@@ -1,18 +1,28 @@
 <script lang="ts">
 	// Uma coluna do quadro: título editável, os cards e o formulário de card
 	// novo no pé.
-	import { apagarColuna, criarCard, renomearColuna, type Coluna } from '$lib/api/boards';
+	import {
+		apagarColuna,
+		criarCard,
+		renomearColuna,
+		type Coluna,
+		type Etiqueta
+	} from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 	import CardDoQuadro from './CardDoQuadro.svelte';
 
 	let {
 		coluna,
+		etiquetasDoQuadro,
 		podeEditar,
+		aoAbrirCard,
 		aoMudar,
 		aoFalhar
 	}: {
 		coluna: Coluna;
+		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
+		aoAbrirCard: (cardId: string) => void;
 		aoMudar: () => Promise<void>;
 		aoFalhar: (mensagem: string) => void;
 	} = $props();
@@ -102,7 +112,7 @@
 
 	<ul class="flex-1 space-y-2 p-3">
 		{#each coluna.cards as card (card.id)}
-			<CardDoQuadro {card} {podeEditar} {aoMudar} {aoFalhar} />
+			<CardDoQuadro {card} {etiquetasDoQuadro} {podeEditar} {aoAbrirCard} {aoMudar} {aoFalhar} />
 		{/each}
 	</ul>
 

@@ -11,7 +11,13 @@ export interface Board {
 	id: string;
 	titulo: string;
 	papel: Papel;
+	fundo: Fundo;
 	criadoEm: string;
+}
+
+export interface Progresso {
+	concluidos: number;
+	total: number;
 }
 
 export interface Card {
@@ -23,7 +29,29 @@ export interface Card {
 	// version viaja para o cliente porque a partir da fase 6 ela volta no
 	// update, como prova de qual versão a pessoa estava vendo.
 	version: number;
+	// prazo é null quando o card não tem data de entrega.
+	prazo: string | null;
+	// vencido vem calculado pelo servidor: o relógio do navegador pode estar
+	// errado, e um card vermelho por engano confunde mais do que ajuda.
+	vencido: boolean;
+	// Só os ids: os dados da etiqueta vêm uma vez em BoardDetalhado.etiquetas.
+	etiquetas: string[];
+	checklist: Progresso;
+	qtdAnexos: number;
 }
+
+export type Cor = 'cinza' | 'vermelho' | 'laranja' | 'amarelo' | 'verde' | 'azul' | 'roxo' | 'rosa';
+
+export interface Etiqueta {
+	id: string;
+	nome: string;
+	cor: Cor;
+	posicao: number;
+}
+
+export type Fundo = 'padrao' | 'ardosia' | 'oceano' | 'floresta' | 'ameixa' | 'brasa';
+
+export const FUNDOS: Fundo[] = ['padrao', 'ardosia', 'oceano', 'floresta', 'ameixa', 'brasa'];
 
 export interface Coluna {
 	id: string;
@@ -37,7 +65,10 @@ export interface BoardDetalhado {
 	id: string;
 	titulo: string;
 	papel: Papel;
+	fundo: Fundo;
 	colunas: Coluna[];
+	// As etiquetas do quadro inteiro: o card carrega só os ids delas.
+	etiquetas: Etiqueta[];
 }
 
 interface ListaBoards {

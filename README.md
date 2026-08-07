@@ -7,14 +7,16 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de estudo de cada
 uma, está em [PLANO.md](PLANO.md).
 
-**Fase atual: 2 — quadro, colunas e cards.** Dá para criar conta, montar um
-quadro inteiro e voltar nele depois. Ainda **sem tempo real**: cada pessoa vê
-só o que ela mesma faz, e a tela se atualiza porque pergunta de novo à API. É
-esse contraste que a fase 5 resolve. Arrastar-e-soltar chega na fase 4.
+**Fase atual: 3 — convites e colaboração.** Dá para criar conta, montar um
+quadro e dividi-lo com outras pessoas, com papéis de dono, editor e leitor.
+Ainda **sem tempo real**: cada pessoa vê só o que ela mesma faz, e a tela se
+atualiza porque pergunta de novo à API. É esse contraste que a fase 5 resolve.
+Arrastar-e-soltar chega na fase 4.
 
-> Confirmação de email e recuperação de senha ficaram de fora: as duas dependem
-> de enviar mensagem, e o envio ainda não existe no projeto. Por isso o cadastro
-> cria a conta já utilizável e sai logado.
+> **Sem envio de email.** Confirmação de cadastro e recuperação de senha ficaram
+> de fora por isso, e o convite virou **link**: quem já tem conta com o email
+> convidado entra na hora; quem não tem recebe um link que o dono copia e envia
+> por onde quiser. Quando o envio existir, ele só passa a mandar o mesmo link.
 
 ## Stack
 
@@ -106,6 +108,18 @@ Todas as rotas abaixo exigem sessão e têm teto de requisições por sessão.
 | `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
 | `PATCH` | `/cards/{id}` | Edita título e descrição, incrementando a versão. |
 | `DELETE` | `/cards/{id}` | Apaga o card (204). |
+| `GET` | `/boards/{id}/membros` | Quem participa. Para o dono, também os convites pendentes. |
+| `POST` | `/boards/{id}/membros` | Convida por email (201). Só o dono. |
+| `PATCH` | `/boards/{id}/membros/{usuarioId}` | Troca o papel. Só o dono. |
+| `DELETE` | `/boards/{id}/membros/{usuarioId}` | Remove do quadro (204). Só o dono. |
+| `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). |
+| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro. |
+
+E uma rota **sem** sessão:
+
+| Método | Rota | O que faz |
+|---|---|---|
+| `GET` | `/convites/{token}` | Descreve o convite para quem abriu o link. |
 
 **404 e 403 querem dizer coisas diferentes.** Quadro de outra pessoa responde
 `404`, e não `403`: dizer "proibido" confirmaria que aquele quadro existe, o que

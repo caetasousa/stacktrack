@@ -8,12 +8,42 @@
 		type Cor,
 		type Fundo
 	} from '$lib/api/boards';
-	import { apagarEtiqueta, criarEtiqueta, definirFundo, editarEtiqueta } from '$lib/api/extras';
+	import {
+		apagarEtiqueta,
+		criarEtiqueta,
+		definirFundo,
+		editarEtiqueta,
+		moverCard,
+		moverColuna
+	} from '$lib/api/extras';
+	import type { Card, Coluna } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
+	import { dndzone, type DndEvent } from 'svelte-dnd-action';
+	import { flip } from 'svelte/animate';
+	import {
+		CLASSES_ALVO,
+		DURACAO_MS,
+		enfeitarArrastado,
+		TIPO_COLUNA,
+		vizinhosDe
+	} from '$lib/arrastar';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 
 	let { data } = $props();
+
+	// O arraste precisa de uma cópia LOCAL: a lista que vem do load() é o estado
+	// do servidor, e mexer nela direto faria a tela discordar do que a API sabe.
+	// Esta cópia é a "atualização otimista" — o card se move na hora, e se a API
+	// recusar ela volta a ser o que o servidor diz.
+	let colunas = $state<Coluna[]>([]);
+
+	// Re-sincroniza sempre que o load() traz dados novos (criar, apagar,
+	// recarregar). Depende só de data.quadro, então mexer em `colunas` durante o
+	// arraste não dispara isto de volta.
+	$effect(() => {
+		colunas = data.quadro.colunas.map((c) => ({ ...c, cards: [...c.cards] }));
+	});
 
 	let erro = $state('');
 	let renomeando = $state(false);
@@ -44,6 +74,48 @@
 	async function recarregar() {
 		erro = '';
 		await invalidateAll();
+	}
+
+	// --- arrastar e soltar --------------------------------------------------
+
+	// Prévia do arraste: só espelha o que a biblioteca calculou, sem tocar na API.
+	function espelharCards(colunaId: string, cards: Card[]) {
+		colunas = colunas.map((c) => (c.id === colunaId ? { ...c, cards } : c));
+	}
+
+	// Ao soltar: aplica na tela, manda para a API e — se ela recusar — desfaz.
+	// O `antes` é tirado do estado do SERVIDOR, e não da cópia local, que a esta
+	// altura já foi mexida pela biblioteca.
+	async function soltarCard(colunaId: string, cards: Card[], cardMovidoId: string | null) {
+		espelharCards(colunaId, cards);
+		if (!cardMovidoId) return;
+
+		// A biblioteca dispara o finalize nas DUAS colunas envolvidas: na de
+		// origem, o card já não está na lista, e é a de destino que manda.
+		if (!cards.some((c) => c.id === cardMovidoId)) return;
+
+		try {
+			await moverCard(cardMovidoId, { colunaId, ...vizinhosDe(cards, cardMovidoId) });
+		} catch (e) {
+			tratar(e, 'não foi possível mover o card');
+			await recarregar();
+		}
+	}
+
+	function espelharColunas(novas: Coluna[]) {
+		colunas = novas;
+	}
+
+	async function soltarColuna(novas: Coluna[], colunaMovidaId: string | null) {
+		espelharColunas(novas);
+		if (!colunaMovidaId) return;
+
+		try {
+			await moverColuna(colunaMovidaId, vizinhosDe(novas, colunaMovidaId));
+		} catch (e) {
+			tratar(e, 'não foi possível mover a coluna');
+			await recarregar();
+		}
 	}
 
 	function falhar(mensagem: string) {
@@ -257,16 +329,39 @@
 
 <div class="mt-6 -mx-6 rounded-lg px-6 py-4 fundo-{data.quadro.fundo}">
 	<div class="flex items-start gap-4 overflow-x-auto pb-4">
-		{#each data.quadro.colunas as coluna (coluna.id)}
-			<ColunaDoQuadro
-				{coluna}
-				etiquetasDoQuadro={data.quadro.etiquetas}
-				{podeEditar}
-				aoAbrirCard={(id) => (cardAberto = id)}
-				aoMudar={recarregar}
-				aoFalhar={falhar}
-			/>
-		{/each}
+		<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
+		     faz o arraste começar na zona certa: um card é filho do <ul> de
+		     cards, não desta lista. -->
+		<div
+			class="flex items-start gap-4"
+			use:dndzone={{
+				items: colunas,
+				type: TIPO_COLUNA,
+				flipDurationMs: DURACAO_MS,
+				dragDisabled: !podeEditar,
+				dropTargetStyle: {},
+				dropTargetClasses: CLASSES_ALVO,
+				transformDraggedElement: enfeitarArrastado
+			}}
+			onconsider={(e: CustomEvent<DndEvent<Coluna>>) => espelharColunas(e.detail.items)}
+			onfinalize={(e: CustomEvent<DndEvent<Coluna>>) =>
+				soltarColuna(e.detail.items, e.detail.info.id)}
+		>
+			{#each colunas as coluna (coluna.id)}
+				<div animate:flip={{ duration: DURACAO_MS }}>
+					<ColunaDoQuadro
+						{coluna}
+						etiquetasDoQuadro={data.quadro.etiquetas}
+						{podeEditar}
+						aoAbrirCard={(id) => (cardAberto = id)}
+						aoMudar={recarregar}
+						aoFalhar={falhar}
+						aoArrastarCards={espelharCards}
+						aoSoltarCard={soltarCard}
+					/>
+				</div>
+			{/each}
+		</div>
 
 		{#if podeEditar}
 			<form onsubmit={adicionarColuna} class="w-72 shrink-0">
@@ -282,7 +377,7 @@
 		{/if}
 	</div>
 
-	{#if data.quadro.colunas.length === 0 && !podeEditar}
+	{#if colunas.length === 0 && !podeEditar}
 		<p class="py-8 text-center text-sm text-mute">Este quadro ainda não tem colunas.</p>
 	{/if}
 </div>

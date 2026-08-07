@@ -171,3 +171,23 @@ async function erroDaResposta(resposta: Response): Promise<Error> {
 	}
 	return new ApiError(resposta.status, mensagem);
 }
+
+// --- mover ----------------------------------------------------------------
+
+// Vizinhos diz ONDE o item foi solto. Quem calcula a posição é o servidor, que
+// enxerga as posições reais: a cópia do quadro na tela pode estar velha, e
+// posição vinda do cliente embaralharia a ordem de um quadro inteiro.
+// Vazio significa ponta — sem anterior é o topo, sem próximo é o fim.
+export interface Vizinhos {
+	colunaId?: string;
+	anteriorId?: string;
+	proximoId?: string;
+}
+
+export function moverCard(cardId: string, vizinhos: Vizinhos): Promise<Card> {
+	return apiPatch<Vizinhos, Card>(`/cards/${cardId}/mover`, vizinhos);
+}
+
+export function moverColuna(colunaId: string, vizinhos: Vizinhos): Promise<unknown> {
+	return apiPatch<Vizinhos, unknown>(`/colunas/${colunaId}/mover`, vizinhos);
+}

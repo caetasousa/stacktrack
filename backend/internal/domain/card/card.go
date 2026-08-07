@@ -58,6 +58,19 @@ func (c *Card) DefinirPrazo(prazo *time.Time) {
 	c.AtualizadoEm = time.Now()
 }
 
+// Mover leva o card para uma coluna e uma posição. A coluna pode ser a mesma —
+// reordenar dentro dela é o caso mais comum.
+//
+// A posição vem pronta: quem a calcula é quem enxerga os vizinhos (ver
+// usecase/board e o pacote ordem). O card não tem como saber ao lado de quem
+// foi solto.
+func (c *Card) Mover(colunaID string, posicao float64) {
+	c.ColunaID = colunaID
+	c.Posicao = posicao
+	c.Version++
+	c.AtualizadoEm = time.Now()
+}
+
 // Vencido informa se o prazo já passou em relação a agora. Card sem prazo
 // nunca vence.
 func (c *Card) Vencido(agora time.Time) bool {

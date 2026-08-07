@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"kanbango/internal/domain/board"
+	"kanbango/internal/domain/ordem"
 )
 
 // ErrNaoEncontrada é retornado quando a coluna não existe — ou quando quem
@@ -53,16 +54,19 @@ func (c *Coluna) Renomear(titulo string) error {
 	return nil
 }
 
-// PassoPosicao é o intervalo deixado entre posições ao acrescentar no fim.
-//
-// Não é 1: o espaço entre duas posições vizinhas é o que permite inserir no
-// meio sem renumerar ninguém, e um passo largo adia por muito tempo o dia em
-// que as divisões pela metade esgotam a precisão do float. A fase 4 vive
-// dentro desses intervalos.
-const PassoPosicao = 1024.0
+// PassoPosicao é o intervalo entre posições. Mantido como alias do pacote
+// ordem, que é onde a regra de ordenação fracionária vive desde a fase 4.
+const PassoPosicao = ordem.Passo
 
 // PosicaoNoFim devolve a posição de um item acrescentado depois do último.
 // Recebe a maior posição em uso (0 quando não há nenhum item).
 func PosicaoNoFim(ultimaPosicao float64) float64 {
-	return ultimaPosicao + PassoPosicao
+	return ordem.NoFim(ultimaPosicao)
+}
+
+// MoverPara reposiciona a coluna. A posição é calculada por quem sabe quem são
+// os vizinhos — ver usecase/board e o pacote ordem.
+func (c *Coluna) MoverPara(posicao float64) {
+	c.Posicao = posicao
+	c.AtualizadoEm = time.Now()
 }

@@ -480,3 +480,51 @@ html {
 	padding-left: 0.75rem;
 	color: var(--mute);
 }
+
+/* ------------------------------------------------------------------ *
+ * Arrastar e soltar.
+ *
+ * Sem pista visual, arrastar vira adivinhação: a pessoa não sabe se
+ * pegou o item, onde ele vai cair, nem se a coluna aceita o que está
+ * na mão. São três sinais, e cada um responde a uma dessas perguntas.
+ * ------------------------------------------------------------------ */
+
+/* 1. ONDE VAI CAIR — o espaço reservado que a biblioteca abre na lista.
+   O conteúdo some e sobra a silhueta tracejada, como no Trello. */
+[data-is-dnd-shadow-item-hint] {
+	outline: 2px dashed var(--accent);
+	outline-offset: -2px;
+	border-radius: var(--radius-sm);
+	background-color: var(--accent-suave);
+}
+
+[data-is-dnd-shadow-item-hint] > * {
+	opacity: 0;
+}
+
+/* 2. QUAL COLUNA ACEITA — a zona sob o cursor se destaca enquanto o item
+   está no ar. */
+.zona-alvo {
+	background-color: var(--accent-suave);
+	border-radius: var(--radius-md);
+	transition: background-color 120ms ease;
+}
+
+/* 3. O QUE ESTÁ NA MÃO — o item que segue o cursor ganha inclinação e
+   sombra, para se descolar do quadro parado atrás dele. */
+.item-arrastado {
+	transform: rotate(2.5deg);
+	box-shadow:
+		0 12px 24px -8px rgba(0, 0, 0, 0.45),
+		0 0 0 1px var(--accent);
+	border-radius: var(--radius-sm);
+	cursor: grabbing;
+}
+
+/* Enquanto qualquer coisa está sendo arrastada, o cursor não pode virar
+   "texto" ao passar por cima de um título. */
+.arrastando,
+.arrastando * {
+	cursor: grabbing !important;
+	user-select: none;
+}

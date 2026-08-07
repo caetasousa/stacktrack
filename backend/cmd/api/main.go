@@ -191,6 +191,7 @@ func main() {
 		// mexer em coluna alheia informando o id de um quadro próprio.
 		r.Route("/colunas/{colunaID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.RenomearColuna)
+			r.Patch("/mover", boardHandler.MoverColuna)
 			r.Delete("/", boardHandler.ApagarColuna)
 			r.Post("/cards", boardHandler.CriarCard)
 		})
@@ -200,6 +201,7 @@ func main() {
 			r.Patch("/", boardHandler.EditarCard)
 			r.Delete("/", boardHandler.ApagarCard)
 			r.Patch("/prazo", boardHandler.DefinirPrazo)
+			r.Patch("/mover", boardHandler.MoverCard)
 			r.Put("/etiquetas/{etiquetaID}", extrasHandler.AplicarEtiqueta)
 			r.Delete("/etiquetas/{etiquetaID}", extrasHandler.RemoverEtiqueta)
 			r.Post("/checklists", extrasHandler.CriarChecklist)

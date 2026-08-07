@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"kanbango/internal/domain/ordem"
 )
 
 const (
@@ -16,8 +18,8 @@ const (
 	TamanhoMaximoTitulo = 120
 	// TamanhoMaximoTexto é o limite de caracteres de um item.
 	TamanhoMaximoTexto = 500
-	// PassoPosicao é o intervalo deixado entre posições ao acrescentar no fim.
-	PassoPosicao = 1024.0
+	// PassoPosicao é o intervalo entre posições, do pacote ordem.
+	PassoPosicao = ordem.Passo
 )
 
 var (
@@ -126,7 +128,7 @@ func Progresso(itens []Item) (concluidos, total int) {
 
 // PosicaoNoFim devolve a posição de um item acrescentado depois do último.
 func PosicaoNoFim(ultimaPosicao float64) float64 {
-	return ultimaPosicao + PassoPosicao
+	return ordem.NoFim(ultimaPosicao)
 }
 
 func validarTitulo(titulo string) (string, error) {

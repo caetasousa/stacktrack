@@ -1,0 +1,244 @@
+// Arrastar e soltar. O que estes testes cobrem é a promessa que faz a coisa
+// funcionar: mover UM card escreve UMA posição, e a ordem que sai do
+// repositório é a que a pessoa viu na tela.
+package usecase_test
+
+import (
+	"errors"
+	"testing"
+
+	dcoluna "kanbango/internal/domain/coluna"
+	"kanbango/internal/domain/membro"
+	"kanbango/internal/domain/ordem"
+	ucboard "kanbango/internal/usecase/board"
+)
+
+// ordemDaColuna devolve os títulos dos cards de uma coluna, na ordem em que o
+// repositório os entrega — que é a ordem que a tela mostra.
+func (q *quadro) ordemDaColuna(t *testing.T, boardID, colunaID, usuarioID string) []string {
+	t.Helper()
+	detalhado, err := q.quadros.Detalhar(boardID, usuarioID)
+	if err != nil {
+		t.Fatalf("erro ao detalhar: %v", err)
+	}
+	for _, cc := range detalhado.Colunas {
+		if cc.Coluna.ID != colunaID {
+			continue
+		}
+		titulos := make([]string, 0, len(cc.Cards))
+		for _, c := range cc.Cards {
+			titulos = append(titulos, c.Card.Titulo)
+		}
+		return titulos
+	}
+	t.Fatalf("coluna %s não encontrada", colunaID)
+	return nil
+}
+
+func TestMoverCardParaOMeioDaMesmaColuna(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col := q.criarColuna(t, boardID, "ana", "A fazer")
+	a := q.criarCard(t, col, "ana", "A")
+	b := q.criarCard(t, col, "ana", "B")
+	c := q.criarCard(t, col, "ana", "C")
+
+	// arrasta C para entre A e B
+	if _, err := q.card.Mover(c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b}); err != nil {
+		t.Fatalf("erro ao mover: %v", err)
+	}
+
+	if got := q.ordemDaColuna(t, boardID, col, "ana"); got[0] != "A" || got[1] != "C" || got[2] != "B" {
+		t.Errorf("ordem = %v, esperado [A C B]", got)
+	}
+}
+
+// A propriedade central da ordenação fracionária: os vizinhos não são tocados.
+// Com posição inteira sequencial, mover um item reescreveria todos abaixo dele.
+func TestMoverEscreveApenasOCardMovido(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col := q.criarColuna(t, boardID, "ana", "A fazer")
+	a := q.criarCard(t, col, "ana", "A")
+	b := q.criarCard(t, col, "ana", "B")
+	c := q.criarCard(t, col, "ana", "C")
+
+	antesA, _ := q.cards.BuscarPorID(a)
+	antesB, _ := q.cards.BuscarPorID(b)
+
+	q.card.Mover(c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b})
+
+	depoisA, _ := q.cards.BuscarPorID(a)
+	depoisB, _ := q.cards.BuscarPorID(b)
+	if depoisA.Posicao != antesA.Posicao || depoisB.Posicao != antesB.Posicao {
+		t.Errorf("as posições dos vizinhos mudaram: A %v→%v, B %v→%v",
+			antesA.Posicao, depoisA.Posicao, antesB.Posicao, depoisB.Posicao)
+	}
+	// e a versão dos vizinhos também não: eles não foram editados
+	if depoisA.Version != antesA.Version {
+		t.Errorf("a versão do vizinho subiu: %d → %d", antesA.Version, depoisA.Version)
+	}
+}
+
+func TestMoverCardEntreColunas(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	origem := q.criarColuna(t, boardID, "ana", "A fazer")
+	destino := q.criarColuna(t, boardID, "ana", "Fazendo")
+	card := q.criarCard(t, origem, "ana", "Tarefa")
+
+	movido, err := q.card.Mover(card, "ana", destino, ucboard.Vizinhos{})
+	if err != nil {
+		t.Fatalf("erro ao mover: %v", err)
+	}
+
+	if movido.ColunaID != destino {
+		t.Errorf("coluna = %q, esperada a de destino", movido.ColunaID)
+	}
+	if len(q.ordemDaColuna(t, boardID, origem, "ana")) != 0 {
+		t.Error("o card devia ter saído da coluna de origem")
+	}
+	if got := q.ordemDaColuna(t, boardID, destino, "ana"); len(got) != 1 || got[0] != "Tarefa" {
+		t.Errorf("coluna de destino = %v", got)
+	}
+}
+
+// Soltar num espaço vazio abaixo dos cards significa "no fim", e não "no
+// começo" — sem vizinho de nenhum lado, a posição vai depois do último.
+func TestSemVizinhosOCardVaiParaOFim(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	origem := q.criarColuna(t, boardID, "ana", "A fazer")
+	destino := q.criarColuna(t, boardID, "ana", "Fazendo")
+	q.criarCard(t, destino, "ana", "Já estava")
+	card := q.criarCard(t, origem, "ana", "Chegando")
+
+	q.card.Mover(card, "ana", destino, ucboard.Vizinhos{})
+
+	if got := q.ordemDaColuna(t, boardID, destino, "ana"); got[1] != "Chegando" {
+		t.Errorf("ordem = %v, esperado o card novo no fim", got)
+	}
+}
+
+// Sem essa checagem, quem participa de dois quadros arrastaria um card de um
+// para o outro informando o id da coluna de destino — e o card sumiria da vista
+// de quem participa só do quadro de origem.
+func TestNaoDaParaMoverCardParaColunaDeOutroQuadro(t *testing.T) {
+	q := novoQuadro()
+	boardA := q.criarQuadro(t, "ana", "Quadro A")
+	colA := q.criarColuna(t, boardA, "ana", "A fazer")
+	card := q.criarCard(t, colA, "ana", "Tarefa")
+
+	boardB := q.criarQuadro(t, "ana", "Quadro B")
+	colB := q.criarColuna(t, boardB, "ana", "Outra")
+
+	_, err := q.card.Mover(card, "ana", colB, ucboard.Vizinhos{})
+
+	if !errors.Is(err, dcoluna.ErrNaoEncontrada) {
+		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
+	}
+	if got := q.ordemDaColuna(t, boardA, colA, "ana"); len(got) != 1 {
+		t.Error("o card devia ter ficado onde estava")
+	}
+}
+
+// Vizinho de outra coluna produziria uma posição que não faz sentido no
+// destino, e o card pousaria em lugar nenhum.
+func TestVizinhoDeOutraColunaERecusado(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col1 := q.criarColuna(t, boardID, "ana", "A fazer")
+	col2 := q.criarColuna(t, boardID, "ana", "Fazendo")
+	cardDeOutra := q.criarCard(t, col2, "ana", "De outra coluna")
+	card := q.criarCard(t, col1, "ana", "Tarefa")
+
+	_, err := q.card.Mover(card, "ana", col1, ucboard.Vizinhos{AnteriorID: cardDeOutra})
+
+	if err == nil {
+		t.Error("vizinho de outra coluna devia ser recusado")
+	}
+}
+
+func TestLeitorNaoMoveNada(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col := q.criarColuna(t, boardID, "ana", "A fazer")
+	card := q.criarCard(t, col, "ana", "Tarefa")
+	q.convidar(t, boardID, "bob", membro.PapelLeitor)
+
+	if _, err := q.card.Mover(card, "bob", col, ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("card: erro = %v", err)
+	}
+	if _, err := q.coluna.Mover(col, "bob", ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
+		t.Errorf("coluna: erro = %v", err)
+	}
+}
+
+func TestQuemNaoParticipaNaoMove(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col := q.criarColuna(t, boardID, "ana", "A fazer")
+	card := q.criarCard(t, col, "ana", "Tarefa")
+
+	_, err := q.card.Mover(card, "bob", col, ucboard.Vizinhos{})
+
+	if errors.Is(err, membro.ErrSemPermissao) {
+		t.Error("'sem permissão' confirmaria que o card existe")
+	}
+	if err == nil {
+		t.Fatal("quem não participa não pode mover")
+	}
+}
+
+func TestMoverColunaReordenaOQuadro(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	a := q.criarColuna(t, boardID, "ana", "A")
+	b := q.criarColuna(t, boardID, "ana", "B")
+	c := q.criarColuna(t, boardID, "ana", "C")
+
+	// arrasta C para o começo
+	if _, err := q.coluna.Mover(c, "ana", ucboard.Vizinhos{ProximoID: a}); err != nil {
+		t.Fatalf("erro ao mover coluna: %v", err)
+	}
+
+	detalhado, _ := q.quadros.Detalhar(boardID, "ana")
+	titulos := []string{
+		detalhado.Colunas[0].Coluna.Titulo,
+		detalhado.Colunas[1].Coluna.Titulo,
+		detalhado.Colunas[2].Coluna.Titulo,
+	}
+	if titulos[0] != "C" || titulos[1] != "A" || titulos[2] != "B" {
+		t.Errorf("ordem = %v, esperado [C A B]", titulos)
+	}
+	_ = b
+}
+
+// Quando o intervalo esgota, o movimento FALHA dizendo isso — em vez de gravar
+// em silêncio duas posições iguais e deixar o card num lugar que ninguém pediu.
+// A fase 9 remove essa possibilidade trocando o float por chave textual.
+func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Estudos")
+	col := q.criarColuna(t, boardID, "ana", "A fazer")
+	primeiro := q.criarCard(t, col, "ana", "Primeiro")
+	segundo := q.criarCard(t, col, "ana", "Segundo")
+	movel := q.criarCard(t, col, "ana", "Móvel")
+
+	// empurra o "Segundo" para o mais perto possível do "Primeiro"
+	posInicial, _ := q.cards.BuscarPorID(primeiro)
+	alvo, _ := q.cards.BuscarPorID(segundo)
+	alvo.Posicao = posInicial.Posicao
+	q.cards.Atualizar(alvo)
+
+	_, err := q.card.Mover(movel, "ana", col, ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
+
+	if !errors.Is(err, ordem.ErrSemEspaco) {
+		t.Errorf("erro = %v, esperado ErrSemEspaco", err)
+	}
+	// e o card não se mexeu
+	depois, _ := q.cards.BuscarPorID(movel)
+	if depois.ColunaID != col || depois.Posicao <= alvo.Posicao {
+		t.Error("o card não podia ter sido movido")
+	}
+}

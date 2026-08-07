@@ -13,6 +13,7 @@ import (
 	dcoluna "kanbango/internal/domain/coluna"
 	detiqueta "kanbango/internal/domain/etiqueta"
 	"kanbango/internal/domain/membro"
+	"kanbango/internal/domain/ordem"
 	ucauth "kanbango/internal/usecase/auth"
 	ucboard "kanbango/internal/usecase/board"
 
@@ -326,6 +327,10 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusForbidden, err.Error())
 	// 413 e não 400: o corpo em si é válido, o que não serve é o tamanho — e é
 	// o código que o navegador e os proxies entendem como "arquivo grande".
+	// 409: a entrada está correta, o estado do quadro é que não comporta o
+	// movimento. Ver ordem.ErrSemEspaco — a fase 9 remove essa possibilidade.
+	case errors.Is(err, ordem.ErrSemEspaco):
+		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):
 		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())
 	// 415: o tipo do conteúdo é que não é aceito.
@@ -451,4 +456,47 @@ func paraAnexosResponse(anexos []danexo.Anexo) []dto.AnexoResponse {
 		lista = append(lista, paraAnexoResponse(a))
 	}
 	return lista
+}
+
+// MoverCard leva o card para outra coluna e/ou outra posição.
+func (h *BoardHandler) MoverCard(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.MoverRequest](w, r)
+	if !ok {
+		return
+	}
+
+	c, err := h.cards.Mover(chi.URLParam(r, "cardID"), usuarioID, req.ColunaID,
+		ucboard.Vizinhos{AnteriorID: req.AnteriorID, ProximoID: req.ProximoID})
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao mover card", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraCardResponse(*c))
+}
+
+// MoverColuna reposiciona a coluna dentro do quadro.
+func (h *BoardHandler) MoverColuna(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.MoverRequest](w, r)
+	if !ok {
+		return
+	}
+
+	c, err := h.colunas.Mover(chi.URLParam(r, "colunaID"), usuarioID,
+		ucboard.Vizinhos{AnteriorID: req.AnteriorID, ProximoID: req.ProximoID})
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao mover coluna", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.ColunaResponse{
+		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Posicao: c.Posicao,
+		Cards: []dto.CardResponse{},
+	})
 }

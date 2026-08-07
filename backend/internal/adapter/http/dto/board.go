@@ -131,6 +131,22 @@ type PrazoRequest struct {
 // registrar que algo venceu ontem é informação legítima.
 func (r PrazoRequest) Validar() error { return nil }
 
+// MoverRequest diz ONDE o item foi solto, e não em que posição.
+//
+// O cliente manda os vizinhos; quem calcula o número é o servidor, que enxerga
+// as posições reais — ver usecase/board.Vizinhos para as três razões.
+// Vazio significa ponta: sem anterior é o topo, sem próximo é o fim.
+type MoverRequest struct {
+	// ColunaID só vale para card, e vazio significa "mesma coluna".
+	ColunaID   string `json:"colunaId"`
+	AnteriorID string `json:"anteriorId"`
+	ProximoID  string `json:"proximoId"`
+}
+
+// Validar não tem o que checar: os três campos são opcionais, e quem confere se
+// os ids existem e pertencem ao lugar certo é o usecase.
+func (r MoverRequest) Validar() error { return nil }
+
 // EtiquetaRequest é o corpo de criar e editar etiqueta.
 type EtiquetaRequest struct {
 	Nome string `json:"nome" validate:"required,max=60"`

@@ -4,6 +4,7 @@
 	// clique, que é onde tudo isso pode ser mexido.
 	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
+	import { cliqueSemArraste } from '$lib/arrastar';
 
 	let {
 		card,
@@ -41,6 +42,10 @@
 			: ''
 	);
 
+	// O card é clicável E arrastável. Sem o limiar de distância, soltar depois
+	// de arrastar abriria o modal em cima do movimento que a pessoa fez.
+	const clique = cliqueSemArraste(() => aoAbrirCard(card.id));
+
 	async function apagar(evento: MouseEvent) {
 		evento.stopPropagation();
 		if (!confirm(`Apagar o card "${card.titulo}"?`)) return;
@@ -53,66 +58,64 @@
 	}
 </script>
 
-<li>
-	<div
-		class="w-full cursor-pointer rounded-sm border border-hairline bg-surface p-3 text-left shadow-ficha hover:border-hairline-strong"
-		role="button"
-		tabindex="0"
-		onclick={() => aoAbrirCard(card.id)}
-		onkeydown={(e) =>
-			(e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
-	>
-		{#if etiquetas.length > 0}
-			<div class="mb-2 flex flex-wrap gap-1">
-				{#each etiquetas as etiqueta (etiqueta.id)}
-					<span
-						class="etiqueta-barra cor-{etiqueta.cor}"
-						title={etiqueta.nome}
-						aria-label="Etiqueta {etiqueta.nome}"
-					></span>
-				{/each}
-			</div>
-		{/if}
-
-		<div class="flex items-start justify-between gap-2">
-			<b class="flex-1 text-sm font-medium text-body">{card.titulo}</b>
-			{#if podeEditar}
-				<button
-					onclick={apagar}
-					class="cursor-pointer text-xs text-mute hover:text-negativo"
-					aria-label="Apagar card"
-				>
-					×
-				</button>
-			{/if}
+<div
+	class="w-full cursor-pointer rounded-sm border border-hairline bg-surface p-3 text-left shadow-ficha hover:border-hairline-strong"
+	role="button"
+	tabindex="0"
+	{...clique}
+	onkeydown={(e) =>
+		(e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
+>
+	{#if etiquetas.length > 0}
+		<div class="mb-2 flex flex-wrap gap-1">
+			{#each etiquetas as etiqueta (etiqueta.id)}
+				<span
+					class="etiqueta-barra cor-{etiqueta.cor}"
+					title={etiqueta.nome}
+					aria-label="Etiqueta {etiqueta.nome}"
+				></span>
+			{/each}
 		</div>
+	{/if}
 
-		{#if card.prazo || temChecklist || card.qtdAnexos > 0 || card.descricao}
-			<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
-				{#if card.prazo}
-					<!-- Vencido vem do servidor: o relógio do navegador pode estar
-					     errado, e um card vermelho por engano confunde mais que ajuda. -->
-					<span
-						class="rounded-xs px-1.5 py-0.5 tabular-nums"
-						class:bg-negativo={card.vencido}
-						class:text-canvas={card.vencido}
-						class:bg-surface-elevated={!card.vencido}
-					>
-						🕑 {prazoCurto}
-					</span>
-				{/if}
-				{#if temChecklist}
-					<span class="tabular-nums" class:text-positivo={checklistCompleta}>
-						☑ {card.checklist.concluidos}/{card.checklist.total}
-					</span>
-				{/if}
-				{#if card.qtdAnexos > 0}
-					<span class="tabular-nums">📎 {card.qtdAnexos}</span>
-				{/if}
-				{#if card.descricao}
-					<span title="Tem descrição">≡</span>
-				{/if}
-			</div>
+	<div class="flex items-start justify-between gap-2">
+		<b class="flex-1 text-sm font-medium text-body">{card.titulo}</b>
+		{#if podeEditar}
+			<button
+				onclick={apagar}
+				class="cursor-pointer text-xs text-mute hover:text-negativo"
+				aria-label="Apagar card"
+			>
+				×
+			</button>
 		{/if}
 	</div>
-</li>
+
+	{#if card.prazo || temChecklist || card.qtdAnexos > 0 || card.descricao}
+		<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
+			{#if card.prazo}
+				<!-- Vencido vem do servidor: o relógio do navegador pode estar
+				     errado, e um card vermelho por engano confunde mais que ajuda. -->
+				<span
+					class="rounded-xs px-1.5 py-0.5 tabular-nums"
+					class:bg-negativo={card.vencido}
+					class:text-canvas={card.vencido}
+					class:bg-surface-elevated={!card.vencido}
+				>
+					🕑 {prazoCurto}
+				</span>
+			{/if}
+			{#if temChecklist}
+				<span class="tabular-nums" class:text-positivo={checklistCompleta}>
+					☑ {card.checklist.concluidos}/{card.checklist.total}
+				</span>
+			{/if}
+			{#if card.qtdAnexos > 0}
+				<span class="tabular-nums">📎 {card.qtdAnexos}</span>
+			{/if}
+			{#if card.descricao}
+				<span title="Tem descrição">≡</span>
+			{/if}
+		</div>
+	{/if}
+</div>

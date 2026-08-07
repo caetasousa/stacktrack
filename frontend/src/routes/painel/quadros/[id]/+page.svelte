@@ -327,7 +327,7 @@
 	</div>
 {/if}
 
-<div class="mt-6 -mx-6 rounded-lg px-6 py-4 fundo-{data.quadro.fundo}">
+<div class="painel-fundo fundo-{data.quadro.fundo} mt-6 -mx-6 rounded-lg px-6 py-4">
 	<div class="flex items-start gap-4 overflow-x-auto pb-4">
 		<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
 		     faz o arraste começar na zona certa: um card é filho do <ul> de

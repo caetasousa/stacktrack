@@ -25,8 +25,9 @@ func NovoBoardPostgres(pool *pgxpool.Pool) *BoardPostgres {
 // Salvar persiste um quadro novo.
 func (r *BoardPostgres) Salvar(b *board.Board) error {
 	_, err := r.pool.Exec(context.Background(),
-		`INSERT INTO boards (id, titulo, criado_em, atualizado_em) VALUES ($1, $2, $3, $4)`,
-		b.ID, b.Titulo, b.CriadoEm, b.AtualizadoEm,
+		`INSERT INTO boards (id, titulo, fundo, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		b.ID, b.Titulo, vazioParaNulo(b.Fundo), b.CriadoEm, b.AtualizadoEm,
 	)
 	return err
 }
@@ -34,8 +35,8 @@ func (r *BoardPostgres) Salvar(b *board.Board) error {
 // Atualizar grava as alterações de um quadro existente.
 func (r *BoardPostgres) Atualizar(b *board.Board) error {
 	_, err := r.pool.Exec(context.Background(),
-		`UPDATE boards SET titulo = $2, atualizado_em = $3 WHERE id = $1`,
-		b.ID, b.Titulo, b.AtualizadoEm,
+		`UPDATE boards SET titulo = $2, fundo = $3, atualizado_em = $4 WHERE id = $1`,
+		b.ID, b.Titulo, vazioParaNulo(b.Fundo), b.AtualizadoEm,
 	)
 	return err
 }
@@ -43,15 +44,17 @@ func (r *BoardPostgres) Atualizar(b *board.Board) error {
 // BuscarPorID retorna (quadro, nil) quando encontra e (nil, nil) quando não existe.
 func (r *BoardPostgres) BuscarPorID(id string) (*board.Board, error) {
 	var b board.Board
+	var fundo *string
 	err := r.pool.QueryRow(context.Background(),
-		`SELECT id, titulo, criado_em, atualizado_em FROM boards WHERE id = $1`, id,
-	).Scan(&b.ID, &b.Titulo, &b.CriadoEm, &b.AtualizadoEm)
+		`SELECT id, titulo, fundo, criado_em, atualizado_em FROM boards WHERE id = $1`, id,
+	).Scan(&b.ID, &b.Titulo, &fundo, &b.CriadoEm, &b.AtualizadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	b.Fundo = valorOuVazio(fundo)
 	return &b, nil
 }
 
@@ -69,7 +72,7 @@ func (r *BoardPostgres) Apagar(id string) error {
 // quadro alheio, mesmo que alguém esqueça a checagem no usecase.
 func (r *BoardPostgres) ListarDoUsuario(usuarioID string) ([]ucboard.Resumo, error) {
 	linhas, err := r.pool.Query(context.Background(),
-		`SELECT b.id, b.titulo, b.criado_em, b.atualizado_em, m.papel
+		`SELECT b.id, b.titulo, b.fundo, b.criado_em, b.atualizado_em, m.papel
 		 FROM board_membros m
 		 JOIN boards b ON b.id = m.board_id
 		 WHERE m.usuario_id = $1
@@ -84,9 +87,11 @@ func (r *BoardPostgres) ListarDoUsuario(usuarioID string) ([]ucboard.Resumo, err
 	for linhas.Next() {
 		var r ucboard.Resumo
 		var papel string
-		if err := linhas.Scan(&r.Board.ID, &r.Board.Titulo, &r.Board.CriadoEm, &r.Board.AtualizadoEm, &papel); err != nil {
+		var fundo *string
+		if err := linhas.Scan(&r.Board.ID, &r.Board.Titulo, &fundo, &r.Board.CriadoEm, &r.Board.AtualizadoEm, &papel); err != nil {
 			return nil, err
 		}
+		r.Board.Fundo = valorOuVazio(fundo)
 		r.Papel = membro.Papel(papel)
 		resumos = append(resumos, r)
 	}

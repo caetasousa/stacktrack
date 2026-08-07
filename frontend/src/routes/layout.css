@@ -352,47 +352,49 @@ html {
 
 /* ------------------------------------------------------------------ *
  * Fundos do quadro. O banco guarda o nome; a cor é daqui.
- * Sutis de propósito: o fundo é pano de fundo para os cards, e um
- * gradiente forte disputaria atenção com o conteúdo.
+ *
+ * O gradiente vai de ponta a ponta em vez de sumir no meio do painel: a
+ * versão anterior desbotava para transparente a 65% e a escolha era
+ * indistinguível do padrão. Ainda assim é pano de fundo — os cards têm
+ * fundo opaco por cima, e é deles a atenção.
  * ------------------------------------------------------------------ */
 
+/* As classes fundo-* só declaram a cor. Pintar é papel do .painel-fundo, que
+   vai junto no quadro — assim o botão que escolhe o fundo pode usar a mesma
+   classe para tingir o próprio nome sem herdar o gradiente inteiro. */
 .fundo-padrao {
-	background: transparent;
+	--fundo-cor: var(--mute);
 }
 .fundo-ardosia {
-	background: linear-gradient(
-		160deg,
-		color-mix(in srgb, var(--mute) 12%, transparent),
-		transparent 65%
-	);
+	--fundo-cor: var(--mute);
 }
 .fundo-oceano {
-	background: linear-gradient(
-		160deg,
-		color-mix(in srgb, #2e90fa 14%, transparent),
-		transparent 65%
-	);
+	--fundo-cor: #2e90fa;
 }
 .fundo-floresta {
-	background: linear-gradient(
-		160deg,
-		color-mix(in srgb, #12b76a 13%, transparent),
-		transparent 65%
-	);
+	--fundo-cor: #12b76a;
 }
 .fundo-ameixa {
-	background: linear-gradient(
-		160deg,
-		color-mix(in srgb, #9e77ed 14%, transparent),
-		transparent 65%
-	);
+	--fundo-cor: #9e77ed;
 }
 .fundo-brasa {
+	--fundo-cor: var(--accent);
+}
+
+.painel-fundo {
 	background: linear-gradient(
-		160deg,
-		color-mix(in srgb, var(--accent) 14%, transparent),
-		transparent 65%
+		150deg,
+		color-mix(in srgb, var(--fundo-cor) 26%, transparent),
+		color-mix(in srgb, var(--fundo-cor) 9%, transparent)
 	);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fundo-cor) 18%, transparent);
+}
+
+/* Sem fundo escolhido não há o que pintar. Duas classes na regra para vencer
+   a de cima na cascata, que tem a mesma origem e viria depois. */
+.painel-fundo.fundo-padrao {
+	background: transparent;
+	box-shadow: none;
 }
 
 /* ------------------------------------------------------------------ *

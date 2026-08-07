@@ -1,0 +1,44 @@
+# Imagem de PRODUÇÃO do frontend. Em desenvolvimento o SvelteKit roda pelo
+# Vite dentro do serviço `web` do compose; aqui ele é compilado pelo
+# adapter-node e servido por um processo Node enxuto.
+
+FROM node:24-alpine AS build
+
+WORKDIR /app
+
+# npm ci (e não install) instala exatamente o que está no lock e nunca o
+# reescreve — build reproduzível é o ponto todo de ter lock.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+# A URL da API é lida pelo Vite em tempo de BUILD e vai embutida no bundle que
+# o navegador baixa — por isso é ARG, e não variável de runtime. O padrão é
+# relativo de propósito: front e API atrás do mesmo domínio, que é o que mantém
+# a CSP em `connect-src 'self'` e o cookie com prefixo __Host-.
+ARG PUBLIC_API_URL=/api
+ENV PUBLIC_API_URL=$PUBLIC_API_URL
+
+RUN npm run build \
+	&& npm prune --omit=dev
+
+FROM node:24-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Só o que o servidor precisa: a saída do adapter-node, as dependências de
+# produção e o package.json (que declara "type": "module" para o node).
+COPY --from=build /app/build ./build
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./
+
+# A imagem node já traz o usuário `node`, sem privilégio.
+USER node
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+	CMD wget --quiet --spider http://127.0.0.1:3000/ || exit 1
+
+CMD ["node", "build"]

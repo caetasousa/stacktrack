@@ -1,0 +1,155 @@
+# Testa todo push e todo PR; publica as imagens só no que entra na main.
+#
+# A ordem não é decoração: `publicar` depende dos dois jobs de teste, então uma
+# imagem quebrada não chega ao registry — e o VPS nunca puxa o que não passou.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Um push novo na mesma referência cancela a execução anterior: não adianta
+# terminar de testar um commit que já foi substituído.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRO: ghcr.io
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        working-directory: backend
+        run: |
+          arquivos=$(gofmt -l .)
+          if [ -n "$arquivos" ]; then
+            echo "estes arquivos não estão formatados:"; echo "$arquivos"; exit 1
+          fi
+
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+
+      # -race é obrigatório a partir da fase 5: concorrência sem o detector de
+      # corrida é fé, não engenharia. Entra desde já para o hábito estar pronto
+      # quando o WebSocket chegar.
+      - name: go test -race
+        working-directory: backend
+        run: go test -race ./...
+
+      # Vulnerabilidade conhecida em dependência do Go. O govulncheck só acusa
+      # o que é de fato ALCANÇÁVEL pelo código — não enche o relatório com CVE
+      # de função que o projeto nunca chama.
+      - name: govulncheck
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # A regra do CLAUDE.md que o CI passa a fazer cumprir: migration não
+      # escreve dado. Todo backfill é decisão do domínio, e em SQL ele vira uma
+      # segunda fonte da verdade, sem teste e sem conserto — migration aplicada
+      # não se corrige.
+      - name: migrations não podem escrever dado
+        run: |
+          if grep -rniE '^[[:space:]]*(INSERT|UPDATE|DELETE)[[:space:]]' backend/migrations/; then
+            echo "migration não escreve dado — mova o backfill para um comando do domínio"
+            exit 1
+          fi
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npx prettier --check "src/**/*.{svelte,ts}"
+      - run: npm run check
+      - run: npm run test:unit
+
+  publicar:
+    name: publicar imagens
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Necessária para o GITHUB_TOKEN poder escrever no GHCR.
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRO }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: api
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.prod
+          push: true
+          # Duas tags: `latest` é o que o VPS segue no dia a dia, e
+          # `sha-<commit>` é o que permite voltar a uma versão exata sem
+          # recompilar nada.
+          tags: |
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-api:latest
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-api:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Os .sql viajam DENTRO da imagem: é o que permite ao VPS rodar sem o
+      # código-fonte, com dois arquivos apenas (compose e .env.prod).
+      - name: migrations
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.migrations
+          push: true
+          tags: |
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-migrations:latest
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-migrations:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: web
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.prod
+          push: true
+          # A URL da API vai embutida no bundle: é decisão de build, não de
+          # runtime. Relativa, porque front e API compartilham o domínio.
+          build-args: |
+            PUBLIC_API_URL=/api
+          tags: |
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-web:latest
+            ${{ env.REGISTRO }}/${{ github.repository_owner }}/stacktrack-web:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

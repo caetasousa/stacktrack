@@ -1,0 +1,30 @@
+# Imagem de migrations: o Flyway com os .sql já embutidos.
+#
+# Existe para que o host de produção não precise do repositório. Sem ela, o job
+# de migration dependeria de um bind mount de ./backend/migrations, obrigando a
+# manter o código-fonte na VPS só para aplicar o schema — e a manter esse clone
+# sincronizado com a imagem que está rodando.
+
+FROM flyway/flyway:13-alpine
+
+# Duas limpezas, pelo mesmo motivo: o que não roda aqui não deveria vir junto.
+#
+# 1) apk upgrade — a imagem oficial do Flyway é reconstruída em ritmo próprio, e
+#    entre uma reconstrução e outra acumula correção já publicada pelo Alpine.
+#
+# 2) Remoção dos drivers que este projeto nunca toca. O Flyway oficial embarca
+#    centenas de MB de drivers para vinte e tantos bancos; o stacktrack fala com
+#    PostgreSQL e nada mais. A correção é remover, não atualizar: não existe
+#    versão corrigida de uma dependência que não deveria estar aqui.
+#
+# CUIDADO ao mexer nesta lista: o Flyway resolve os plugins por ServiceLoader e
+# os carrega avidamente — remover o driver errado derruba o boot com
+# ClassNotFoundException, mesmo sem uso nenhum daquele banco. Removeu algo? Rode
+# `flyway migrate` contra um Postgres de verdade antes de confiar.
+RUN apk upgrade --no-cache && \
+	rm -rf /flyway/drivers/couchbase \
+	/flyway/drivers/databricks-jdbc-*.jar \
+	/flyway/drivers/mssql-jdbc-*.jar \
+	/flyway/lib/netty
+
+COPY migrations /flyway/sql

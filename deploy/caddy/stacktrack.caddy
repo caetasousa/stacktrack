@@ -1,0 +1,66 @@
+# Bloco de site do stacktrack, para o Caddy que já serve o agendaGo no mesmo VPS.
+#
+# Instalação no host (uma vez):
+#
+#   sudo mkdir -p /opt/caddy/sites
+#   sudo cp deploy/caddy/stacktrack.caddy /opt/caddy/sites/
+#   sudo $EDITOR /opt/caddy/sites/stacktrack.caddy      # troque o domínio
+#   docker compose -f /home/caetasousa/agendaGo/docker-compose.prod.yml \
+#     exec caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# O Caddyfile do agendaGo faz `import /etc/caddy/sites/*.caddy` e enxerga este
+# arquivo pelo bind mount. Assim o stacktrack não precisa ser mencionado lá: o
+# vizinho entra e sai sem editar a configuração de quem já estava.
+#
+# Os containers são alcançados pela rede Docker `borda`, compartilhada pelos
+# dois stacks. Crie-a uma vez no host: docker network create borda
+
+stacktrack.duckdns.org {
+	encode gzip zstd
+
+	# Os mesmos cabeçalhos do agendaGo, pelas mesmas razões. A
+	# Content-Security-Policy NÃO fica aqui: quem a emite é o SvelteKit, que
+	# sabe o hash dos scripts que ele mesmo gerou naquele build. Duas CSPs na
+	# mesma resposta valem pela interseção, e a daqui quebraria o app na
+	# primeira divergência.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	# O teto de upload da API é 10 MiB de arquivo mais 1 MiB de folga para o
+	# cabeçalho multipart (config/server.go, maxBytesUpload). Um limite menor
+	# aqui devolveria 413 antes de a API poder responder direito.
+	request_body {
+		max_size 11MB
+	}
+
+	# API sob /api/* — handle_path REMOVE o prefixo (/api/boards -> /boards).
+	# É essa origem única que faz valer o cookie __Host- e a CSP em
+	# `connect-src 'self'`, e é ela que vai cobrir o wss:// da fase 5 sem
+	# nenhuma exceção nova.
+	handle_path /api/* {
+		reverse_proxy stacktrack-api:8080 {
+			# X-Real-IP com o peer da conexão, que não é forjável pelo cliente:
+			# sem isto o middleware IPReal veria sempre o IP do Caddy, e o
+			# httprate limitaria o proxy inteiro como se fosse uma pessoa só.
+			# header_up substitui qualquer valor que o cliente tenha mandado.
+			header_up X-Real-IP {remote_host}
+
+			# Fase 5: o WebSocket do quadro é transparente aqui — o Caddy faz o
+			# upgrade sozinho e não impõe timeout de leitura à conexão. Quem
+			# ainda derruba é o WriteTimeout de 15s do lado Go
+			# (config/server.go), que precisa ser revisto quando o hub entrar.
+		}
+	}
+
+	# Todo o resto é o frontend.
+	handle {
+		reverse_proxy stacktrack-web:3000
+	}
+}

@@ -1,0 +1,175 @@
+# Stack de PRODUÇÃO. O VPS já roda o agendaGo atrás de um Caddy que ocupa as
+# portas 80 e 443 e termina o TLS; o stacktrack entra ao lado dele, alcançado pela
+# rede Docker compartilhada `borda`. Nenhum serviço daqui publica porta no host.
+#
+# O Caddy serve front e API na MESMA origem — /api/* vai para a API com o
+# prefixo removido, todo o resto para o frontend. Origem única é o que faz o
+# cookie __Host- valer e mantém a CSP em `connect-src 'self'`.
+#
+# Este arquivo NÃO constrói nada: as imagens vêm prontas do GHCR, publicadas
+# pelo CI. Por isso o host de produção precisa de dois arquivos apenas — este e
+# o .env.prod —, nunca do código-fonte.
+#
+#   docker network create borda        # uma vez, no host
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+name: stacktrack
+
+# Rotação de log: sem isto o log do Docker cresce sem limite e enche o disco do
+# host — derrubando junto o agendaGo, que mora na mesma máquina.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    # O entrypoint do Postgres sobe como root e larga privilégio para o usuário
+    # `postgres`: por isso ele não pode ficar sem NENHUMA capability. Estas
+    # cinco são o mínimo para essa troca e para ajustar o dono do datadir.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    pids_limit: 512
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # sem `ports`: o banco só existe na rede interna deste compose.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Job pontual: aplica as migrations e sai. A API só sobe depois que ele
+  # termina com sucesso, então o schema nunca fica atrás do código.
+  #
+  # O Flyway é forward-only: voltar para a imagem anterior NÃO desfaz a
+  # migration. É por isso que aperto de schema exige dois deploys — ver
+  # CLAUDE.md, "Migration que aperta exige dois deploys".
+  flyway:
+    image: ${IMAGE_REPO:-ghcr.io/caetasousa}/stacktrack-migrations:${IMAGE_TAG:-latest}
+    command: migrate
+    logging: *logging
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      # Quem aplica migration é o DONO do banco — o usuário da aplicação não
+      # tem DDL de propósito.
+      FLYWAY_USER: ${POSTGRES_USER}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${IMAGE_REPO:-ghcr.io/caetasousa}/stacktrack-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    # Sem `healthcheck` aqui: a imagem já traz o dela (backend/Dockerfile.prod).
+    # Declarar de novo criaria duas definições para manter em sincronia.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # O binário é estático e roda sem privilégio. read_only impede que um
+    # comprometimento deixe qualquer coisa gravada no container — os anexos
+    # continuam graváveis porque volume montado é exceção ao read_only.
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 256
+    # Teto, não reserva. Argon2id usa ~19 MiB por hash simultâneo; suba se o log
+    # mostrar OOM em rajada de login.
+    mem_limit: 384m
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      # Usuário da APLICAÇÃO: só DML, sem poder criar, alterar ou derrubar
+      # tabela. Sem DB_USER definido cai no dono do banco — ver docs/deploy.md.
+      DB_USER: ${DB_USER:-${POSTGRES_USER}}
+      DB_PASSWORD: ${DB_PASSWORD:-${POSTGRES_PASSWORD}}
+      # Ausentes, valem os padrões do projeto — que já são uma decisão, ao
+      # contrário do padrão do pgx (max(4, núcleos), ou seja 4 numa VPS de 1 vCPU).
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
+      DB_MIN_CONNS: ${DB_MIN_CONNS:-2}
+      # É esta variável que liga o prefixo __Host- e o atributo Secure no cookie
+      # de sessão. Sem HTTPS de verdade na frente, o navegador descarta o cookie
+      # e o login não completa.
+      APP_ENV: production
+      FRONTEND_ORIGIN: https://${DOMINIO}
+      ANEXOS_DIR: /var/lib/stacktrack/anexos
+    volumes:
+      - anexos:/var/lib/stacktrack/anexos
+    # Participa das duas redes: a interna (para falar com o Postgres) e a borda
+    # (para o Caddy do agendaGo alcançá-lo). O apelido é explícito porque na
+    # borda convivem serviços de projetos diferentes, e mais de um se chama
+    # "api".
+    networks:
+      default:
+      borda:
+        aliases:
+          - stacktrack-api
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+
+  # A imagem já vem com PUBLIC_API_URL=/api assado no build — relativo, e
+  # portanto independente do domínio.
+  web:
+    image: ${IMAGE_REPO:-ghcr.io/caetasousa}/stacktrack-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 256
+    mem_limit: 256m
+    environment:
+      # adapter-node atrás de proxy: conhece a origem pública e confia nos
+      # cabeçalhos X-Forwarded-* do Caddy. Sem isto ele só enxerga o IP do
+      # container e recusa requisições por origem inválida.
+      ORIGIN: https://${DOMINIO}
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
+    networks:
+      default:
+      borda:
+        aliases:
+          - stacktrack-web
+    depends_on:
+      - api
+
+networks:
+  # Criada uma vez no host, fora do ciclo de vida de qualquer stack:
+  #   docker network create borda
+  borda:
+    external: true
+
+volumes:
+  postgres_data:
+  # Os anexos são arquivos no disco, não linhas no banco: o pg_dump NÃO os
+  # inclui. Este volume precisa de backup próprio — ver scripts/backup.sh.
+  anexos:

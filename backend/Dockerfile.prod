@@ -1,0 +1,52 @@
+# Imagem de PRODUÇÃO da API. O Dockerfile (sem sufixo) é o de desenvolvimento,
+# com air e a árvore de código montada do host; aqui nada disso existe.
+#
+# Duas etapas: a primeira compila, a segunda só carrega o binário. O resultado
+# não tem compilador, nem código-fonte, nem gerenciador de pacotes — o que não
+# está na imagem não precisa de correção de segurança.
+
+FROM golang:1.26-alpine AS build
+
+WORKDIR /src
+
+# go.mod e go.sum antes do resto: enquanto as dependências não mudarem, esta
+# camada vem do cache e o download não se repete a cada build.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# CGO_ENABLED=0 produz binário estático, que roda numa imagem sem libc.
+# -trimpath tira os caminhos da máquina de build do binário (build reproduzível
+# e sem vazar a estrutura de diretórios); -s -w descartam a tabela de símbolos
+# e o DWARF, que só servem para depurar.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+	-trimpath \
+	-ldflags="-s -w" \
+	-o /out/api ./cmd/api
+
+FROM alpine:3.21
+
+# ca-certificates para qualquer chamada HTTPS de saída; tzdata porque prazo de
+# card é data, e sem o banco de fusos o Go só conhece UTC.
+RUN apk add --no-cache ca-certificates tzdata
+
+# Usuário próprio, sem shell e sem senha: um processo comprometido não começa
+# como root. O UID alto evita colidir com usuários do host num bind mount.
+RUN adduser -D -H -u 10001 stacktrack \
+	&& mkdir -p /var/lib/stacktrack/anexos \
+	&& chown -R stacktrack:stacktrack /var/lib/stacktrack
+
+COPY --from=build /out/api /usr/local/bin/api
+
+USER stacktrack
+EXPOSE 8080
+
+# /ready, e não /health: o primeiro responde só se a API também enxerga o
+# banco. Com `restart: unless-stopped` o Docker não reinicia por unhealthy, ou
+# seja, marcar unhealthy aqui não derruba nada — só faz o `docker compose ps`
+# dizer a verdade sobre um Postgres fora do ar, em vez de mostrar tudo verde.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+	CMD wget --quiet --spider http://127.0.0.1:8080/ready || exit 1
+
+ENTRYPOINT ["/usr/local/bin/api"]

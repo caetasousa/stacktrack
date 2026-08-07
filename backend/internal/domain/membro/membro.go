@@ -29,6 +29,12 @@ var (
 	ErrPapelInvalido = errors.New("papel inválido")
 	// ErrSemPermissao é retornado quando o papel do membro não autoriza a operação.
 	ErrSemPermissao = errors.New("seu papel neste quadro não permite esta operação")
+	// ErrSemDono é retornado quando remover alguém, ou rebaixar seu papel,
+	// deixaria o quadro sem dono nenhum.
+	ErrSemDono = errors.New("o quadro precisa continuar com ao menos um dono")
+	// ErrNaoEMembro é retornado quando a pessoa alvo da operação não participa
+	// do quadro.
+	ErrNaoEMembro = errors.New("esta pessoa não participa do quadro")
 )
 
 // Membro é o vínculo entre uma pessoa e um quadro.
@@ -70,8 +76,71 @@ func (m Membro) PodeEditar() bool {
 	return m.Papel == PapelDono || m.Papel == PapelEditor
 }
 
-// PodeAdministrar informa se o membro pode renomear e apagar o quadro, e — a
-// partir da fase 3 — convidar e remover gente. Só o dono.
+// PodeAdministrar informa se o membro pode renomear e apagar o quadro, além de
+// convidar, remover e trocar o papel de quem participa. Só o dono.
 func (m Membro) PodeAdministrar() bool {
 	return m.Papel == PapelDono
+}
+
+// ValidarRemocao checa se tirar alvoID do quadro é permitido, dada a lista de
+// quem participa hoje.
+//
+// Um quadro sem dono fica órfão: ninguém pode mais convidar, renomear nem
+// apagá-lo, e nem o administrador do sistema — que não existe aqui — teria como
+// consertar. É por isso que o último dono não sai; ele precisa promover outra
+// pessoa antes.
+func ValidarRemocao(todos []Membro, alvoID string) error {
+	alvo, encontrado := buscar(todos, alvoID)
+	if !encontrado {
+		return ErrNaoEMembro
+	}
+	if alvo.Papel == PapelDono && contarDonos(todos) == 1 {
+		return ErrSemDono
+	}
+	return nil
+}
+
+// ValidarTrocaDePapel checa se mudar o papel de alvoID é permitido. Rebaixar o
+// último dono cai na mesma regra da remoção, pelo mesmo motivo.
+func ValidarTrocaDePapel(todos []Membro, alvoID string, novo Papel) error {
+	if !PapelValido(novo) {
+		return ErrPapelInvalido
+	}
+	alvo, encontrado := buscar(todos, alvoID)
+	if !encontrado {
+		return ErrNaoEMembro
+	}
+	if alvo.Papel == PapelDono && novo != PapelDono && contarDonos(todos) == 1 {
+		return ErrSemDono
+	}
+	return nil
+}
+
+func buscar(todos []Membro, usuarioID string) (Membro, bool) {
+	for _, m := range todos {
+		if m.UsuarioID == usuarioID {
+			return m, true
+		}
+	}
+	return Membro{}, false
+}
+
+func contarDonos(todos []Membro) int {
+	total := 0
+	for _, m := range todos {
+		if m.Papel == PapelDono {
+			total++
+		}
+	}
+	return total
+}
+
+// DefinirPapel troca o papel do membro. A validação de que a troca é permitida
+// é de ValidarTrocaDePapel, que precisa enxergar o quadro inteiro.
+func (m *Membro) DefinirPapel(papel Papel) error {
+	if !PapelValido(papel) {
+		return ErrPapelInvalido
+	}
+	m.Papel = papel
+	return nil
 }

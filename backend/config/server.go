@@ -71,6 +71,14 @@ func RateLimitLoginPorConta() int {
 	return intDoAmbiente("RATE_LIMIT_LOGIN_POR_CONTA", 5)
 }
 
+// RateLimitPublicoPorMinuto é o teto por IP por minuto das rotas que respondem
+// a quem não se identificou (env RATE_LIMIT_PUBLICO_POR_MINUTO; 0 desliga).
+// Hoje é só o detalhe do convite — e é justamente onde um teto importa, porque
+// sem ele daria para varrer tokens à vontade.
+func RateLimitPublicoPorMinuto() int {
+	return intDoAmbiente("RATE_LIMIT_PUBLICO_POR_MINUTO", 30)
+}
+
 // RateLimitAutenticadoPorMinuto é o teto de requisições por SESSÃO por minuto
 // (env RATE_LIMIT_AUTENTICADO_POR_MINUTO; 0 desliga). Depois do login o IP
 // deixa de identificar quem abusa — várias pessoas atrás do mesmo NAT

@@ -131,3 +131,74 @@ func (r *MembroPostgres) Buscar(boardID, usuarioID string) (*membro.Membro, erro
 	m.Papel = membro.Papel(papel)
 	return &m, nil
 }
+
+// Atualizar grava o papel de um vínculo existente.
+func (r *MembroPostgres) Atualizar(m *membro.Membro) error {
+	_, err := r.pool.Exec(context.Background(),
+		`UPDATE board_membros SET papel = $3 WHERE board_id = $1 AND usuario_id = $2`,
+		m.BoardID, m.UsuarioID, string(m.Papel),
+	)
+	return err
+}
+
+// Remover apaga o vínculo. Remover quem não participa não é erro.
+func (r *MembroPostgres) Remover(boardID, usuarioID string) error {
+	_, err := r.pool.Exec(context.Background(),
+		`DELETE FROM board_membros WHERE board_id = $1 AND usuario_id = $2`, boardID, usuarioID,
+	)
+	return err
+}
+
+// Todos devolve só os vínculos do quadro — é o que a regra do último dono
+// precisa enxergar, sem pagar o JOIN com usuarios.
+func (r *MembroPostgres) Todos(boardID string) ([]membro.Membro, error) {
+	linhas, err := r.pool.Query(context.Background(),
+		`SELECT board_id, usuario_id, papel, criado_em FROM board_membros WHERE board_id = $1`,
+		boardID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	membros := make([]membro.Membro, 0)
+	for linhas.Next() {
+		var m membro.Membro
+		var papel string
+		if err := linhas.Scan(&m.BoardID, &m.UsuarioID, &papel, &m.CriadoEm); err != nil {
+			return nil, err
+		}
+		m.Papel = membro.Papel(papel)
+		membros = append(membros, m)
+	}
+	return membros, linhas.Err()
+}
+
+// Participantes devolve os vínculos já com nome e email, numa consulta só —
+// buscar a pessoa de cada vínculo seria um N+1 na tela de membros.
+// O dono vem primeiro, e depois por ordem de entrada.
+func (r *MembroPostgres) Participantes(boardID string) ([]ucboard.Participante, error) {
+	linhas, err := r.pool.Query(context.Background(),
+		`SELECT m.usuario_id, u.nome, u.email, m.papel, m.criado_em
+		 FROM board_membros m
+		 JOIN usuarios u ON u.id = m.usuario_id
+		 WHERE m.board_id = $1
+		 ORDER BY (m.papel <> 'dono'), m.criado_em`, boardID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	participantes := make([]ucboard.Participante, 0)
+	for linhas.Next() {
+		var p ucboard.Participante
+		var papel string
+		if err := linhas.Scan(&p.UsuarioID, &p.Nome, &p.Email, &papel, &p.CriadoEm); err != nil {
+			return nil, err
+		}
+		p.Papel = membro.Papel(papel)
+		participantes = append(participantes, p)
+	}
+	return participantes, linhas.Err()
+}

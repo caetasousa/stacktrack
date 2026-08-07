@@ -7,6 +7,8 @@
 package board
 
 import (
+	"time"
+
 	"kanbango/internal/domain/board"
 	"kanbango/internal/domain/card"
 	"kanbango/internal/domain/coluna"
@@ -30,4 +32,14 @@ type Detalhado struct {
 	Board   board.Board
 	Papel   membro.Papel
 	Colunas []ColunaComCards
+}
+
+// Participante é alguém que participa do quadro, com os dados que a tela de
+// membros mostra.
+type Participante struct {
+	UsuarioID string
+	Nome      string
+	Email     string
+	Papel     membro.Papel
+	CriadoEm  time.Time
 }

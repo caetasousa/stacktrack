@@ -21,7 +21,8 @@ import (
 
 type apiDeQuadro struct {
 	http.Handler
-	membros *memoria.Membros
+	membros  *memoria.Membros
+	convites *memoria.Convites
 }
 
 // montarAPIDeQuadro sobe autenticação e quadros juntos, espelhando o wiring do
@@ -32,10 +33,12 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	sessoes := memoria.NovasSessoes()
 	hasher := &memoria.Hasher{}
 	membros := memoria.NovosMembros()
+	convites := memoria.NovosConvites()
 	cards := memoria.NovosCards()
 	colunas := memoria.NovasColunas(cards)
 	cards.LigarColunas(colunas)
 	boards := memoria.NovosBoards(membros)
+	membros.LigarUsuarios(usuarios)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -54,11 +57,18 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		ucboard.NovoCardUseCase(membros, colunas, cards),
 		identidade,
 	)
+	membroHandler := handler.NovoMembroHandler(
+		ucboard.NovoMembroUseCase(membros, convites, usuarios, boards),
+		"http://localhost:5173",
+		identidade,
+	)
 
 	r := chi.NewRouter()
 	r.Post("/auth/cadastro", authHandler.Cadastrar)
+	r.Get("/convites/{token}", membroHandler.DetalharConvite)
 	r.Group(func(r chi.Router) {
 		r.Use(autenticacao.Autenticar)
+		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
 		r.Route("/boards", func(r chi.Router) {
 			r.Get("/", boardHandler.Listar)
 			r.Post("/", boardHandler.Criar)
@@ -66,6 +76,12 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Patch("/{boardID}", boardHandler.Renomear)
 			r.Delete("/{boardID}", boardHandler.Apagar)
 			r.Post("/{boardID}/colunas", boardHandler.CriarColuna)
+
+			r.Get("/{boardID}/membros", membroHandler.Listar)
+			r.Post("/{boardID}/membros", membroHandler.Convidar)
+			r.Patch("/{boardID}/membros/{usuarioID}", membroHandler.AlterarPapel)
+			r.Delete("/{boardID}/membros/{usuarioID}", membroHandler.Remover)
+			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
 		})
 		r.Route("/colunas/{colunaID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.RenomearColuna)
@@ -78,7 +94,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		})
 	})
 
-	return &apiDeQuadro{Handler: r, membros: membros}
+	return &apiDeQuadro{Handler: r, membros: membros, convites: convites}
 }
 
 // conta cadastra alguém e devolve o cookie de sessão e o id.

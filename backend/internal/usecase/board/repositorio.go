@@ -4,7 +4,9 @@ import (
 	dboard "kanbango/internal/domain/board"
 	"kanbango/internal/domain/card"
 	"kanbango/internal/domain/coluna"
+	"kanbango/internal/domain/convite"
 	"kanbango/internal/domain/membro"
+	"kanbango/internal/domain/usuario"
 )
 
 // Todas as buscas devolvem (nil, nil) quando não encontram: "não existe" não é
@@ -24,6 +26,31 @@ type repositorioBoard interface {
 type repositorioMembro interface {
 	Salvar(m *membro.Membro) error
 	Buscar(boardID, usuarioID string) (*membro.Membro, error)
+	Atualizar(m *membro.Membro) error
+	Remover(boardID, usuarioID string) error
+	// Todos devolve só os vínculos, sem dados de pessoa: é o que a regra do
+	// último dono precisa enxergar para decidir.
+	Todos(boardID string) ([]membro.Membro, error)
+	// Participantes devolve os vínculos já com nome e email, para a tela de
+	// membros não precisar de uma consulta por pessoa.
+	Participantes(boardID string) ([]Participante, error)
+}
+
+// buscadorUsuario resolve contas a partir do email — é como o convite descobre
+// se quem foi convidado já existe no sistema.
+type buscadorUsuario interface {
+	BuscarPorID(id string) (*usuario.Usuario, error)
+	BuscarPorEmail(email string) (*usuario.Usuario, error)
+}
+
+type repositorioConvite interface {
+	Salvar(c *convite.Convite) error
+	Atualizar(c *convite.Convite) error
+	BuscarPorID(id string) (*convite.Convite, error)
+	BuscarPorTokenHash(hash string) (*convite.Convite, error)
+	BuscarPendentePorEmail(boardID, email string) (*convite.Convite, error)
+	ListarPendentes(boardID string) ([]convite.Convite, error)
+	Remover(id string) error
 }
 
 type repositorioColuna interface {

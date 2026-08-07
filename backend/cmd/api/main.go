@@ -56,6 +56,7 @@ func main() {
 	membroRepo := repository.NovoMembroPostgres(pool)
 	colunaRepo := repository.NovoColunaPostgres(pool)
 	cardRepo := repository.NovoCardPostgres(pool)
+	conviteRepo := repository.NovoConvitePostgres(pool)
 
 	// segurança
 	hasher := security.NovoHasherArgon2id()
@@ -69,6 +70,7 @@ func main() {
 	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo)
 	colunaUC := ucboard.NovoColunaUseCase(membroRepo, colunaRepo)
 	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo)
+	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo)
 
 	// handlers e middlewares
 	autenticacao := middleware.NovoAuth(validarSessaoUC, config.CookieSeguro())
@@ -82,6 +84,7 @@ func main() {
 		identidadeDoContexto,
 	)
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
+	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 
 	r := config.NovoRouter()
 	r.Get("/health", health)
@@ -107,6 +110,15 @@ func main() {
 		})
 	})
 
+	// Detalhe do convite é PÚBLICO de propósito: quem foi convidado costuma
+	// ainda não ter conta, e precisa ver de que quadro se trata antes de criar
+	// uma. O token é a credencial — quem não o tem recebe o mesmo 404 de um
+	// convite vencido. Aceitar, esse sim, exige sessão.
+	r.Group(func(r chi.Router) {
+		r.Use(limitePorIP(config.RateLimitPublicoPorMinuto()))
+		r.Get("/convites/{token}", membroHandler.DetalharConvite)
+	})
+
 	// Tudo daqui para baixo exige sessão. O teto por sessão fica no grupo, e
 	// não em cada rota, pela mesma razão dos tetos de /auth: rota nova nasce
 	// coberta em vez de depender de alguém lembrar.
@@ -121,7 +133,15 @@ func main() {
 			r.Patch("/{boardID}", boardHandler.Renomear)
 			r.Delete("/{boardID}", boardHandler.Apagar)
 			r.Post("/{boardID}/colunas", boardHandler.CriarColuna)
+
+			r.Get("/{boardID}/membros", membroHandler.Listar)
+			r.Post("/{boardID}/membros", membroHandler.Convidar)
+			r.Patch("/{boardID}/membros/{usuarioID}", membroHandler.AlterarPapel)
+			r.Delete("/{boardID}/membros/{usuarioID}", membroHandler.Remover)
+			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
 		})
+
+		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
 
 		// Coluna e card são endereçados pelo próprio id, e não sob o caminho
 		// do quadro: o servidor descobre a que quadro pertencem para autorizar
@@ -196,12 +216,13 @@ func limitePorSessao(porMinuto int, cookieSeguro bool) func(http.Handler) http.H
 // tetos atrapalham os testes) para um ambiente exposto e não perceber que o
 // login ficou sem proteção nenhuma.
 func avisarSobreTetosDesligados() {
-	desligados := make([]string, 0, 4)
+	desligados := make([]string, 0, 5)
 	for nome, limite := range map[string]int{
 		"RATE_LIMIT_LOGIN_POR_MINUTO":       config.RateLimitLoginPorMinuto(),
 		"RATE_LIMIT_CADASTRO_POR_MINUTO":    config.RateLimitCadastroPorMinuto(),
 		"RATE_LIMIT_LOGIN_POR_CONTA":        config.RateLimitLoginPorConta(),
 		"RATE_LIMIT_AUTENTICADO_POR_MINUTO": config.RateLimitAutenticadoPorMinuto(),
+		"RATE_LIMIT_PUBLICO_POR_MINUTO":     config.RateLimitPublicoPorMinuto(),
 	} {
 		if limite == 0 {
 			desligados = append(desligados, nome)

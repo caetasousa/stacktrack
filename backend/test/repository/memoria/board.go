@@ -80,7 +80,10 @@ func (r *Boards) ListarDoUsuario(usuarioID string) ([]ucboard.Resumo, error) {
 // Membros guarda os vínculos entre pessoas e quadros.
 type Membros struct {
 	porBoardEUsuario map[string]*membro.Membro
-	ErroForcado      error
+	// usuarios existe só para Participantes conseguir imitar o JOIN do SQL;
+	// é opcional, e os testes que não olham nome nem email podem ignorá-lo.
+	usuarios    *Usuarios
+	ErroForcado error
 }
 
 // NovosMembros cria o repositório em memória vazio.
@@ -110,6 +113,62 @@ func (r *Membros) Buscar(boardID, usuarioID string) (*membro.Membro, error) {
 	copia := *m
 	return &copia, nil
 }
+
+func (r *Membros) Atualizar(m *membro.Membro) error {
+	return r.Salvar(m)
+}
+
+func (r *Membros) Remover(boardID, usuarioID string) error {
+	delete(r.porBoardEUsuario, chaveMembro(boardID, usuarioID))
+	return nil
+}
+
+func (r *Membros) Todos(boardID string) ([]membro.Membro, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]membro.Membro, 0)
+	for _, m := range r.porBoardEUsuario {
+		if m.BoardID == boardID {
+			lista = append(lista, *m)
+		}
+	}
+	return lista, nil
+}
+
+// Participantes imita o JOIN com usuarios do repositório de verdade — por isso
+// precisa enxergar as contas.
+func (r *Membros) Participantes(boardID string) ([]ucboard.Participante, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]ucboard.Participante, 0)
+	for _, m := range r.porBoardEUsuario {
+		if m.BoardID != boardID {
+			continue
+		}
+		p := ucboard.Participante{UsuarioID: m.UsuarioID, Papel: m.Papel, CriadoEm: m.CriadoEm}
+		if r.usuarios != nil {
+			if u, _ := r.usuarios.BuscarPorID(m.UsuarioID); u != nil {
+				p.Nome, p.Email = u.Nome, u.Email
+			}
+		}
+		lista = append(lista, p)
+	}
+	// dono primeiro, depois por ordem de entrada — igual ao ORDER BY do SQL
+	sort.Slice(lista, func(i, j int) bool {
+		donoI, donoJ := lista[i].Papel == membro.PapelDono, lista[j].Papel == membro.PapelDono
+		if donoI != donoJ {
+			return donoI
+		}
+		return lista[i].CriadoEm.Before(lista[j].CriadoEm)
+	})
+	return lista, nil
+}
+
+// LigarUsuarios dá ao repositório de vínculos acesso às contas, para
+// Participantes conseguir devolver nome e email.
+func (r *Membros) LigarUsuarios(usuarios *Usuarios) { r.usuarios = usuarios }
 
 func (r *Membros) apagarDoBoard(boardID string) {
 	for chave, m := range r.porBoardEUsuario {

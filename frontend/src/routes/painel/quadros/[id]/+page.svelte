@@ -86,6 +86,7 @@
 			<span class="chip" class:chip-neutro={data.quadro.papel !== 'dono'}>
 				<i class="size-1.5 rounded-full bg-current"></i>{data.quadro.papel}
 			</span>
+			<a href="/painel/quadros/{data.quadro.id}/membros" class="hover:text-ink">Membros</a>
 			{#if podeAdministrar}
 				<button
 					onclick={() => ((titulo = data.quadro.titulo), (renomeando = true))}

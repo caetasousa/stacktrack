@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { cadastrar } from '$lib/api/auth';
 	import { ApiError } from '$lib/api/client';
 	import { sessao } from '$lib/stores/session.svelte';
+	import { destinoDeVolta } from '$lib/navegacao';
 
 	let nome = $state('');
 	let email = $state('');
@@ -19,7 +21,7 @@
 			// O cadastro já devolve a conta autenticada (e o cookie de sessão),
 			// então dá para popular a store sem uma segunda ida ao /auth/me.
 			sessao.definir(await cadastrar({ nome, email, senha }));
-			await goto('/painel');
+			await goto(destinoDeVolta(page.url));
 		} catch (e) {
 			erro = e instanceof ApiError ? e.message : 'não foi possível criar a conta';
 		} finally {

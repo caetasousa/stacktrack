@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { entrar } from '$lib/api/auth';
 	import { ApiError } from '$lib/api/client';
 	import { sessao } from '$lib/stores/session.svelte';
+	import { destinoDeVolta } from '$lib/navegacao';
 
 	let email = $state('');
 	let senha = $state('');
@@ -16,7 +18,7 @@
 
 		try {
 			sessao.definir(await entrar({ email, senha }));
-			await goto('/painel');
+			await goto(destinoDeVolta(page.url));
 		} catch (e) {
 			// A mensagem da API é genérica de propósito ("credenciais
 			// inválidas"): dizer se foi o email ou a senha revelaria quais

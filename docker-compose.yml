@@ -50,8 +50,14 @@ services:
       DB_NAME: ${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      ANEXOS_DIR: /var/lib/kanbango/anexos
     volumes:
       - ./backend:/app
+      # Os arquivos anexados vão para um volume próprio, e NÃO para dentro de
+      # ./backend: aquele diretório é a árvore de código montada do host, e
+      # arquivo de usuário não pode aparecer no `git status` — nem sumir num
+      # `git clean`. Volume nomeado também sobrevive ao recreate do container.
+      - anexos:/var/lib/kanbango/anexos
     depends_on:
       flyway:
         condition: service_completed_successfully
@@ -98,6 +104,7 @@ services:
 
 volumes:
   postgres_data:
+  anexos:
   frontend_node_modules:
   frontend_svelte_kit:
   frontend_npm_cache:

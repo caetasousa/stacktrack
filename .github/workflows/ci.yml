@@ -110,7 +110,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
-      - run: npx prettier --check "src/**/*.{svelte,ts}"
+      - run: npx prettier --check "src/**/*.{svelte,ts}" "e2e/*.ts" playwright.config.ts
       - run: npm run check
       - run: npm run test:unit
 
@@ -154,6 +154,78 @@ jobs:
         working-directory: frontend
         if: always()
         run: npm audit || true
+
+  e2e:
+    name: E2E (Playwright sobre a stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/docker-hub-login
+        with:
+          usuario: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: instala dependências e o navegador
+        working-directory: frontend
+        # --with-deps porque o runner não traz as bibliotecas de sistema que o
+        # Chromium precisa; só chromium porque é o único projeto configurado, e
+        # baixar os três navegadores triplicaria o tempo sem cobrir mais nada.
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: prepara o ambiente
+        run: |
+          cp .env.example .env
+          sed -i "s/troque-esta-senha/$(openssl rand -hex 16)/" .env
+          cp frontend/.env.example frontend/.env
+
+      - name: sobe a stack
+        run: docker compose up -d --wait
+
+      # A API precisa responder E enxergar o banco; o frontend, servir a
+      # página. Sem esta espera o primeiro teste falharia com a stack ainda
+      # subindo, e o relatório apontaria para o lugar errado.
+      - name: aguarda a stack ficar pronta
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS localhost:8080/ready >/dev/null 2>&1 \
+              && curl -fsS -o /dev/null localhost:5173/; then
+              echo "stack pronta"; exit 0
+            fi
+            sleep 2
+          done
+          echo "a stack não ficou pronta"; docker compose logs; exit 1
+
+      - name: testes de ponta a ponta
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: logs da stack (em falha)
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: guarda o relatório e os rastros (em falha)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
+      - name: derruba a stack
+        if: always()
+        run: docker compose down -v
 
   # Fonte única da lista de imagens, consumida por `seguranca-imagens` e
   # `publicar-imagens`. É um job só para isso porque `strategy.matrix` é
@@ -267,7 +339,7 @@ jobs:
     # A varredura semanal (schedule) não publica nem implanta: ela roda sem
     # commit novo, e reimplantar produção sozinho toda segunda não é o objetivo.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    needs: [imagens, backend, frontend, seguranca-codigo, seguranca-imagens]
+    needs: [imagens, backend, frontend, e2e, seguranca-codigo, seguranca-imagens]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

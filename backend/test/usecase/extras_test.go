@@ -4,6 +4,7 @@
 package usecase_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -53,16 +54,16 @@ func (e *extras) montar(t *testing.T, dono string) (boardID, cardID string) {
 func TestAplicarERemoverEtiquetaNoCard(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	etq, err := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	etq, err := e.etiquetaUC.Criar(context.Background(), boardID, "ana", "Urgente", detiqueta.CorVermelho)
 	if err != nil {
 		t.Fatalf("erro ao criar etiqueta: %v", err)
 	}
 
-	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "ana"); err != nil {
+	if err := e.etiquetaUC.Aplicar(context.Background(), cardID, etq.ID, "ana"); err != nil {
 		t.Fatalf("erro ao aplicar: %v", err)
 	}
 
-	detalhe, err := e.card.Detalhar(cardID, "ana")
+	detalhe, err := e.card.Detalhar(context.Background(), cardID, "ana")
 	if err != nil {
 		t.Fatalf("erro ao detalhar: %v", err)
 	}
@@ -70,10 +71,10 @@ func TestAplicarERemoverEtiquetaNoCard(t *testing.T) {
 		t.Fatalf("etiquetas do card = %+v", detalhe.Etiquetas)
 	}
 
-	if err := e.etiquetaUC.Remover(cardID, etq.ID, "ana"); err != nil {
+	if err := e.etiquetaUC.Remover(context.Background(), cardID, etq.ID, "ana"); err != nil {
 		t.Fatalf("erro ao remover: %v", err)
 	}
-	detalhe, _ = e.card.Detalhar(cardID, "ana")
+	detalhe, _ = e.card.Detalhar(context.Background(), cardID, "ana")
 	if len(detalhe.Etiquetas) != 0 {
 		t.Errorf("a etiqueta devia ter saído do card: %+v", detalhe.Etiquetas)
 	}
@@ -84,14 +85,14 @@ func TestAplicarERemoverEtiquetaNoCard(t *testing.T) {
 func TestAplicarEtiquetaDuasVezesNaoEErro(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	etq, _ := e.etiquetaUC.Criar(context.Background(), boardID, "ana", "Urgente", detiqueta.CorVermelho)
 
-	e.etiquetaUC.Aplicar(cardID, etq.ID, "ana")
-	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "ana"); err != nil {
+	e.etiquetaUC.Aplicar(context.Background(), cardID, etq.ID, "ana")
+	if err := e.etiquetaUC.Aplicar(context.Background(), cardID, etq.ID, "ana"); err != nil {
 		t.Fatalf("erro na segunda aplicação: %v", err)
 	}
 
-	detalhe, _ := e.card.Detalhar(cardID, "ana")
+	detalhe, _ := e.card.Detalhar(context.Background(), cardID, "ana")
 	if len(detalhe.Etiquetas) != 1 {
 		t.Errorf("etiquetas = %d, esperado 1", len(detalhe.Etiquetas))
 	}
@@ -104,9 +105,9 @@ func TestNaoDaParaAplicarEtiquetaDeOutroQuadro(t *testing.T) {
 	e := novoExtras()
 	_, cardDeA := e.montar(t, "ana")
 	boardB := e.criarQuadro(t, "ana", "Outro quadro")
-	etqDeB, _ := e.etiquetaUC.Criar(boardB, "ana", "De outro quadro", detiqueta.CorAzul)
+	etqDeB, _ := e.etiquetaUC.Criar(context.Background(), boardB, "ana", "De outro quadro", detiqueta.CorAzul)
 
-	err := e.etiquetaUC.Aplicar(cardDeA, etqDeB.ID, "ana")
+	err := e.etiquetaUC.Aplicar(context.Background(), cardDeA, etqDeB.ID, "ana")
 
 	if !errors.Is(err, detiqueta.ErrNaoEncontrada) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
@@ -116,18 +117,18 @@ func TestNaoDaParaAplicarEtiquetaDeOutroQuadro(t *testing.T) {
 func TestLeitorNaoMexeEmEtiqueta(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	etq, _ := e.etiquetaUC.Criar(context.Background(), boardID, "ana", "Urgente", detiqueta.CorVermelho)
 	e.convidar(t, boardID, "bob", membro.PapelLeitor)
 
 	// enxerga
-	if _, err := e.etiquetaUC.Listar(boardID, "bob"); err != nil {
+	if _, err := e.etiquetaUC.Listar(context.Background(), boardID, "bob"); err != nil {
 		t.Errorf("o leitor devia ver as etiquetas: %v", err)
 	}
 	// mas não mexe
-	if _, err := e.etiquetaUC.Criar(boardID, "bob", "Nova", detiqueta.CorVerde); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := e.etiquetaUC.Criar(context.Background(), boardID, "bob", "Nova", detiqueta.CorVerde); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("criar: erro = %v", err)
 	}
-	if err := e.etiquetaUC.Aplicar(cardID, etq.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
+	if err := e.etiquetaUC.Aplicar(context.Background(), cardID, etq.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("aplicar: erro = %v", err)
 	}
 }
@@ -135,9 +136,9 @@ func TestLeitorNaoMexeEmEtiqueta(t *testing.T) {
 func TestQuemNaoParticipaNaoDescobreAEtiqueta(t *testing.T) {
 	e := novoExtras()
 	boardID, _ := e.montar(t, "ana")
-	etq, _ := e.etiquetaUC.Criar(boardID, "ana", "Urgente", detiqueta.CorVermelho)
+	etq, _ := e.etiquetaUC.Criar(context.Background(), boardID, "ana", "Urgente", detiqueta.CorVermelho)
 
-	_, err := e.etiquetaUC.Editar(etq.ID, "bob", "Invadida", detiqueta.CorRoxo)
+	_, err := e.etiquetaUC.Editar(context.Background(), etq.ID, "bob", "Invadida", detiqueta.CorRoxo)
 
 	if !errors.Is(err, detiqueta.ErrNaoEncontrada) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
@@ -153,19 +154,19 @@ func TestChecklistComItensEProgresso(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
 
-	lista, err := e.checklistUC.Criar(cardID, "ana", "To-do List")
+	lista, err := e.checklistUC.Criar(context.Background(), cardID, "ana", "To-do List")
 	if err != nil {
 		t.Fatalf("erro ao criar checklist: %v", err)
 	}
-	primeiro, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Escrever o teste")
-	e.checklistUC.CriarItem(lista.ID, "ana", "Rodar o -race")
+	primeiro, _ := e.checklistUC.CriarItem(context.Background(), lista.ID, "ana", "Escrever o teste")
+	e.checklistUC.CriarItem(context.Background(), lista.ID, "ana", "Rodar o -race")
 
 	concluido := true
-	if _, err := e.checklistUC.EditarItem(primeiro.ID, "ana", nil, &concluido); err != nil {
+	if _, err := e.checklistUC.EditarItem(context.Background(), primeiro.ID, "ana", nil, &concluido); err != nil {
 		t.Fatalf("erro ao marcar: %v", err)
 	}
 
-	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := e.quadros.Detalhar(context.Background(), boardID, "ana")
 	progresso := detalhado.Colunas[0].Cards[0].Checklist
 	if progresso.Concluidos != 1 || progresso.Total != 2 {
 		t.Errorf("progresso = %d/%d, esperado 1/2", progresso.Concluidos, progresso.Total)
@@ -177,17 +178,17 @@ func TestChecklistComItensEProgresso(t *testing.T) {
 func TestEditarItemMexeSoNoQueFoiInformado(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
-	item, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Texto original")
+	lista, _ := e.checklistUC.Criar(context.Background(), cardID, "ana", "To-do List")
+	item, _ := e.checklistUC.CriarItem(context.Background(), lista.ID, "ana", "Texto original")
 
 	marcado := true
-	depoisDeMarcar, _ := e.checklistUC.EditarItem(item.ID, "ana", nil, &marcado)
+	depoisDeMarcar, _ := e.checklistUC.EditarItem(context.Background(), item.ID, "ana", nil, &marcado)
 	if depoisDeMarcar.Texto != "Texto original" || !depoisDeMarcar.Concluido {
 		t.Fatalf("item = %+v", depoisDeMarcar)
 	}
 
 	novoTexto := "Texto novo"
-	depoisDeRenomear, _ := e.checklistUC.EditarItem(item.ID, "ana", &novoTexto, nil)
+	depoisDeRenomear, _ := e.checklistUC.EditarItem(context.Background(), item.ID, "ana", &novoTexto, nil)
 	if depoisDeRenomear.Texto != "Texto novo" || !depoisDeRenomear.Concluido {
 		t.Errorf("item = %+v — renomear não podia ter desmarcado", depoisDeRenomear)
 	}
@@ -196,14 +197,14 @@ func TestEditarItemMexeSoNoQueFoiInformado(t *testing.T) {
 func TestApagarChecklistLevaOsItens(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
-	e.checklistUC.CriarItem(lista.ID, "ana", "Item")
+	lista, _ := e.checklistUC.Criar(context.Background(), cardID, "ana", "To-do List")
+	e.checklistUC.CriarItem(context.Background(), lista.ID, "ana", "Item")
 
-	if err := e.checklistUC.Apagar(lista.ID, "ana"); err != nil {
+	if err := e.checklistUC.Apagar(context.Background(), lista.ID, "ana"); err != nil {
 		t.Fatalf("erro ao apagar: %v", err)
 	}
 
-	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := e.quadros.Detalhar(context.Background(), boardID, "ana")
 	if p := detalhado.Colunas[0].Cards[0].Checklist; p.Total != 0 {
 		t.Errorf("progresso = %d/%d, esperado zerado", p.Concluidos, p.Total)
 	}
@@ -212,19 +213,19 @@ func TestApagarChecklistLevaOsItens(t *testing.T) {
 func TestChecklistDeCardAlheioNaoEAlcancavel(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	lista, _ := e.checklistUC.Criar(cardID, "ana", "To-do List")
-	item, _ := e.checklistUC.CriarItem(lista.ID, "ana", "Segredo")
+	lista, _ := e.checklistUC.Criar(context.Background(), cardID, "ana", "To-do List")
+	item, _ := e.checklistUC.CriarItem(context.Background(), lista.ID, "ana", "Segredo")
 
-	if _, err := e.checklistUC.Criar(cardID, "bob", "Invasora"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
+	if _, err := e.checklistUC.Criar(context.Background(), cardID, "bob", "Invasora"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
 		if !errors.Is(err, errCardNaoEncontrado()) {
 			t.Errorf("criar: erro = %v", err)
 		}
 	}
-	if _, err := e.checklistUC.Renomear(lista.ID, "bob", "Invadida"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
+	if _, err := e.checklistUC.Renomear(context.Background(), lista.ID, "bob", "Invadida"); !errors.Is(err, dchecklist.ErrNaoEncontrada) {
 		t.Errorf("renomear: erro = %v", err)
 	}
 	marcado := true
-	if _, err := e.checklistUC.EditarItem(item.ID, "bob", nil, &marcado); !errors.Is(err, dchecklist.ErrItemNaoEncontrado) {
+	if _, err := e.checklistUC.EditarItem(context.Background(), item.ID, "bob", nil, &marcado); !errors.Is(err, dchecklist.ErrItemNaoEncontrado) {
 		t.Errorf("marcar item: erro = %v", err)
 	}
 }
@@ -236,7 +237,7 @@ func TestAnexarArquivoGuardaConteudoERegistra(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	conteudo := "id,nome\n1,ana\n"
 
-	a, err := e.anexoUC.AnexarArquivo(cardID, "ana", "relatorio.csv", "text/csv",
+	a, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "relatorio.csv", "text/csv",
 		int64(len(conteudo)), strings.NewReader(conteudo))
 	if err != nil {
 		t.Fatalf("erro ao anexar: %v", err)
@@ -249,7 +250,7 @@ func TestAnexarArquivoGuardaConteudoERegistra(t *testing.T) {
 		t.Errorf("arquivos no armazém = %d, esperado 1", e.armazem.Quantidade())
 	}
 
-	baixado, err := e.anexoUC.Baixar(a.ID, "ana")
+	baixado, err := e.anexoUC.Baixar(context.Background(), a.ID, "ana")
 	if err != nil {
 		t.Fatalf("erro ao baixar: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestFalhaNoArmazemNaoDeixaAnexoRegistrado(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	e.armazem.ErroAoGuardar = errors.New("disco cheio")
 
-	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
 
 	if err == nil {
 		t.Fatal("a falha do armazém devia ter subido")
@@ -284,7 +285,7 @@ func TestFalhaAoRegistrarApagaOArquivoGravado(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	e.anexos.ErroForcado = errors.New("conexão recusada")
 
-	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
 
 	if err == nil {
 		t.Fatal("a falha do banco devia ter subido")
@@ -297,9 +298,9 @@ func TestFalhaAoRegistrarApagaOArquivoGravado(t *testing.T) {
 func TestApagarAnexoTiraDoBancoEDoArmazem(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
 
-	if err := e.anexoUC.Apagar(a.ID, "ana"); err != nil {
+	if err := e.anexoUC.Apagar(context.Background(), a.ID, "ana"); err != nil {
 		t.Fatalf("erro ao apagar: %v", err)
 	}
 
@@ -313,9 +314,9 @@ func TestApagarAnexoTiraDoBancoEDoArmazem(t *testing.T) {
 func TestQuemNaoParticipaNaoBaixaOAnexo(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "segredo.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "segredo.txt", "text/plain", 5, strings.NewReader("teste"))
 
-	_, err := e.anexoUC.Baixar(a.ID, "bob")
+	_, err := e.anexoUC.Baixar(context.Background(), a.ID, "bob")
 
 	if !errors.Is(err, danexo.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
@@ -325,16 +326,16 @@ func TestQuemNaoParticipaNaoBaixaOAnexo(t *testing.T) {
 func TestLeitorBaixaMasNaoAnexaNemApaga(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
 	e.convidar(t, boardID, "bob", membro.PapelLeitor)
 
-	if _, err := e.anexoUC.Baixar(a.ID, "bob"); err != nil {
+	if _, err := e.anexoUC.Baixar(context.Background(), a.ID, "bob"); err != nil {
 		t.Errorf("o leitor devia poder baixar: %v", err)
 	}
-	if _, err := e.anexoUC.AnexarLink(cardID, "bob", "x", "https://exemplo.com"); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := e.anexoUC.AnexarLink(context.Background(), cardID, "bob", "x", "https://exemplo.com"); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("anexar: erro = %v", err)
 	}
-	if err := e.anexoUC.Apagar(a.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
+	if err := e.anexoUC.Apagar(context.Background(), a.ID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("apagar: erro = %v", err)
 	}
 }
@@ -343,7 +344,7 @@ func TestArquivoGrandeNaoChegaAoArmazem(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
 
-	_, err := e.anexoUC.AnexarArquivo(cardID, "ana", "grande.png", "image/png",
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "grande.png", "image/png",
 		danexo.TamanhoMaximoArquivo+1, strings.NewReader("x"))
 
 	if !errors.Is(err, danexo.ErrArquivoGrande) {
@@ -360,7 +361,7 @@ func TestAnexoDeLinkNaoTocaNoArmazem(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
 
-	a, err := e.anexoUC.AnexarLink(cardID, "ana", "PR 12", "https://github.com/org/repo/pull/12")
+	a, err := e.anexoUC.AnexarLink(context.Background(), cardID, "ana", "PR 12", "https://github.com/org/repo/pull/12")
 	if err != nil {
 		t.Fatalf("erro ao anexar link: %v", err)
 	}
@@ -372,14 +373,14 @@ func TestAnexoDeLinkNaoTocaNoArmazem(t *testing.T) {
 		t.Error("link não gera arquivo")
 	}
 	// E baixar um link não faz sentido: não há conteúdo nosso para entregar.
-	if _, err := e.anexoUC.Baixar(a.ID, "ana"); !errors.Is(err, danexo.ErrNaoEncontrado) {
+	if _, err := e.anexoUC.Baixar(context.Background(), a.ID, "ana"); !errors.Is(err, danexo.ErrNaoEncontrado) {
 		t.Errorf("baixar link: erro = %v", err)
 	}
 }
 
 // errCardNaoEncontrado evita importar o pacote card só para uma comparação.
 func errCardNaoEncontrado() error {
-	_, err := novoExtras().checklistUC.Criar("card-que-nao-existe", "ana", "x")
+	_, err := novoExtras().checklistUC.Criar(context.Background(), "card-que-nao-existe", "ana", "x")
 	return err
 }
 
@@ -393,11 +394,11 @@ func TestPrazoSobreviveAReleituraDoCard(t *testing.T) {
 	boardID, cardID := e.montar(t, "ana")
 	prazo := time.Now().Add(48 * time.Hour)
 
-	if _, err := e.card.DefinirPrazo(cardID, "ana", &prazo); err != nil {
+	if _, err := e.card.DefinirPrazo(context.Background(), cardID, "ana", &prazo); err != nil {
 		t.Fatalf("erro ao definir prazo: %v", err)
 	}
 
-	relido, err := e.card.Detalhar(cardID, "ana")
+	relido, err := e.card.Detalhar(context.Background(), cardID, "ana")
 	if err != nil {
 		t.Fatalf("erro ao detalhar: %v", err)
 	}
@@ -406,16 +407,16 @@ func TestPrazoSobreviveAReleituraDoCard(t *testing.T) {
 	}
 
 	// E o quadro precisa mostrar o mesmo, senão o selo do card mente.
-	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := e.quadros.Detalhar(context.Background(), boardID, "ana")
 	noQuadro := detalhado.Colunas[0].Cards[0].Card
 	if noQuadro.Prazo == nil {
 		t.Error("o card no quadro veio sem prazo")
 	}
 
-	if _, err := e.card.DefinirPrazo(cardID, "ana", nil); err != nil {
+	if _, err := e.card.DefinirPrazo(context.Background(), cardID, "ana", nil); err != nil {
 		t.Fatalf("erro ao limpar prazo: %v", err)
 	}
-	limpo, _ := e.card.Detalhar(cardID, "ana")
+	limpo, _ := e.card.Detalhar(context.Background(), cardID, "ana")
 	if limpo.Card.Prazo != nil {
 		t.Error("passar nil devia ter limpado o prazo")
 	}
@@ -430,16 +431,16 @@ func TestCorSobreviveAReleituraDeColunaEDeCard(t *testing.T) {
 	e := novoExtras()
 	boardID := e.criarQuadro(t, "ana", "Estudos")
 
-	col, err := e.coluna.Criar(boardID, "ana", "Start", dcor.Verde)
+	col, err := e.coluna.Criar(context.Background(), boardID, "ana", "Start", dcor.Verde)
 	if err != nil {
 		t.Fatalf("erro ao criar coluna: %v", err)
 	}
-	card, err := e.card.Criar(col.ID, "ana", "Migrar o site", "", dcor.Azul)
+	card, err := e.card.Criar(context.Background(), col.ID, "ana", "Migrar o site", "", dcor.Azul)
 	if err != nil {
 		t.Fatalf("erro ao criar card: %v", err)
 	}
 
-	detalhado, _ := e.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := e.quadros.Detalhar(context.Background(), boardID, "ana")
 	if detalhado.Colunas[0].Coluna.Cor != dcor.Verde {
 		t.Errorf("cor da coluna = %q, esperado verde", detalhado.Colunas[0].Coluna.Cor)
 	}
@@ -448,10 +449,10 @@ func TestCorSobreviveAReleituraDeColunaEDeCard(t *testing.T) {
 	}
 
 	// e dá para tirar a cor voltando ao visual padrão
-	if _, err := e.coluna.Renomear(col.ID, "ana", "Start", ""); err != nil {
+	if _, err := e.coluna.Renomear(context.Background(), col.ID, "ana", "Start", ""); err != nil {
 		t.Fatalf("erro ao limpar a cor: %v", err)
 	}
-	semCor, _ := e.quadros.Detalhar(boardID, "ana")
+	semCor, _ := e.quadros.Detalhar(context.Background(), boardID, "ana")
 	if semCor.Colunas[0].Coluna.Cor != "" {
 		t.Errorf("cor = %q, esperado vazia", semCor.Colunas[0].Coluna.Cor)
 	}
@@ -462,12 +463,12 @@ func TestCorForaDaPaletaERecusada(t *testing.T) {
 	e := novoExtras()
 	boardID := e.criarQuadro(t, "ana", "Estudos")
 
-	if _, err := e.coluna.Criar(boardID, "ana", "Start", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
+	if _, err := e.coluna.Criar(context.Background(), boardID, "ana", "Start", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
 		t.Errorf("coluna: erro = %v, esperado ErrInvalida", err)
 	}
 
-	col, _ := e.coluna.Criar(boardID, "ana", "Start", "")
-	if _, err := e.card.Criar(col.ID, "ana", "Tarefa", "", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
+	col, _ := e.coluna.Criar(context.Background(), boardID, "ana", "Start", "")
+	if _, err := e.card.Criar(context.Background(), col.ID, "ana", "Tarefa", "", dcor.Cor("neon")); !errors.Is(err, dcor.ErrInvalida) {
 		t.Errorf("card: erro = %v, esperado ErrInvalida", err)
 	}
 }

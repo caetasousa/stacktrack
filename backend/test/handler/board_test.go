@@ -4,6 +4,7 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -236,7 +237,7 @@ func TestLeitorRecebe403EmVezDe404(t *testing.T) {
 	if err != nil {
 		t.Fatalf("vínculo inválido: %v", err)
 	}
-	api.membros.Salvar(vinculo)
+	api.membros.Salvar(context.Background(), vinculo)
 
 	if rec := chamar(api, http.MethodGet, "/boards/"+boardID, "", cookieBob); rec.Code != http.StatusOK {
 		t.Fatalf("o leitor devia enxergar o quadro: %d %s", rec.Code, rec.Body)

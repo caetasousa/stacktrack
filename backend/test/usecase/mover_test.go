@@ -4,6 +4,7 @@
 package usecase_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // repositório os entrega — que é a ordem que a tela mostra.
 func (q *quadro) ordemDaColuna(t *testing.T, boardID, colunaID, usuarioID string) []string {
 	t.Helper()
-	detalhado, err := q.quadros.Detalhar(boardID, usuarioID)
+	detalhado, err := q.quadros.Detalhar(context.Background(), boardID, usuarioID)
 	if err != nil {
 		t.Fatalf("erro ao detalhar: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestMoverCardParaOMeioDaMesmaColuna(t *testing.T) {
 	c := q.criarCard(t, col, "ana", "C")
 
 	// arrasta C para entre A e B
-	if _, err := q.card.Mover(c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b}); err != nil {
+	if _, err := q.card.Mover(context.Background(), c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b}); err != nil {
 		t.Fatalf("erro ao mover: %v", err)
 	}
 
@@ -63,13 +64,13 @@ func TestMoverEscreveApenasOCardMovido(t *testing.T) {
 	b := q.criarCard(t, col, "ana", "B")
 	c := q.criarCard(t, col, "ana", "C")
 
-	antesA, _ := q.cards.BuscarPorID(a)
-	antesB, _ := q.cards.BuscarPorID(b)
+	antesA, _ := q.cards.BuscarPorID(context.Background(), a)
+	antesB, _ := q.cards.BuscarPorID(context.Background(), b)
 
-	q.card.Mover(c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b})
+	q.card.Mover(context.Background(), c, "ana", col, ucboard.Vizinhos{AnteriorID: a, ProximoID: b})
 
-	depoisA, _ := q.cards.BuscarPorID(a)
-	depoisB, _ := q.cards.BuscarPorID(b)
+	depoisA, _ := q.cards.BuscarPorID(context.Background(), a)
+	depoisB, _ := q.cards.BuscarPorID(context.Background(), b)
 	if depoisA.Posicao != antesA.Posicao || depoisB.Posicao != antesB.Posicao {
 		t.Errorf("as posições dos vizinhos mudaram: A %v→%v, B %v→%v",
 			antesA.Posicao, depoisA.Posicao, antesB.Posicao, depoisB.Posicao)
@@ -87,7 +88,7 @@ func TestMoverCardEntreColunas(t *testing.T) {
 	destino := q.criarColuna(t, boardID, "ana", "Fazendo")
 	card := q.criarCard(t, origem, "ana", "Tarefa")
 
-	movido, err := q.card.Mover(card, "ana", destino, ucboard.Vizinhos{})
+	movido, err := q.card.Mover(context.Background(), card, "ana", destino, ucboard.Vizinhos{})
 	if err != nil {
 		t.Fatalf("erro ao mover: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestSemVizinhosOCardVaiParaOFim(t *testing.T) {
 	q.criarCard(t, destino, "ana", "Já estava")
 	card := q.criarCard(t, origem, "ana", "Chegando")
 
-	q.card.Mover(card, "ana", destino, ucboard.Vizinhos{})
+	q.card.Mover(context.Background(), card, "ana", destino, ucboard.Vizinhos{})
 
 	if got := q.ordemDaColuna(t, boardID, destino, "ana"); got[1] != "Chegando" {
 		t.Errorf("ordem = %v, esperado o card novo no fim", got)
@@ -132,7 +133,7 @@ func TestNaoDaParaMoverCardParaColunaDeOutroQuadro(t *testing.T) {
 	boardB := q.criarQuadro(t, "ana", "Quadro B")
 	colB := q.criarColuna(t, boardB, "ana", "Outra")
 
-	_, err := q.card.Mover(card, "ana", colB, ucboard.Vizinhos{})
+	_, err := q.card.Mover(context.Background(), card, "ana", colB, ucboard.Vizinhos{})
 
 	if !errors.Is(err, dcoluna.ErrNaoEncontrada) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrada", err)
@@ -152,7 +153,7 @@ func TestVizinhoDeOutraColunaERecusado(t *testing.T) {
 	cardDeOutra := q.criarCard(t, col2, "ana", "De outra coluna")
 	card := q.criarCard(t, col1, "ana", "Tarefa")
 
-	_, err := q.card.Mover(card, "ana", col1, ucboard.Vizinhos{AnteriorID: cardDeOutra})
+	_, err := q.card.Mover(context.Background(), card, "ana", col1, ucboard.Vizinhos{AnteriorID: cardDeOutra})
 
 	if err == nil {
 		t.Error("vizinho de outra coluna devia ser recusado")
@@ -166,10 +167,10 @@ func TestLeitorNaoMoveNada(t *testing.T) {
 	card := q.criarCard(t, col, "ana", "Tarefa")
 	q.convidar(t, boardID, "bob", membro.PapelLeitor)
 
-	if _, err := q.card.Mover(card, "bob", col, ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := q.card.Mover(context.Background(), card, "bob", col, ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("card: erro = %v", err)
 	}
-	if _, err := q.coluna.Mover(col, "bob", ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := q.coluna.Mover(context.Background(), col, "bob", ucboard.Vizinhos{}); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("coluna: erro = %v", err)
 	}
 }
@@ -180,7 +181,7 @@ func TestQuemNaoParticipaNaoMove(t *testing.T) {
 	col := q.criarColuna(t, boardID, "ana", "A fazer")
 	card := q.criarCard(t, col, "ana", "Tarefa")
 
-	_, err := q.card.Mover(card, "bob", col, ucboard.Vizinhos{})
+	_, err := q.card.Mover(context.Background(), card, "bob", col, ucboard.Vizinhos{})
 
 	if errors.Is(err, membro.ErrSemPermissao) {
 		t.Error("'sem permissão' confirmaria que o card existe")
@@ -198,11 +199,11 @@ func TestMoverColunaReordenaOQuadro(t *testing.T) {
 	c := q.criarColuna(t, boardID, "ana", "C")
 
 	// arrasta C para o começo
-	if _, err := q.coluna.Mover(c, "ana", ucboard.Vizinhos{ProximoID: a}); err != nil {
+	if _, err := q.coluna.Mover(context.Background(), c, "ana", ucboard.Vizinhos{ProximoID: a}); err != nil {
 		t.Fatalf("erro ao mover coluna: %v", err)
 	}
 
-	detalhado, _ := q.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := q.quadros.Detalhar(context.Background(), boardID, "ana")
 	titulos := []string{
 		detalhado.Colunas[0].Coluna.Titulo,
 		detalhado.Colunas[1].Coluna.Titulo,
@@ -231,20 +232,20 @@ func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
 	// que o domínio não produziria. Atualizar exige a versão anterior — é o
 	// bloqueio otimista —, e passar por ele aqui faria a preparação falhar em
 	// silêncio, deixando o teste verde por não ter montado o caso que queria.
-	posInicial, _ := q.cards.BuscarPorID(primeiro)
-	alvo, _ := q.cards.BuscarPorID(segundo)
+	posInicial, _ := q.cards.BuscarPorID(context.Background(), primeiro)
+	alvo, _ := q.cards.BuscarPorID(context.Background(), segundo)
 	alvo.Posicao = posInicial.Posicao
-	if err := q.cards.Salvar(alvo); err != nil {
+	if err := q.cards.Salvar(context.Background(), alvo); err != nil {
 		t.Fatalf("preparação do cenário: %v", err)
 	}
 
-	_, err := q.card.Mover(movel, "ana", col, ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
+	_, err := q.card.Mover(context.Background(), movel, "ana", col, ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
 
 	if !errors.Is(err, ordem.ErrSemEspaco) {
 		t.Errorf("erro = %v, esperado ErrSemEspaco", err)
 	}
 	// e o card não se mexeu
-	depois, _ := q.cards.BuscarPorID(movel)
+	depois, _ := q.cards.BuscarPorID(context.Background(), movel)
 	if depois.ColunaID != col || depois.Posicao <= alvo.Posicao {
 		t.Error("o card não podia ter sido movido")
 	}

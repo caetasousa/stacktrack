@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -20,8 +21,8 @@ import (
 type CardUseCase struct {
 	eventos
 	membros    repositorioMembro
-	colunas    repositorioColuna
-	cards      repositorioCard
+	colunas    RepositorioColuna
+	cards      RepositorioCard
 	etiquetas  repositorioEtiqueta
 	checklists repositorioChecklist
 	anexos     repositorioAnexo
@@ -30,8 +31,8 @@ type CardUseCase struct {
 // NovoCardUseCase cria uma instância de CardUseCase com as dependências injetadas.
 func NovoCardUseCase(
 	membros repositorioMembro,
-	colunas repositorioColuna,
-	cards repositorioCard,
+	colunas RepositorioColuna,
+	cards RepositorioCard,
 	etiquetas repositorioEtiqueta,
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
@@ -44,41 +45,41 @@ func NovoCardUseCase(
 
 // Detalhar devolve o card com tudo que pende dele — é o que o modal mostra.
 // Qualquer membro pode ver; editar é que exige papel.
-func (uc *CardUseCase) Detalhar(cardID, usuarioID string) (*CardDetalhado, error) {
-	c, err := uc.cards.BuscarPorID(cardID)
+func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (*CardDetalhado, error) {
+	c, err := uc.cards.BuscarPorID(ctx, cardID)
 	if err != nil {
 		return nil, err
 	}
 	if c == nil {
 		return nil, dcard.ErrNaoEncontrado
 	}
-	col, err := uc.colunas.BuscarPorID(c.ColunaID)
+	col, err := uc.colunas.BuscarPorID(ctx, c.ColunaID)
 	if err != nil {
 		return nil, err
 	}
 	if col == nil {
 		return nil, dcard.ErrNaoEncontrado
 	}
-	if _, err := acesso(uc.membros, col.BoardID, usuarioID); err != nil {
+	if _, err := acesso(ctx, uc.membros, col.BoardID, usuarioID); err != nil {
 		return nil, traduzirParaCard(err)
 	}
 
-	etiquetas, err := uc.etiquetas.EtiquetasDoCard(cardID)
+	etiquetas, err := uc.etiquetas.EtiquetasDoCard(ctx, cardID)
 	if err != nil {
 		return nil, err
 	}
-	listas, err := uc.checklists.ListarDoCard(cardID)
+	listas, err := uc.checklists.ListarDoCard(ctx, cardID)
 	if err != nil {
 		return nil, err
 	}
-	anexos, err := uc.anexos.ListarDoCard(cardID)
+	anexos, err := uc.anexos.ListarDoCard(ctx, cardID)
 	if err != nil {
 		return nil, err
 	}
 
 	comItens := make([]ChecklistComItens, 0, len(listas))
 	for _, lista := range listas {
-		itens, err := uc.checklists.ListarItens(lista.ID)
+		itens, err := uc.checklists.ListarItens(ctx, lista.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -92,34 +93,34 @@ func (uc *CardUseCase) Detalhar(cardID, usuarioID string) (*CardDetalhado, error
 }
 
 // DefinirPrazo marca ou limpa a data de entrega do card. Exige papel de edição.
-func (uc *CardUseCase) DefinirPrazo(cardID, usuarioID string, prazo *time.Time) (*dcard.Card, error) {
-	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID string, prazo *time.Time) (*dcard.Card, error) {
+	c, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
 	c.DefinirPrazo(prazo)
-	if err := uc.cards.Atualizar(c); err != nil {
+	if err := uc.cards.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.CardAlterado, boardID, usuarioID, c)
+	uc.publicar(ctx, evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
 // Criar acrescenta um card no fim da coluna. Exige papel de edição no quadro
 // da coluna.
-func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
-	col, err := uc.colunas.BuscarPorID(colunaID)
+func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
+	col, err := uc.colunas.BuscarPorID(ctx, colunaID)
 	if err != nil {
 		return nil, err
 	}
 	if col == nil {
 		return nil, dcoluna.ErrNaoEncontrada
 	}
-	if _, err := acessoDeEdicao(uc.membros, col.BoardID, usuarioID); err != nil {
+	if _, err := acessoDeEdicao(ctx, uc.membros, col.BoardID, usuarioID); err != nil {
 		return nil, traduzirParaColuna(err)
 	}
 
-	ultima, err := uc.cards.UltimaPosicao(colunaID)
+	ultima, err := uc.cards.UltimaPosicao(ctx, colunaID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,10 +129,10 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, core
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.cards.Salvar(c); err != nil {
+	if err := uc.cards.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.CardCriado, col.BoardID, usuarioID, c)
+	uc.publicar(ctx, evento.CardCriado, col.BoardID, usuarioID, c)
 	return c, nil
 }
 
@@ -141,8 +142,8 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, core
 // Devolve ErrConflito (409) quando versaoVista não é a versão atual — alguém
 // gravou entre a leitura e esta escrita. Recusar é a decisão: sobrescrever
 // apagaria o trabalho da outra pessoa sem ninguém ficar sabendo.
-func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores dcor.Cor, versaoVista int) (*dcard.Card, error) {
-	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, descricao string, cores dcor.Cor, versaoVista int) (*dcard.Card, error) {
+	c, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,23 +159,23 @@ func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores
 	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err
 	}
-	if err := uc.cards.Atualizar(c); err != nil {
+	if err := uc.cards.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.CardAlterado, boardID, usuarioID, c)
+	uc.publicar(ctx, evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
 // Apagar remove o card. Exige papel de edição.
-func (uc *CardUseCase) Apagar(cardID, usuarioID string) error {
-	_, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) error {
+	_, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
 		return err
 	}
-	if err := uc.cards.Apagar(cardID); err != nil {
+	if err := uc.cards.Apagar(ctx, cardID); err != nil {
 		return err
 	}
-	uc.publicar(evento.CardApagado, boardID, usuarioID, map[string]string{"id": cardID})
+	uc.publicar(ctx, evento.CardApagado, boardID, usuarioID, map[string]string{"id": cardID})
 	return nil
 }
 
@@ -183,15 +184,15 @@ func (uc *CardUseCase) Apagar(cardID, usuarioID string) error {
 // card, que não guarda o quadro a que pertence.
 // Devolve também o id do quadro: é a sala onde o evento correspondente será
 // publicado, e o card sozinho não sabe a que quadro pertence.
-func (uc *CardUseCase) carregarComAcessoDeEdicao(cardID, usuarioID string) (*dcard.Card, string, error) {
-	c, err := uc.cards.BuscarPorID(cardID)
+func (uc *CardUseCase) carregarComAcessoDeEdicao(ctx context.Context, cardID, usuarioID string) (*dcard.Card, string, error) {
+	c, err := uc.cards.BuscarPorID(ctx, cardID)
 	if err != nil {
 		return nil, "", err
 	}
 	if c == nil {
 		return nil, "", dcard.ErrNaoEncontrado
 	}
-	col, err := uc.colunas.BuscarPorID(c.ColunaID)
+	col, err := uc.colunas.BuscarPorID(ctx, c.ColunaID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -200,7 +201,7 @@ func (uc *CardUseCase) carregarComAcessoDeEdicao(cardID, usuarioID string) (*dca
 		// o ON DELETE CASCADE deveria ter levado o card junto.
 		return nil, "", dcard.ErrNaoEncontrado
 	}
-	if _, err := acessoDeEdicao(uc.membros, col.BoardID, usuarioID); err != nil {
+	if _, err := acessoDeEdicao(ctx, uc.membros, col.BoardID, usuarioID); err != nil {
 		return nil, "", traduzirParaCard(err)
 	}
 	return c, col.BoardID, nil

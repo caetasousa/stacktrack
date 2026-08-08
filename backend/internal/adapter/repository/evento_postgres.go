@@ -16,9 +16,9 @@ import (
 //
 //   - RegistrarNaTransacao grava DENTRO da transação da mudança. Ou o card
 //     move e o evento existe, ou nenhum dos dois. É o que os eventos
-//     estruturais usam, porque um buraco ali é invisível: o cliente que
-//     reconecta pediria "desde o 41", receberia o 43 e nunca saberia que o 42
-//     existiu.
+//     estruturais usam — via UnidadeDeTrabalho, em transacao.go —, porque um
+//     buraco ali é invisível: o cliente que reconecta pediria "desde o 41",
+//     receberia o 43 e nunca saberia que o 42 existiu.
 //
 //   - Registrar grava sozinho, fora de transação. Serve para os eventos que
 //     são apenas um AVISO de "recarregue o quadro" (etiqueta, checklist,
@@ -53,8 +53,7 @@ func (r *EventoPostgres) RegistrarNaTransacao(ctx context.Context, tx pgx.Tx, e 
 }
 
 // Registrar grava o evento fora de transação.
-func (r *EventoPostgres) Registrar(e evento.Evento) (int64, error) {
-	ctx := context.Background()
+func (r *EventoPostgres) Registrar(ctx context.Context, e evento.Evento) (int64, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -73,8 +72,8 @@ func (r *EventoPostgres) Registrar(e evento.Evento) (int64, error) {
 // aba que ficou uma semana fechada pediria a história inteira do quadro, e o
 // servidor a montaria inteira em memória para entregá-la. Quando o intervalo é
 // grande demais, o cliente recarrega tudo — que é mais barato e sempre certo.
-func (r *EventoPostgres) Desde(boardID string, seq int64, limite int) ([]evento.Evento, error) {
-	linhas, err := r.pool.Query(context.Background(),
+func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error) {
+	linhas, err := r.pool.Query(ctx,
 		`SELECT seq, tipo, payload, autor_id, criado_em
 		   FROM board_events
 		  WHERE board_id = $1 AND seq > $2
@@ -114,9 +113,9 @@ func (r *EventoPostgres) Desde(boardID string, seq int64, limite int) ([]evento.
 // É o que o cliente recebe ao conectar pela primeira vez: sem ele, a primeira
 // reconexão pediria "desde o 0" e receberia a história inteira do quadro para
 // jogar fora.
-func (r *EventoPostgres) UltimoSeq(boardID string) (int64, error) {
+func (r *EventoPostgres) UltimoSeq(ctx context.Context, boardID string) (int64, error) {
 	var seq *int64
-	err := r.pool.QueryRow(context.Background(),
+	err := r.pool.QueryRow(ctx,
 		`SELECT MAX(seq) FROM board_events WHERE board_id = $1`, boardID,
 	).Scan(&seq)
 	if err != nil || seq == nil {

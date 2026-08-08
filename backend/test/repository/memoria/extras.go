@@ -2,6 +2,7 @@ package memoria
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"sort"
@@ -37,7 +38,7 @@ func (r *Etiquetas) LigarQuadro(colunas *Colunas, cards *Cards) {
 	r.colunas, r.cards = colunas, cards
 }
 
-func (r *Etiquetas) Salvar(e *etiqueta.Etiqueta) error {
+func (r *Etiquetas) Salvar(ctx context.Context, e *etiqueta.Etiqueta) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -46,9 +47,11 @@ func (r *Etiquetas) Salvar(e *etiqueta.Etiqueta) error {
 	return nil
 }
 
-func (r *Etiquetas) Atualizar(e *etiqueta.Etiqueta) error { return r.Salvar(e) }
+func (r *Etiquetas) Atualizar(ctx context.Context, e *etiqueta.Etiqueta) error {
+	return r.Salvar(ctx, e)
+}
 
-func (r *Etiquetas) BuscarPorID(id string) (*etiqueta.Etiqueta, error) {
+func (r *Etiquetas) BuscarPorID(ctx context.Context, id string) (*etiqueta.Etiqueta, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -60,7 +63,7 @@ func (r *Etiquetas) BuscarPorID(id string) (*etiqueta.Etiqueta, error) {
 	return &copia, nil
 }
 
-func (r *Etiquetas) ListarDoBoard(boardID string) ([]etiqueta.Etiqueta, error) {
+func (r *Etiquetas) ListarDoBoard(ctx context.Context, boardID string) ([]etiqueta.Etiqueta, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -79,7 +82,7 @@ func (r *Etiquetas) ListarDoBoard(boardID string) ([]etiqueta.Etiqueta, error) {
 	return lista, nil
 }
 
-func (r *Etiquetas) EtiquetasDoCard(cardID string) ([]etiqueta.Etiqueta, error) {
+func (r *Etiquetas) EtiquetasDoCard(ctx context.Context, cardID string) ([]etiqueta.Etiqueta, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -93,7 +96,7 @@ func (r *Etiquetas) EtiquetasDoCard(cardID string) ([]etiqueta.Etiqueta, error) 
 	return lista, nil
 }
 
-func (r *Etiquetas) EtiquetasDoBoardPorCard(boardID string) (map[string][]string, error) {
+func (r *Etiquetas) EtiquetasDoBoardPorCard(ctx context.Context, boardID string) (map[string][]string, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -112,7 +115,7 @@ func (r *Etiquetas) EtiquetasDoBoardPorCard(boardID string) (map[string][]string
 	return porCard, nil
 }
 
-func (r *Etiquetas) Apagar(id string) error {
+func (r *Etiquetas) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	for _, conjunto := range r.aplicadas {
 		delete(conjunto, id)
@@ -120,7 +123,7 @@ func (r *Etiquetas) Apagar(id string) error {
 	return nil
 }
 
-func (r *Etiquetas) UltimaPosicao(boardID string) (float64, error) {
+func (r *Etiquetas) UltimaPosicao(ctx context.Context, boardID string) (float64, error) {
 	if r.ErroForcado != nil {
 		return 0, r.ErroForcado
 	}
@@ -133,7 +136,7 @@ func (r *Etiquetas) UltimaPosicao(boardID string) (float64, error) {
 	return ultima, nil
 }
 
-func (r *Etiquetas) Aplicar(cardID, etiquetaID string) error {
+func (r *Etiquetas) Aplicar(ctx context.Context, cardID, etiquetaID string) error {
 	if r.aplicadas[cardID] == nil {
 		r.aplicadas[cardID] = make(map[string]bool)
 	}
@@ -141,7 +144,7 @@ func (r *Etiquetas) Aplicar(cardID, etiquetaID string) error {
 	return nil
 }
 
-func (r *Etiquetas) Remover(cardID, etiquetaID string) error {
+func (r *Etiquetas) Remover(ctx context.Context, cardID, etiquetaID string) error {
 	delete(r.aplicadas[cardID], etiquetaID)
 	return nil
 }
@@ -183,7 +186,7 @@ func (r *Checklists) LigarQuadro(colunas *Colunas, cards *Cards) {
 	r.colunas, r.cards = colunas, cards
 }
 
-func (r *Checklists) Salvar(c *checklist.Checklist) error {
+func (r *Checklists) Salvar(ctx context.Context, c *checklist.Checklist) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -192,9 +195,11 @@ func (r *Checklists) Salvar(c *checklist.Checklist) error {
 	return nil
 }
 
-func (r *Checklists) Atualizar(c *checklist.Checklist) error { return r.Salvar(c) }
+func (r *Checklists) Atualizar(ctx context.Context, c *checklist.Checklist) error {
+	return r.Salvar(ctx, c)
+}
 
-func (r *Checklists) BuscarPorID(id string) (*checklist.Checklist, error) {
+func (r *Checklists) BuscarPorID(ctx context.Context, id string) (*checklist.Checklist, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -206,7 +211,7 @@ func (r *Checklists) BuscarPorID(id string) (*checklist.Checklist, error) {
 	return &copia, nil
 }
 
-func (r *Checklists) ListarDoCard(cardID string) ([]checklist.Checklist, error) {
+func (r *Checklists) ListarDoCard(ctx context.Context, cardID string) ([]checklist.Checklist, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -221,7 +226,7 @@ func (r *Checklists) ListarDoCard(cardID string) ([]checklist.Checklist, error) 
 }
 
 // Apagar imita o cascata do schema levando os itens junto.
-func (r *Checklists) Apagar(id string) error {
+func (r *Checklists) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	for itemID, item := range r.itens {
 		if item.ChecklistID == id {
@@ -231,7 +236,7 @@ func (r *Checklists) Apagar(id string) error {
 	return nil
 }
 
-func (r *Checklists) UltimaPosicao(cardID string) (float64, error) {
+func (r *Checklists) UltimaPosicao(ctx context.Context, cardID string) (float64, error) {
 	var ultima float64
 	for _, c := range r.porID {
 		if c.CardID == cardID && c.Posicao > ultima {
@@ -241,7 +246,7 @@ func (r *Checklists) UltimaPosicao(cardID string) (float64, error) {
 	return ultima, nil
 }
 
-func (r *Checklists) SalvarItem(i *checklist.Item) error {
+func (r *Checklists) SalvarItem(ctx context.Context, i *checklist.Item) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -250,9 +255,11 @@ func (r *Checklists) SalvarItem(i *checklist.Item) error {
 	return nil
 }
 
-func (r *Checklists) AtualizarItem(i *checklist.Item) error { return r.SalvarItem(i) }
+func (r *Checklists) AtualizarItem(ctx context.Context, i *checklist.Item) error {
+	return r.SalvarItem(ctx, i)
+}
 
-func (r *Checklists) BuscarItem(id string) (*checklist.Item, error) {
+func (r *Checklists) BuscarItem(ctx context.Context, id string) (*checklist.Item, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -264,7 +271,7 @@ func (r *Checklists) BuscarItem(id string) (*checklist.Item, error) {
 	return &copia, nil
 }
 
-func (r *Checklists) ListarItens(checklistID string) ([]checklist.Item, error) {
+func (r *Checklists) ListarItens(ctx context.Context, checklistID string) ([]checklist.Item, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -278,12 +285,12 @@ func (r *Checklists) ListarItens(checklistID string) ([]checklist.Item, error) {
 	return lista, nil
 }
 
-func (r *Checklists) ApagarItem(id string) error {
+func (r *Checklists) ApagarItem(ctx context.Context, id string) error {
 	delete(r.itens, id)
 	return nil
 }
 
-func (r *Checklists) UltimaPosicaoItem(checklistID string) (float64, error) {
+func (r *Checklists) UltimaPosicaoItem(ctx context.Context, checklistID string) (float64, error) {
 	var ultima float64
 	for _, i := range r.itens {
 		if i.ChecklistID == checklistID && i.Posicao > ultima {
@@ -293,7 +300,7 @@ func (r *Checklists) UltimaPosicaoItem(checklistID string) (float64, error) {
 	return ultima, nil
 }
 
-func (r *Checklists) ProgressoDoBoard(boardID string) (map[string]ucboard.Progresso, error) {
+func (r *Checklists) ProgressoDoBoard(ctx context.Context, boardID string) (map[string]ucboard.Progresso, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -346,7 +353,7 @@ func (r *Anexos) LigarQuadro(colunas *Colunas, cards *Cards) {
 	r.colunas, r.cards = colunas, cards
 }
 
-func (r *Anexos) Salvar(a *anexo.Anexo) error {
+func (r *Anexos) Salvar(ctx context.Context, a *anexo.Anexo) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -355,7 +362,7 @@ func (r *Anexos) Salvar(a *anexo.Anexo) error {
 	return nil
 }
 
-func (r *Anexos) BuscarPorID(id string) (*anexo.Anexo, error) {
+func (r *Anexos) BuscarPorID(ctx context.Context, id string) (*anexo.Anexo, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -367,7 +374,7 @@ func (r *Anexos) BuscarPorID(id string) (*anexo.Anexo, error) {
 	return &copia, nil
 }
 
-func (r *Anexos) ListarDoCard(cardID string) ([]anexo.Anexo, error) {
+func (r *Anexos) ListarDoCard(ctx context.Context, cardID string) ([]anexo.Anexo, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -381,12 +388,12 @@ func (r *Anexos) ListarDoCard(cardID string) ([]anexo.Anexo, error) {
 	return lista, nil
 }
 
-func (r *Anexos) Apagar(id string) error {
+func (r *Anexos) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	return nil
 }
 
-func (r *Anexos) ContarPorCardDoBoard(boardID string) (map[string]int, error) {
+func (r *Anexos) ContarPorCardDoBoard(ctx context.Context, boardID string) (map[string]int, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}

@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"time"
 
 	dboard "stacktrack/internal/domain/board"
@@ -18,7 +19,7 @@ type MembroUseCase struct {
 	membros  repositorioMembro
 	convites repositorioConvite
 	usuarios buscadorUsuario
-	boards   repositorioBoard
+	boards   RepositorioBoard
 }
 
 // NovoMembroUseCase cria uma instância de MembroUseCase com as dependências injetadas.
@@ -26,7 +27,7 @@ func NovoMembroUseCase(
 	membros repositorioMembro,
 	convites repositorioConvite,
 	usuarios buscadorUsuario,
-	boards repositorioBoard,
+	boards RepositorioBoard,
 ) *MembroUseCase {
 	return &MembroUseCase{membros: membros, convites: convites, usuarios: usuarios, boards: boards}
 }
@@ -57,20 +58,20 @@ type DetalheConvite struct {
 
 // Listar devolve quem participa do quadro. Qualquer membro pode ver — inclusive
 // o leitor: saber com quem se divide um quadro é parte de participar dele.
-func (uc *MembroUseCase) Listar(boardID, usuarioID string) ([]Participante, error) {
-	if _, err := acesso(uc.membros, boardID, usuarioID); err != nil {
+func (uc *MembroUseCase) Listar(ctx context.Context, boardID, usuarioID string) ([]Participante, error) {
+	if _, err := acesso(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
-	return uc.membros.Participantes(boardID)
+	return uc.membros.Participantes(ctx, boardID)
 }
 
 // ListarConvites devolve os convites ainda pendentes. Só o dono: a lista diz
 // para quem o quadro foi oferecido, o que não é da conta de quem só participa.
-func (uc *MembroUseCase) ListarConvites(boardID, usuarioID string) ([]dconvite.Convite, error) {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *MembroUseCase) ListarConvites(ctx context.Context, boardID, usuarioID string) ([]dconvite.Convite, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
-	return uc.convites.ListarPendentes(boardID)
+	return uc.convites.ListarPendentes(ctx, boardID)
 }
 
 // Convidar acrescenta alguém ao quadro pelo email. Quem já tem conta vira
@@ -80,8 +81,8 @@ func (uc *MembroUseCase) ListarConvites(boardID, usuarioID string) ([]dconvite.C
 // Retorna dconvite.ErrJaEMembro quando a pessoa já participa,
 // dconvite.ErrJaConvidado quando já há convite pendente para o email, e
 // dconvite.ErrNaoConvidaODono quando alguém tenta convidar a si mesmo.
-func (uc *MembroUseCase) Convidar(boardID, usuarioID, email string, papel membro.Papel) (*ResultadoConvite, error) {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email string, papel membro.Papel) (*ResultadoConvite, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
 	if !membro.PapelValido(papel) {
@@ -93,7 +94,7 @@ func (uc *MembroUseCase) Convidar(boardID, usuarioID, email string, papel membro
 		return nil, dconvite.ErrEmailObrigatorio
 	}
 
-	quemConvida, err := uc.usuarios.BuscarPorID(usuarioID)
+	quemConvida, err := uc.usuarios.BuscarPorID(ctx, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,15 +102,15 @@ func (uc *MembroUseCase) Convidar(boardID, usuarioID, email string, papel membro
 		return nil, dconvite.ErrNaoConvidaODono
 	}
 
-	convidado, err := uc.usuarios.BuscarPorEmail(email)
+	convidado, err := uc.usuarios.BuscarPorEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
 	if convidado != nil {
-		return uc.adicionarDireto(boardID, convidado, papel)
+		return uc.adicionarDireto(ctx, boardID, convidado, papel)
 	}
 
-	pendente, err := uc.convites.BuscarPendentePorEmail(boardID, email)
+	pendente, err := uc.convites.BuscarPendentePorEmail(ctx, boardID, email)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +126,7 @@ func (uc *MembroUseCase) Convidar(boardID, usuarioID, email string, papel membro
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.convites.Salvar(c); err != nil {
+	if err := uc.convites.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
 	return &ResultadoConvite{Convite: c, Token: t}, nil
@@ -134,8 +135,8 @@ func (uc *MembroUseCase) Convidar(boardID, usuarioID, email string, papel membro
 // adicionarDireto cria o vínculo de quem já tem conta, sem passar por convite:
 // não há o que confirmar quando a pessoa já provou ser dona daquele email ao
 // se cadastrar.
-func (uc *MembroUseCase) adicionarDireto(boardID string, u *dusuario.Usuario, papel membro.Papel) (*ResultadoConvite, error) {
-	existente, err := uc.membros.Buscar(boardID, u.ID)
+func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID string, u *dusuario.Usuario, papel membro.Papel) (*ResultadoConvite, error) {
+	existente, err := uc.membros.Buscar(ctx, boardID, u.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +148,7 @@ func (uc *MembroUseCase) adicionarDireto(boardID string, u *dusuario.Usuario, pa
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.membros.Salvar(vinculo); err != nil {
+	if err := uc.membros.Salvar(ctx, vinculo); err != nil {
 		return nil, err
 	}
 
@@ -165,12 +166,12 @@ func (uc *MembroUseCase) adicionarDireto(boardID string, u *dusuario.Usuario, pa
 
 // AlterarPapel troca o papel de quem participa. Só o dono, e nunca deixando o
 // quadro sem dono nenhum.
-func (uc *MembroUseCase) AlterarPapel(boardID, usuarioID, alvoID string, papel membro.Papel) (*Participante, error) {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *MembroUseCase) AlterarPapel(ctx context.Context, boardID, usuarioID, alvoID string, papel membro.Papel) (*Participante, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
 
-	todos, err := uc.membros.Todos(boardID)
+	todos, err := uc.membros.Todos(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +179,7 @@ func (uc *MembroUseCase) AlterarPapel(boardID, usuarioID, alvoID string, papel m
 		return nil, err
 	}
 
-	vinculo, err := uc.membros.Buscar(boardID, alvoID)
+	vinculo, err := uc.membros.Buscar(ctx, boardID, alvoID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,11 +189,11 @@ func (uc *MembroUseCase) AlterarPapel(boardID, usuarioID, alvoID string, papel m
 	if err := vinculo.DefinirPapel(papel); err != nil {
 		return nil, err
 	}
-	if err := uc.membros.Atualizar(vinculo); err != nil {
+	if err := uc.membros.Atualizar(ctx, vinculo); err != nil {
 		return nil, err
 	}
 
-	u, err := uc.usuarios.BuscarPorID(alvoID)
+	u, err := uc.usuarios.BuscarPorID(ctx, alvoID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,35 +206,35 @@ func (uc *MembroUseCase) AlterarPapel(boardID, usuarioID, alvoID string, papel m
 
 // Remover tira alguém do quadro. Só o dono, e nunca o último dono — um quadro
 // sem dono fica órfão, sem ninguém que possa convidar ou apagá-lo.
-func (uc *MembroUseCase) Remover(boardID, usuarioID, alvoID string) error {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID string) error {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
 
-	todos, err := uc.membros.Todos(boardID)
+	todos, err := uc.membros.Todos(ctx, boardID)
 	if err != nil {
 		return err
 	}
 	if err := membro.ValidarRemocao(todos, alvoID); err != nil {
 		return err
 	}
-	return uc.membros.Remover(boardID, alvoID)
+	return uc.membros.Remover(ctx, boardID, alvoID)
 }
 
 // RevogarConvite apaga um convite pendente, invalidando o link já entregue.
-func (uc *MembroUseCase) RevogarConvite(conviteID, usuarioID string) error {
-	c, err := uc.convites.BuscarPorID(conviteID)
+func (uc *MembroUseCase) RevogarConvite(ctx context.Context, conviteID, usuarioID string) error {
+	c, err := uc.convites.BuscarPorID(ctx, conviteID)
 	if err != nil {
 		return err
 	}
 	if c == nil {
 		return dconvite.ErrInvalido
 	}
-	if _, err := acessoDeAdministracao(uc.membros, c.BoardID, usuarioID); err != nil {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, c.BoardID, usuarioID); err != nil {
 		// Quem não administra o quadro não fica sabendo que o convite existe.
 		return dconvite.ErrInvalido
 	}
-	return uc.convites.Remover(conviteID)
+	return uc.convites.Remover(ctx, conviteID)
 }
 
 // DetalharConvite descreve um convite a partir do token, SEM exigir sessão —
@@ -243,13 +244,13 @@ func (uc *MembroUseCase) RevogarConvite(conviteID, usuarioID string) error {
 // O token é a credencial: quem o tem pode ver o título do quadro e para qual
 // email o convite foi feito. Quem não tem recebe o mesmo ErrInvalido de um
 // convite vencido, sem distinção.
-func (uc *MembroUseCase) DetalharConvite(tokenPuro string) (*DetalheConvite, error) {
-	c, err := uc.convitePendente(tokenPuro)
+func (uc *MembroUseCase) DetalharConvite(ctx context.Context, tokenPuro string) (*DetalheConvite, error) {
+	c, err := uc.convitePendente(ctx, tokenPuro)
 	if err != nil {
 		return nil, err
 	}
 
-	b, err := uc.boards.BuscarPorID(c.BoardID)
+	b, err := uc.boards.BuscarPorID(ctx, c.BoardID)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +259,7 @@ func (uc *MembroUseCase) DetalharConvite(tokenPuro string) (*DetalheConvite, err
 	}
 
 	detalhe := &DetalheConvite{TituloQuadro: b.Titulo, Email: c.Email, Papel: c.Papel}
-	if autor, err := uc.usuarios.BuscarPorID(c.CriadoPor); err == nil && autor != nil {
+	if autor, err := uc.usuarios.BuscarPorID(ctx, c.CriadoPor); err == nil && autor != nil {
 		detalhe.ConvidadoPor = autor.Nome
 	}
 	return detalhe, nil
@@ -268,13 +269,13 @@ func (uc *MembroUseCase) DetalharConvite(tokenPuro string) (*DetalheConvite, err
 // que a pessoa entrou. Exige que a conta autenticada tenha o email para o qual
 // o convite foi feito: sem isso, o link vazado colocaria qualquer pessoa dentro
 // do quadro.
-func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, membro.Papel, error) {
-	c, err := uc.convitePendente(tokenPuro)
+func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID string) (*dboard.Board, membro.Papel, error) {
+	c, err := uc.convitePendente(ctx, tokenPuro)
 	if err != nil {
 		return nil, "", err
 	}
 
-	u, err := uc.usuarios.BuscarPorID(usuarioID)
+	u, err := uc.usuarios.BuscarPorID(ctx, usuarioID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -285,7 +286,7 @@ func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, me
 		return nil, "", dconvite.ErrOutroDestinatario
 	}
 
-	b, err := uc.boards.BuscarPorID(c.BoardID)
+	b, err := uc.boards.BuscarPorID(ctx, c.BoardID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -295,7 +296,7 @@ func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, me
 
 	// Já ser membro não é erro: o convite se dá por cumprido e a pessoa segue
 	// para o quadro. Clicar duas vezes no link não pode virar tela de erro.
-	existente, err := uc.membros.Buscar(c.BoardID, usuarioID)
+	existente, err := uc.membros.Buscar(ctx, c.BoardID, usuarioID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -304,7 +305,7 @@ func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, me
 		if err != nil {
 			return nil, "", err
 		}
-		if err := uc.membros.Salvar(vinculo); err != nil {
+		if err := uc.membros.Salvar(ctx, vinculo); err != nil {
 			return nil, "", err
 		}
 	}
@@ -312,7 +313,7 @@ func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, me
 	if err := c.Aceitar(time.Now()); err != nil {
 		return nil, "", err
 	}
-	if err := uc.convites.Atualizar(c); err != nil {
+	if err := uc.convites.Atualizar(ctx, c); err != nil {
 		return nil, "", err
 	}
 	return b, c.Papel, nil
@@ -321,8 +322,8 @@ func (uc *MembroUseCase) Aceitar(tokenPuro, usuarioID string) (*dboard.Board, me
 // convitePendente resolve o token e devolve o convite só se ele ainda vale.
 // Token desconhecido, vencido e já aceito respondem o mesmo erro — distinguir
 // os casos ajudaria quem está testando links.
-func (uc *MembroUseCase) convitePendente(tokenPuro string) (*dconvite.Convite, error) {
-	c, err := uc.convites.BuscarPorTokenHash(token.Hash(tokenPuro))
+func (uc *MembroUseCase) convitePendente(ctx context.Context, tokenPuro string) (*dconvite.Convite, error) {
+	c, err := uc.convites.BuscarPorTokenHash(ctx, token.Hash(tokenPuro))
 	if err != nil {
 		return nil, err
 	}

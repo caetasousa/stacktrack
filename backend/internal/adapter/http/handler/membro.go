@@ -49,7 +49,7 @@ func (h *MembroHandler) Listar(w http.ResponseWriter, r *http.Request) {
 	}
 	boardID := chi.URLParam(r, "boardID")
 
-	participantes, err := h.membros.Listar(boardID, usuarioID)
+	participantes, err := h.membros.Listar(r.Context(), boardID, usuarioID)
 	if err != nil {
 		responderErroDeMembro(w, r, "erro ao listar membros", err)
 		return
@@ -62,7 +62,7 @@ func (h *MembroHandler) Listar(w http.ResponseWriter, r *http.Request) {
 
 	// Só o dono vê os convites. Para os demais o campo vem vazio, e não com
 	// erro: a tela é a mesma para todo mundo, só mostra menos.
-	if convites, err := h.membros.ListarConvites(boardID, usuarioID); err == nil {
+	if convites, err := h.membros.ListarConvites(r.Context(), boardID, usuarioID); err == nil {
 		resposta.Convites = paraConvitesResponse(convites)
 	} else if !errors.Is(err, membro.ErrSemPermissao) {
 		responderErroDeMembro(w, r, "erro ao listar convites", err)
@@ -84,7 +84,7 @@ func (h *MembroHandler) Convidar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resultado, err := h.membros.Convidar(
+	resultado, err := h.membros.Convidar(r.Context(),
 		chi.URLParam(r, "boardID"), usuarioID, req.Email.String(), membro.Papel(req.Papel),
 	)
 	if err != nil {
@@ -115,7 +115,7 @@ func (h *MembroHandler) AlterarPapel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.membros.AlterarPapel(
+	p, err := h.membros.AlterarPapel(r.Context(),
 		chi.URLParam(r, "boardID"), usuarioID, chi.URLParam(r, "usuarioID"), membro.Papel(req.Papel),
 	)
 	if err != nil {
@@ -132,7 +132,7 @@ func (h *MembroHandler) Remover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.membros.Remover(chi.URLParam(r, "boardID"), usuarioID, chi.URLParam(r, "usuarioID"))
+	err := h.membros.Remover(r.Context(), chi.URLParam(r, "boardID"), usuarioID, chi.URLParam(r, "usuarioID"))
 	if err != nil {
 		responderErroDeMembro(w, r, "erro ao remover membro", err)
 		return
@@ -147,7 +147,7 @@ func (h *MembroHandler) RevogarConvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.membros.RevogarConvite(chi.URLParam(r, "conviteID"), usuarioID); err != nil {
+	if err := h.membros.RevogarConvite(r.Context(), chi.URLParam(r, "conviteID"), usuarioID); err != nil {
 		responderErroDeMembro(w, r, "erro ao revogar convite", err)
 		return
 	}
@@ -158,7 +158,7 @@ func (h *MembroHandler) RevogarConvite(w http.ResponseWriter, r *http.Request) {
 // foi convidado costuma ainda não ter conta, e precisa ver do que se trata antes
 // de criar uma.
 func (h *MembroHandler) DetalharConvite(w http.ResponseWriter, r *http.Request) {
-	detalhe, err := h.membros.DetalharConvite(chi.URLParam(r, "token"))
+	detalhe, err := h.membros.DetalharConvite(r.Context(), chi.URLParam(r, "token"))
 	if err != nil {
 		responderErroDeMembro(w, r, "erro ao carregar convite", err)
 		return
@@ -179,7 +179,7 @@ func (h *MembroHandler) AceitarConvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b, papel, err := h.membros.Aceitar(chi.URLParam(r, "token"), usuarioID)
+	b, papel, err := h.membros.Aceitar(r.Context(), chi.URLParam(r, "token"), usuarioID)
 	if err != nil {
 		responderErroDeMembro(w, r, "erro ao aceitar convite", err)
 		return

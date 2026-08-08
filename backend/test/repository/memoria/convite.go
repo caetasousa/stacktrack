@@ -1,6 +1,7 @@
 package memoria
 
 import (
+	"context"
 	"sort"
 	"time"
 
@@ -22,7 +23,7 @@ func NovosConvites() *Convites {
 // Salvar grava o convite, devolvendo convite.ErrJaConvidado quando já existe um
 // pendente para o mesmo email no mesmo quadro — o comportamento do índice único
 // parcial no Postgres.
-func (r *Convites) Salvar(c *convite.Convite) error {
+func (r *Convites) Salvar(ctx context.Context, c *convite.Convite) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -39,7 +40,7 @@ func (r *Convites) Salvar(c *convite.Convite) error {
 	return nil
 }
 
-func (r *Convites) Atualizar(c *convite.Convite) error {
+func (r *Convites) Atualizar(ctx context.Context, c *convite.Convite) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -48,7 +49,7 @@ func (r *Convites) Atualizar(c *convite.Convite) error {
 	return nil
 }
 
-func (r *Convites) BuscarPorID(id string) (*convite.Convite, error) {
+func (r *Convites) BuscarPorID(ctx context.Context, id string) (*convite.Convite, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -60,7 +61,7 @@ func (r *Convites) BuscarPorID(id string) (*convite.Convite, error) {
 	return &copia, nil
 }
 
-func (r *Convites) BuscarPorTokenHash(hash string) (*convite.Convite, error) {
+func (r *Convites) BuscarPorTokenHash(ctx context.Context, hash string) (*convite.Convite, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -73,7 +74,7 @@ func (r *Convites) BuscarPorTokenHash(hash string) (*convite.Convite, error) {
 	return nil, nil
 }
 
-func (r *Convites) BuscarPendentePorEmail(boardID, email string) (*convite.Convite, error) {
+func (r *Convites) BuscarPendentePorEmail(ctx context.Context, boardID, email string) (*convite.Convite, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -87,7 +88,7 @@ func (r *Convites) BuscarPendentePorEmail(boardID, email string) (*convite.Convi
 	return nil, nil
 }
 
-func (r *Convites) ListarPendentes(boardID string) ([]convite.Convite, error) {
+func (r *Convites) ListarPendentes(ctx context.Context, boardID string) ([]convite.Convite, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -101,7 +102,7 @@ func (r *Convites) ListarPendentes(boardID string) ([]convite.Convite, error) {
 	return lista, nil
 }
 
-func (r *Convites) Remover(id string) error {
+func (r *Convites) Remover(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	return nil
 }

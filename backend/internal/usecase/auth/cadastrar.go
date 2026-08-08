@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"stacktrack/internal/domain/usuario"
 
 	"github.com/google/uuid"
@@ -27,13 +28,13 @@ func NovoCadastrarUseCase(usuarios repositorioUsuario, sessoes repositorioSessao
 // obrigar a pessoa a digitar as mesmas credenciais na tela seguinte seria
 // cerimônia sem nenhuma garantia em troca. Quando a confirmação entrar, é aqui
 // que a decisão muda.
-func (uc *CadastrarUseCase) Executar(input CadastroInput) (*SessaoAberta, error) {
+func (uc *CadastrarUseCase) Executar(ctx context.Context, input CadastroInput) (*SessaoAberta, error) {
 	if err := usuario.ValidarSenha(input.Senha); err != nil {
 		return nil, err
 	}
 
 	email := usuario.NormalizarEmail(input.Email)
-	existente, err := uc.usuarios.BuscarPorEmail(email)
+	existente, err := uc.usuarios.BuscarPorEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
@@ -50,9 +51,9 @@ func (uc *CadastrarUseCase) Executar(input CadastroInput) (*SessaoAberta, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.usuarios.Salvar(u); err != nil {
+	if err := uc.usuarios.Salvar(ctx, u); err != nil {
 		return nil, err
 	}
 
-	return abrirSessao(uc.sessoes, u)
+	return abrirSessao(ctx, uc.sessoes, u)
 }

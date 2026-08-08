@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	dcard "stacktrack/internal/domain/card"
 	dcoluna "stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/evento"
@@ -35,13 +36,13 @@ type Vizinhos struct {
 // participa de dois quadros arrastaria um card de um para o outro informando o
 // id da coluna de destino — e o card sumiria da vista de quem não participa do
 // quadro de origem.
-func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos Vizinhos) (*dcard.Card, error) {
-	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDestinoID string, vizinhos Vizinhos) (*dcard.Card, error) {
+	c, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
 
-	origem, err := uc.colunas.BuscarPorID(c.ColunaID)
+	origem, err := uc.colunas.BuscarPorID(ctx, c.ColunaID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos
 
 	destino := origem
 	if colunaDestinoID != "" && colunaDestinoID != c.ColunaID {
-		destino, err = uc.colunas.BuscarPorID(colunaDestinoID)
+		destino, err = uc.colunas.BuscarPorID(ctx, colunaDestinoID)
 		if err != nil {
 			return nil, err
 		}
@@ -60,16 +61,16 @@ func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos
 		}
 	}
 
-	posicao, err := uc.posicaoEntreCards(destino.ID, vizinhos)
+	posicao, err := uc.posicaoEntreCards(ctx, destino.ID, vizinhos)
 	if err != nil {
 		return nil, err
 	}
 
 	c.Mover(destino.ID, posicao)
-	if err := uc.cards.Atualizar(c); err != nil {
+	if err := uc.cards.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.CardMovido, boardID, usuarioID, c)
+	uc.publicar(ctx, evento.CardMovido, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -78,12 +79,12 @@ func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos
 // Cada vizinho é conferido contra a coluna de destino: um id de card de outra
 // coluna produziria uma posição que não faz sentido lá, e o item pousaria em
 // lugar nenhum.
-func (uc *CardUseCase) posicaoEntreCards(colunaID string, vizinhos Vizinhos) (float64, error) {
-	anterior, err := uc.posicaoDoCardNaColuna(vizinhos.AnteriorID, colunaID)
+func (uc *CardUseCase) posicaoEntreCards(ctx context.Context, colunaID string, vizinhos Vizinhos) (float64, error) {
+	anterior, err := uc.posicaoDoCardNaColuna(ctx, vizinhos.AnteriorID, colunaID)
 	if err != nil {
 		return 0, err
 	}
-	proximo, err := uc.posicaoDoCardNaColuna(vizinhos.ProximoID, colunaID)
+	proximo, err := uc.posicaoDoCardNaColuna(ctx, vizinhos.ProximoID, colunaID)
 	if err != nil {
 		return 0, err
 	}
@@ -92,7 +93,7 @@ func (uc *CardUseCase) posicaoEntreCards(colunaID string, vizinhos Vizinhos) (fl
 	// a posição inicial — soltar num espaço vazio abaixo dos cards significa
 	// "no fim", não "no começo".
 	if anterior == 0 && proximo == 0 {
-		ultima, err := uc.cards.UltimaPosicao(colunaID)
+		ultima, err := uc.cards.UltimaPosicao(ctx, colunaID)
 		if err != nil {
 			return 0, err
 		}
@@ -103,11 +104,11 @@ func (uc *CardUseCase) posicaoEntreCards(colunaID string, vizinhos Vizinhos) (fl
 
 // posicaoDoCardNaColuna devolve a posição do card vizinho, ou 0 quando não há
 // vizinho daquele lado.
-func (uc *CardUseCase) posicaoDoCardNaColuna(cardID, colunaID string) (float64, error) {
+func (uc *CardUseCase) posicaoDoCardNaColuna(ctx context.Context, cardID, colunaID string) (float64, error) {
 	if cardID == "" {
 		return 0, nil
 	}
-	vizinho, err := uc.cards.BuscarPorID(cardID)
+	vizinho, err := uc.cards.BuscarPorID(ctx, cardID)
 	if err != nil {
 		return 0, err
 	}
@@ -118,24 +119,24 @@ func (uc *CardUseCase) posicaoDoCardNaColuna(cardID, colunaID string) (float64, 
 }
 
 // Mover reposiciona a coluna dentro do quadro. Exige papel de edição.
-func (uc *ColunaUseCase) Mover(colunaID, usuarioID string, vizinhos Vizinhos) (*dcoluna.Coluna, error) {
-	c, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID)
+func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, vizinhos Vizinhos) (*dcoluna.Coluna, error) {
+	c, err := uc.carregarComAcessoDeEdicao(ctx, colunaID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
 
-	anterior, err := uc.posicaoDaColunaNoBoard(vizinhos.AnteriorID, c.BoardID)
+	anterior, err := uc.posicaoDaColunaNoBoard(ctx, vizinhos.AnteriorID, c.BoardID)
 	if err != nil {
 		return nil, err
 	}
-	proximo, err := uc.posicaoDaColunaNoBoard(vizinhos.ProximoID, c.BoardID)
+	proximo, err := uc.posicaoDaColunaNoBoard(ctx, vizinhos.ProximoID, c.BoardID)
 	if err != nil {
 		return nil, err
 	}
 
 	var posicao float64
 	if anterior == 0 && proximo == 0 {
-		ultima, err := uc.colunas.UltimaPosicao(c.BoardID)
+		ultima, err := uc.colunas.UltimaPosicao(ctx, c.BoardID)
 		if err != nil {
 			return nil, err
 		}
@@ -148,18 +149,18 @@ func (uc *ColunaUseCase) Mover(colunaID, usuarioID string, vizinhos Vizinhos) (*
 	}
 
 	c.MoverPara(posicao)
-	if err := uc.colunas.Atualizar(c); err != nil {
+	if err := uc.colunas.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.ColunaMovida, c.BoardID, usuarioID, c)
+	uc.publicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID, c)
 	return c, nil
 }
 
-func (uc *ColunaUseCase) posicaoDaColunaNoBoard(colunaID, boardID string) (float64, error) {
+func (uc *ColunaUseCase) posicaoDaColunaNoBoard(ctx context.Context, colunaID, boardID string) (float64, error) {
 	if colunaID == "" {
 		return 0, nil
 	}
-	vizinha, err := uc.colunas.BuscarPorID(colunaID)
+	vizinha, err := uc.colunas.BuscarPorID(ctx, colunaID)
 	if err != nil {
 		return 0, err
 	}

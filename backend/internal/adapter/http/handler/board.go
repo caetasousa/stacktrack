@@ -46,7 +46,7 @@ func (h *BoardHandler) Listar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resumos, err := h.quadros.Listar(usuarioID)
+	resumos, err := h.quadros.Listar(r.Context(), usuarioID)
 	if err != nil {
 		responderErroInterno(w, r, "erro ao listar quadros", err)
 		return
@@ -76,7 +76,7 @@ func (h *BoardHandler) Criar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b, err := h.quadros.Criar(usuarioID, req.Titulo)
+	b, err := h.quadros.Criar(r.Context(), usuarioID, req.Titulo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar quadro", err)
 		return
@@ -94,7 +94,7 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detalhado, err := h.quadros.Detalhar(chi.URLParam(r, "boardID"), usuarioID)
+	detalhado, err := h.quadros.Detalhar(r.Context(), chi.URLParam(r, "boardID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao carregar quadro", err)
 		return
@@ -130,7 +130,7 @@ func (h *BoardHandler) Renomear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b, err := h.quadros.Renomear(chi.URLParam(r, "boardID"), usuarioID, req.Titulo)
+	b, err := h.quadros.Renomear(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Titulo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao renomear quadro", err)
 		return
@@ -148,7 +148,7 @@ func (h *BoardHandler) Apagar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.quadros.Apagar(chi.URLParam(r, "boardID"), usuarioID); err != nil {
+	if err := h.quadros.Apagar(r.Context(), chi.URLParam(r, "boardID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar quadro", err)
 		return
 	}
@@ -166,7 +166,7 @@ func (h *BoardHandler) CriarColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.colunas.Criar(chi.URLParam(r, "boardID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
+	c, err := h.colunas.Criar(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar coluna", err)
 		return
@@ -188,7 +188,7 @@ func (h *BoardHandler) RenomearColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.colunas.Renomear(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
+	c, err := h.colunas.Renomear(r.Context(), chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao renomear coluna", err)
 		return
@@ -206,7 +206,7 @@ func (h *BoardHandler) ApagarColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.colunas.Apagar(chi.URLParam(r, "colunaID"), usuarioID); err != nil {
+	if err := h.colunas.Apagar(r.Context(), chi.URLParam(r, "colunaID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar coluna", err)
 		return
 	}
@@ -224,7 +224,7 @@ func (h *BoardHandler) CriarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Criar(chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor))
+	c, err := h.cards.Criar(r.Context(), chi.URLParam(r, "colunaID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar card", err)
 		return
@@ -243,7 +243,7 @@ func (h *BoardHandler) EditarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Editar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor), req.Version)
+	c, err := h.cards.Editar(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor), req.Version)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao editar card", err)
 		return
@@ -258,7 +258,7 @@ func (h *BoardHandler) ApagarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.cards.Apagar(chi.URLParam(r, "cardID"), usuarioID); err != nil {
+	if err := h.cards.Apagar(r.Context(), chi.URLParam(r, "cardID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar card", err)
 		return
 	}
@@ -381,7 +381,7 @@ func (h *BoardHandler) DefinirPrazo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.DefinirPrazo(chi.URLParam(r, "cardID"), usuarioID, req.Prazo)
+	c, err := h.cards.DefinirPrazo(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.Prazo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao definir prazo", err)
 		return
@@ -397,7 +397,7 @@ func (h *BoardHandler) DetalharCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detalhe, err := h.cards.Detalhar(chi.URLParam(r, "cardID"), usuarioID)
+	detalhe, err := h.cards.Detalhar(r.Context(), chi.URLParam(r, "cardID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao carregar card", err)
 		return
@@ -435,7 +435,7 @@ func (h *BoardHandler) DefinirFundo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b, err := h.quadros.DefinirFundo(chi.URLParam(r, "boardID"), usuarioID, req.Fundo)
+	b, err := h.quadros.DefinirFundo(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Fundo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao trocar o fundo", err)
 		return
@@ -479,7 +479,7 @@ func (h *BoardHandler) MoverCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Mover(chi.URLParam(r, "cardID"), usuarioID, req.ColunaID,
+	c, err := h.cards.Mover(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.ColunaID,
 		ucboard.Vizinhos{AnteriorID: req.AnteriorID, ProximoID: req.ProximoID})
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao mover card", err)
@@ -499,7 +499,7 @@ func (h *BoardHandler) MoverColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.colunas.Mover(chi.URLParam(r, "colunaID"), usuarioID,
+	c, err := h.colunas.Mover(r.Context(), chi.URLParam(r, "colunaID"), usuarioID,
 		ucboard.Vizinhos{AnteriorID: req.AnteriorID, ProximoID: req.ProximoID})
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao mover coluna", err)

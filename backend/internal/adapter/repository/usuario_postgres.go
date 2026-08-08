@@ -16,20 +16,20 @@ const codigoViolacaoUnique = "23505"
 
 // UsuarioPostgres persiste contas no PostgreSQL.
 type UsuarioPostgres struct {
-	pool *pgxpool.Pool
+	db consultante
 }
 
 // NovoUsuarioPostgres cria o repositório de usuários sobre o pool informado.
 func NovoUsuarioPostgres(pool *pgxpool.Pool) *UsuarioPostgres {
-	return &UsuarioPostgres{pool: pool}
+	return &UsuarioPostgres{db: pool}
 }
 
 // Salvar persiste um usuário novo. Traduz a violação do UNIQUE de email em
 // usuario.ErrEmailEmUso: é o banco quem descobre a colisão quando dois
 // cadastros do mesmo email chegam ao mesmo tempo e ambos passaram pela
 // checagem prévia do usecase.
-func (r *UsuarioPostgres) Salvar(u *usuario.Usuario) error {
-	_, err := r.pool.Exec(context.Background(),
+func (r *UsuarioPostgres) Salvar(ctx context.Context, u *usuario.Usuario) error {
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO usuarios (id, nome, email, senha_hash, criado_em, atualizado_em)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		u.ID, u.Nome, u.Email, u.SenhaHash, u.CriadoEm, u.AtualizadoEm,
@@ -43,20 +43,20 @@ func (r *UsuarioPostgres) Salvar(u *usuario.Usuario) error {
 
 // BuscarPorID retorna (usuário, nil) quando encontra, (nil, nil) quando não
 // existe conta com o id informado, e (nil, err) em falha real de infraestrutura.
-func (r *UsuarioPostgres) BuscarPorID(id string) (*usuario.Usuario, error) {
-	return r.buscar(`WHERE id = $1`, id)
+func (r *UsuarioPostgres) BuscarPorID(ctx context.Context, id string) (*usuario.Usuario, error) {
+	return r.buscar(ctx, `WHERE id = $1`, id)
 }
 
 // BuscarPorEmail retorna (usuário, nil) quando encontra, (nil, nil) quando não
 // existe conta com o email informado, e (nil, err) em falha real de infraestrutura.
 // O email é normalizado antes da consulta, pelo mesmo motivo que na escrita.
-func (r *UsuarioPostgres) BuscarPorEmail(email string) (*usuario.Usuario, error) {
-	return r.buscar(`WHERE email = $1`, usuario.NormalizarEmail(email))
+func (r *UsuarioPostgres) BuscarPorEmail(ctx context.Context, email string) (*usuario.Usuario, error) {
+	return r.buscar(ctx, `WHERE email = $1`, usuario.NormalizarEmail(email))
 }
 
-func (r *UsuarioPostgres) buscar(filtro string, arg any) (*usuario.Usuario, error) {
+func (r *UsuarioPostgres) buscar(ctx context.Context, filtro string, arg any) (*usuario.Usuario, error) {
 	var u usuario.Usuario
-	err := r.pool.QueryRow(context.Background(),
+	err := r.db.QueryRow(ctx,
 		`SELECT id, nome, email, senha_hash, criado_em, atualizado_em
 		 FROM usuarios `+filtro, arg,
 	).Scan(&u.ID, &u.Nome, &u.Email, &u.SenhaHash, &u.CriadoEm, &u.AtualizadoEm)

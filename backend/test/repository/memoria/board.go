@@ -1,6 +1,7 @@
 package memoria
 
 import (
+	"context"
 	"sort"
 
 	"stacktrack/internal/domain/board"
@@ -24,7 +25,7 @@ func NovosBoards(membros *Membros) *Boards {
 	return &Boards{porID: make(map[string]*board.Board), membros: membros}
 }
 
-func (r *Boards) Salvar(b *board.Board) error {
+func (r *Boards) Salvar(ctx context.Context, b *board.Board) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -33,11 +34,11 @@ func (r *Boards) Salvar(b *board.Board) error {
 	return nil
 }
 
-func (r *Boards) Atualizar(b *board.Board) error {
-	return r.Salvar(b)
+func (r *Boards) Atualizar(ctx context.Context, b *board.Board) error {
+	return r.Salvar(ctx, b)
 }
 
-func (r *Boards) BuscarPorID(id string) (*board.Board, error) {
+func (r *Boards) BuscarPorID(ctx context.Context, id string) (*board.Board, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -52,13 +53,13 @@ func (r *Boards) BuscarPorID(id string) (*board.Board, error) {
 // Apagar remove o quadro e imita o ON DELETE CASCADE do schema, levando junto
 // os vínculos — sem isso o teste de "apagar quadro" passaria deixando membros
 // órfãos que o Postgres nunca deixaria existir.
-func (r *Boards) Apagar(id string) error {
+func (r *Boards) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	r.membros.apagarDoBoard(id)
 	return nil
 }
 
-func (r *Boards) ListarDoUsuario(usuarioID string) ([]ucboard.Resumo, error) {
+func (r *Boards) ListarDoUsuario(ctx context.Context, usuarioID string) ([]ucboard.Resumo, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -93,7 +94,7 @@ func NovosMembros() *Membros {
 
 func chaveMembro(boardID, usuarioID string) string { return boardID + "|" + usuarioID }
 
-func (r *Membros) Salvar(m *membro.Membro) error {
+func (r *Membros) Salvar(ctx context.Context, m *membro.Membro) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -102,7 +103,7 @@ func (r *Membros) Salvar(m *membro.Membro) error {
 	return nil
 }
 
-func (r *Membros) Buscar(boardID, usuarioID string) (*membro.Membro, error) {
+func (r *Membros) Buscar(ctx context.Context, boardID, usuarioID string) (*membro.Membro, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -114,16 +115,16 @@ func (r *Membros) Buscar(boardID, usuarioID string) (*membro.Membro, error) {
 	return &copia, nil
 }
 
-func (r *Membros) Atualizar(m *membro.Membro) error {
-	return r.Salvar(m)
+func (r *Membros) Atualizar(ctx context.Context, m *membro.Membro) error {
+	return r.Salvar(ctx, m)
 }
 
-func (r *Membros) Remover(boardID, usuarioID string) error {
+func (r *Membros) Remover(ctx context.Context, boardID, usuarioID string) error {
 	delete(r.porBoardEUsuario, chaveMembro(boardID, usuarioID))
 	return nil
 }
 
-func (r *Membros) Todos(boardID string) ([]membro.Membro, error) {
+func (r *Membros) Todos(ctx context.Context, boardID string) ([]membro.Membro, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -138,7 +139,7 @@ func (r *Membros) Todos(boardID string) ([]membro.Membro, error) {
 
 // Participantes imita o JOIN com usuarios do repositório de verdade — por isso
 // precisa enxergar as contas.
-func (r *Membros) Participantes(boardID string) ([]ucboard.Participante, error) {
+func (r *Membros) Participantes(ctx context.Context, boardID string) ([]ucboard.Participante, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -149,7 +150,7 @@ func (r *Membros) Participantes(boardID string) ([]ucboard.Participante, error) 
 		}
 		p := ucboard.Participante{UsuarioID: m.UsuarioID, Papel: m.Papel, CriadoEm: m.CriadoEm}
 		if r.usuarios != nil {
-			if u, _ := r.usuarios.BuscarPorID(m.UsuarioID); u != nil {
+			if u, _ := r.usuarios.BuscarPorID(ctx, m.UsuarioID); u != nil {
 				p.Nome, p.Email = u.Nome, u.Email
 			}
 		}
@@ -190,7 +191,7 @@ func NovasColunas(cards *Cards) *Colunas {
 	return &Colunas{porID: make(map[string]*coluna.Coluna), cards: cards}
 }
 
-func (r *Colunas) Salvar(c *coluna.Coluna) error {
+func (r *Colunas) Salvar(ctx context.Context, c *coluna.Coluna) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -199,11 +200,11 @@ func (r *Colunas) Salvar(c *coluna.Coluna) error {
 	return nil
 }
 
-func (r *Colunas) Atualizar(c *coluna.Coluna) error {
-	return r.Salvar(c)
+func (r *Colunas) Atualizar(ctx context.Context, c *coluna.Coluna) error {
+	return r.Salvar(ctx, c)
 }
 
-func (r *Colunas) BuscarPorID(id string) (*coluna.Coluna, error) {
+func (r *Colunas) BuscarPorID(ctx context.Context, id string) (*coluna.Coluna, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -215,7 +216,7 @@ func (r *Colunas) BuscarPorID(id string) (*coluna.Coluna, error) {
 	return &copia, nil
 }
 
-func (r *Colunas) ListarDoBoard(boardID string) ([]coluna.Coluna, error) {
+func (r *Colunas) ListarDoBoard(ctx context.Context, boardID string) ([]coluna.Coluna, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -230,13 +231,13 @@ func (r *Colunas) ListarDoBoard(boardID string) ([]coluna.Coluna, error) {
 }
 
 // Apagar imita o cascata do schema levando os cards da coluna junto.
-func (r *Colunas) Apagar(id string) error {
+func (r *Colunas) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	r.cards.apagarDaColuna(id)
 	return nil
 }
 
-func (r *Colunas) UltimaPosicao(boardID string) (float64, error) {
+func (r *Colunas) UltimaPosicao(ctx context.Context, boardID string) (float64, error) {
 	if r.ErroForcado != nil {
 		return 0, r.ErroForcado
 	}
@@ -268,7 +269,7 @@ func NovosCards() *Cards {
 // LigarColunas fecha o ciclo entre cards e colunas, que se referenciam.
 func (r *Cards) LigarColunas(colunas *Colunas) { r.colunas = colunas }
 
-func (r *Cards) Salvar(c *card.Card) error {
+func (r *Cards) Salvar(ctx context.Context, c *card.Card) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -281,7 +282,7 @@ func (r *Cards) Salvar(c *card.Card) error {
 //
 // Se o fake apenas sobrescrevesse, todo teste de usecase passaria por um
 // caminho que não existe em produção — e o 409 só apareceria com gente usando.
-func (r *Cards) Atualizar(c *card.Card) error {
+func (r *Cards) Atualizar(ctx context.Context, c *card.Card) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -289,10 +290,10 @@ func (r *Cards) Atualizar(c *card.Card) error {
 	if !existe || atual.Version != c.Version-1 {
 		return card.ErrConflito
 	}
-	return r.Salvar(c)
+	return r.Salvar(ctx, c)
 }
 
-func (r *Cards) BuscarPorID(id string) (*card.Card, error) {
+func (r *Cards) BuscarPorID(ctx context.Context, id string) (*card.Card, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -304,7 +305,7 @@ func (r *Cards) BuscarPorID(id string) (*card.Card, error) {
 	return &copia, nil
 }
 
-func (r *Cards) ListarDoBoard(boardID string) ([]card.Card, error) {
+func (r *Cards) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -319,12 +320,12 @@ func (r *Cards) ListarDoBoard(boardID string) ([]card.Card, error) {
 	return lista, nil
 }
 
-func (r *Cards) Apagar(id string) error {
+func (r *Cards) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	return nil
 }
 
-func (r *Cards) UltimaPosicao(colunaID string) (float64, error) {
+func (r *Cards) UltimaPosicao(ctx context.Context, colunaID string) (float64, error) {
 	if r.ErroForcado != nil {
 		return 0, r.ErroForcado
 	}

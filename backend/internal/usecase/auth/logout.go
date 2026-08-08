@@ -1,6 +1,9 @@
 package auth
 
-import "stacktrack/internal/pkg/token"
+import (
+	"context"
+	"stacktrack/internal/pkg/token"
+)
 
 // LogoutUseCase encerra a sessão atual.
 type LogoutUseCase struct {
@@ -19,6 +22,6 @@ func NovoLogoutUseCase(sessoes repositorioSessao) *LogoutUseCase {
 // A sessão é apagada do BANCO, não só o cookie do navegador. Limpar apenas o
 // cookie deixaria o token válido no servidor, e quem tivesse uma cópia dele
 // continuaria autenticado depois de a pessoa ter clicado em "sair".
-func (uc *LogoutUseCase) Executar(tokenPuro string) error {
-	return uc.sessoes.Remover(token.Hash(tokenPuro))
+func (uc *LogoutUseCase) Executar(ctx context.Context, tokenPuro string) error {
+	return uc.sessoes.Remover(ctx, token.Hash(tokenPuro))
 }

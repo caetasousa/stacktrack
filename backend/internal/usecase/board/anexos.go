@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -17,8 +18,8 @@ import (
 type AnexoUseCase struct {
 	eventos
 	membros repositorioMembro
-	colunas repositorioColuna
-	cards   repositorioCard
+	colunas RepositorioColuna
+	cards   RepositorioCard
 	anexos  repositorioAnexo
 	armazem armazemDeArquivos
 }
@@ -26,8 +27,8 @@ type AnexoUseCase struct {
 // NovoAnexoUseCase cria uma instância de AnexoUseCase com as dependências injetadas.
 func NovoAnexoUseCase(
 	membros repositorioMembro,
-	colunas repositorioColuna,
-	cards repositorioCard,
+	colunas RepositorioColuna,
+	cards RepositorioCard,
 	anexos repositorioAnexo,
 	armazem armazemDeArquivos,
 ) *AnexoUseCase {
@@ -41,16 +42,16 @@ type ConteudoDeAnexo struct {
 }
 
 // Listar devolve os anexos do card. Qualquer membro pode ver.
-func (uc *AnexoUseCase) Listar(cardID, usuarioID string) ([]danexo.Anexo, error) {
-	if _, err := uc.boardComAcesso(cardID, usuarioID, false); err != nil {
+func (uc *AnexoUseCase) Listar(ctx context.Context, cardID, usuarioID string) ([]danexo.Anexo, error) {
+	if _, err := uc.boardComAcesso(ctx, cardID, usuarioID, false); err != nil {
 		return nil, err
 	}
-	return uc.anexos.ListarDoCard(cardID)
+	return uc.anexos.ListarDoCard(ctx, cardID)
 }
 
 // AnexarLink pendura uma URL no card. Exige papel de edição.
-func (uc *AnexoUseCase) AnexarLink(cardID, usuarioID, nome, endereco string) (*danexo.Anexo, error) {
-	boardID, err := uc.boardComAcesso(cardID, usuarioID, true)
+func (uc *AnexoUseCase) AnexarLink(ctx context.Context, cardID, usuarioID, nome, endereco string) (*danexo.Anexo, error) {
+	boardID, err := uc.boardComAcesso(ctx, cardID, usuarioID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +60,10 @@ func (uc *AnexoUseCase) AnexarLink(cardID, usuarioID, nome, endereco string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.anexos.Salvar(a); err != nil {
+	if err := uc.anexos.Salvar(ctx, a); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return a, nil
 }
 
@@ -73,12 +74,12 @@ func (uc *AnexoUseCase) AnexarLink(cardID, usuarioID, nome, endereco string) (*d
 // falhar o arquivo é apagado em seguida. O contrário deixaria linha apontando
 // para arquivo inexistente — que a tela mostraria como anexo quebrado, sem
 // conserto possível pela interface.
-func (uc *AnexoUseCase) AnexarArquivo(
+func (uc *AnexoUseCase) AnexarArquivo(ctx context.Context,
 	cardID, usuarioID, nomeOriginal, mime string,
 	tamanho int64,
 	conteudo io.Reader,
 ) (*danexo.Anexo, error) {
-	boardID, err := uc.boardComAcesso(cardID, usuarioID, true)
+	boardID, err := uc.boardComAcesso(ctx, cardID, usuarioID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -102,14 +103,14 @@ func (uc *AnexoUseCase) AnexarArquivo(
 
 	a, err := danexo.NovoArquivo(uuid.NewString(), cardID, nomeOriginal, caminho, mime, tamanho, usuarioID)
 	if err != nil {
-		uc.descartar(caminho)
+		uc.descartar(ctx, caminho)
 		return nil, err
 	}
-	if err := uc.anexos.Salvar(a); err != nil {
-		uc.descartar(caminho)
+	if err := uc.anexos.Salvar(ctx, a); err != nil {
+		uc.descartar(ctx, caminho)
 		return nil, err
 	}
-	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return a, nil
 }
 
@@ -117,15 +118,15 @@ func (uc *AnexoUseCase) AnexarArquivo(
 //
 // O arquivo NÃO é servido por um caminho estático adivinhável: passa por aqui
 // justamente para a mesma checagem de participação valer para ele.
-func (uc *AnexoUseCase) Baixar(anexoID, usuarioID string) (*ConteudoDeAnexo, error) {
-	a, err := uc.anexos.BuscarPorID(anexoID)
+func (uc *AnexoUseCase) Baixar(ctx context.Context, anexoID, usuarioID string) (*ConteudoDeAnexo, error) {
+	a, err := uc.anexos.BuscarPorID(ctx, anexoID)
 	if err != nil {
 		return nil, err
 	}
 	if a == nil || a.Tipo != danexo.TipoArquivo {
 		return nil, danexo.ErrNaoEncontrado
 	}
-	if _, err := uc.boardComAcesso(a.CardID, usuarioID, false); err != nil {
+	if _, err := uc.boardComAcesso(ctx, a.CardID, usuarioID, false); err != nil {
 		return nil, traduzirParaAnexo(err)
 	}
 
@@ -137,42 +138,42 @@ func (uc *AnexoUseCase) Baixar(anexoID, usuarioID string) (*ConteudoDeAnexo, err
 }
 
 // Apagar remove o anexo e, quando é arquivo, o conteúdo do armazém.
-func (uc *AnexoUseCase) Apagar(anexoID, usuarioID string) error {
-	a, err := uc.anexos.BuscarPorID(anexoID)
+func (uc *AnexoUseCase) Apagar(ctx context.Context, anexoID, usuarioID string) error {
+	a, err := uc.anexos.BuscarPorID(ctx, anexoID)
 	if err != nil {
 		return err
 	}
 	if a == nil {
 		return danexo.ErrNaoEncontrado
 	}
-	boardID, err := uc.boardComAcesso(a.CardID, usuarioID, true)
+	boardID, err := uc.boardComAcesso(ctx, a.CardID, usuarioID, true)
 	if err != nil {
 		return traduzirParaAnexo(err)
 	}
 
-	if err := uc.anexos.Apagar(anexoID); err != nil {
+	if err := uc.anexos.Apagar(ctx, anexoID); err != nil {
 		return err
 	}
-	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	// A linha some primeiro: com o arquivo órfão no disco a tela fica correta,
 	// e sobra lixo. Na ordem inversa, um erro deixaria a tela mostrando anexo
 	// que não abre.
 	if a.Tipo == danexo.TipoArquivo {
-		uc.descartar(a.Caminho)
+		uc.descartar(ctx, a.Caminho)
 	}
 	return nil
 }
 
 // boardComAcesso percorre card → coluna → quadro e confere o papel exigido.
-func (uc *AnexoUseCase) boardComAcesso(cardID, usuarioID string, precisaEditar bool) (string, error) {
-	c, err := uc.cards.BuscarPorID(cardID)
+func (uc *AnexoUseCase) boardComAcesso(ctx context.Context, cardID, usuarioID string, precisaEditar bool) (string, error) {
+	c, err := uc.cards.BuscarPorID(ctx, cardID)
 	if err != nil {
 		return "", err
 	}
 	if c == nil {
 		return "", dcard.ErrNaoEncontrado
 	}
-	col, err := uc.colunas.BuscarPorID(c.ColunaID)
+	col, err := uc.colunas.BuscarPorID(ctx, c.ColunaID)
 	if err != nil {
 		return "", err
 	}
@@ -181,9 +182,9 @@ func (uc *AnexoUseCase) boardComAcesso(cardID, usuarioID string, precisaEditar b
 	}
 
 	if precisaEditar {
-		_, err = acessoDeEdicao(uc.membros, col.BoardID, usuarioID)
+		_, err = acessoDeEdicao(ctx, uc.membros, col.BoardID, usuarioID)
 	} else {
-		_, err = acesso(uc.membros, col.BoardID, usuarioID)
+		_, err = acesso(ctx, uc.membros, col.BoardID, usuarioID)
 	}
 	if err != nil {
 		return "", traduzirParaCard(err)
@@ -194,7 +195,7 @@ func (uc *AnexoUseCase) boardComAcesso(cardID, usuarioID string, precisaEditar b
 // descartar apaga um arquivo do armazém sem interromper o fluxo: se a limpeza
 // falhar, sobra lixo no disco — chato, e melhor do que derrubar uma operação
 // que já deu certo do ponto de vista de quem pediu.
-func (uc *AnexoUseCase) descartar(caminho string) {
+func (uc *AnexoUseCase) descartar(ctx context.Context, caminho string) {
 	if err := uc.armazem.Remover(caminho); err != nil {
 		slog.Warn("anexo órfão no armazém",
 			slog.String("caminho", caminho), slog.String("erro", err.Error()))

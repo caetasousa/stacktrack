@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	dcoluna "stacktrack/internal/domain/coluna"
 	dcor "stacktrack/internal/domain/cor"
 	"stacktrack/internal/domain/evento"
@@ -12,21 +13,21 @@ import (
 type ColunaUseCase struct {
 	eventos
 	membros repositorioMembro
-	colunas repositorioColuna
+	colunas RepositorioColuna
 }
 
 // NovoColunaUseCase cria uma instância de ColunaUseCase com as dependências injetadas.
-func NovoColunaUseCase(membros repositorioMembro, colunas repositorioColuna) *ColunaUseCase {
+func NovoColunaUseCase(membros repositorioMembro, colunas RepositorioColuna) *ColunaUseCase {
 	return &ColunaUseCase{membros: membros, colunas: colunas}
 }
 
 // Criar acrescenta uma coluna no fim do quadro. Exige papel de edição.
-func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
-	if _, err := acessoDeEdicao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
+	if _, err := acessoDeEdicao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
 
-	ultima, err := uc.colunas.UltimaPosicao(boardID)
+	ultima, err := uc.colunas.UltimaPosicao(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -35,17 +36,17 @@ func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string, cores dcor.Cor
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.colunas.Salvar(c); err != nil {
+	if err := uc.colunas.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.ColunaCriada, boardID, usuarioID, c)
+	uc.publicar(ctx, evento.ColunaCriada, boardID, usuarioID, c)
 	return c, nil
 }
 
 // Renomear troca o título e a cor da coluna. Exige papel de edição no quadro
 // dela.
-func (uc *ColunaUseCase) Renomear(colunaID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
-	c, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID)
+func (uc *ColunaUseCase) Renomear(ctx context.Context, colunaID, usuarioID, titulo string, cores dcor.Cor) (*dcoluna.Coluna, error) {
+	c, err := uc.carregarComAcessoDeEdicao(ctx, colunaID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -55,23 +56,23 @@ func (uc *ColunaUseCase) Renomear(colunaID, usuarioID, titulo string, cores dcor
 	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
-	if err := uc.colunas.Atualizar(c); err != nil {
+	if err := uc.colunas.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.ColunaAlterada, c.BoardID, usuarioID, c)
+	uc.publicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, c)
 	return c, nil
 }
 
 // Apagar remove a coluna e, por cascata, os cards dela. Exige papel de edição.
-func (uc *ColunaUseCase) Apagar(colunaID, usuarioID string) error {
-	c, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID)
+func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string) error {
+	c, err := uc.carregarComAcessoDeEdicao(ctx, colunaID, usuarioID)
 	if err != nil {
 		return err
 	}
-	if err := uc.colunas.Apagar(colunaID); err != nil {
+	if err := uc.colunas.Apagar(ctx, colunaID); err != nil {
 		return err
 	}
-	uc.publicar(evento.ColunaApagada, c.BoardID, usuarioID, map[string]string{"id": colunaID})
+	uc.publicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID, map[string]string{"id": colunaID})
 	return nil
 }
 
@@ -79,15 +80,15 @@ func (uc *ColunaUseCase) Apagar(colunaID, usuarioID string) error {
 // e não a um quadro informado por quem chamou. Aceitar o boardID da requisição
 // deixaria alguém apagar a coluna de um quadro alheio informando o id de um
 // quadro próprio.
-func (uc *ColunaUseCase) carregarComAcessoDeEdicao(colunaID, usuarioID string) (*dcoluna.Coluna, error) {
-	c, err := uc.colunas.BuscarPorID(colunaID)
+func (uc *ColunaUseCase) carregarComAcessoDeEdicao(ctx context.Context, colunaID, usuarioID string) (*dcoluna.Coluna, error) {
+	c, err := uc.colunas.BuscarPorID(ctx, colunaID)
 	if err != nil {
 		return nil, err
 	}
 	if c == nil {
 		return nil, dcoluna.ErrNaoEncontrada
 	}
-	if _, err := acessoDeEdicao(uc.membros, c.BoardID, usuarioID); err != nil {
+	if _, err := acessoDeEdicao(ctx, uc.membros, c.BoardID, usuarioID); err != nil {
 		// Quem não participa do quadro recebe "coluna não encontrada" pelo
 		// mesmo motivo do quadro: confirmar a existência já é informação.
 		return nil, traduzirParaColuna(err)

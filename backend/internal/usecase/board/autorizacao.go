@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	dboard "stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/membro"
 )
@@ -12,8 +13,8 @@ import (
 // isso basta para varrer ids e mapear o que os outros têm. Só quem já enxerga
 // o quadro pode receber 403, porque para essa pessoa a existência dele não é
 // segredo nenhum.
-func acesso(membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
-	m, err := membros.Buscar(boardID, usuarioID)
+func acesso(ctx context.Context, membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
+	m, err := membros.Buscar(ctx, boardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +27,8 @@ func acesso(membros repositorioMembro, boardID, usuarioID string) (*membro.Membr
 // acessoDeEdicao é o acesso exigido para mexer no conteúdo do quadro (colunas
 // e cards). Leitor recebe membro.ErrSemPermissao — 403, porque ele enxerga o
 // quadro e a recusa não revela nada que ele já não saiba.
-func acessoDeEdicao(membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
-	m, err := acesso(membros, boardID, usuarioID)
+func acessoDeEdicao(ctx context.Context, membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
+	m, err := acesso(ctx, membros, boardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +39,8 @@ func acessoDeEdicao(membros repositorioMembro, boardID, usuarioID string) (*memb
 }
 
 // acessoDeAdministracao é o acesso exigido para renomear e apagar o quadro.
-func acessoDeAdministracao(membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
-	m, err := acesso(membros, boardID, usuarioID)
+func acessoDeAdministracao(ctx context.Context, membros repositorioMembro, boardID, usuarioID string) (*membro.Membro, error) {
+	m, err := acesso(ctx, membros, boardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}

@@ -55,7 +55,7 @@ func (h *ExtrasHandler) ListarEtiquetas(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	etiquetas, err := h.etiquetas.Listar(chi.URLParam(r, "boardID"), usuarioID)
+	etiquetas, err := h.etiquetas.Listar(r.Context(), chi.URLParam(r, "boardID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao listar etiquetas", err)
 		return
@@ -74,7 +74,7 @@ func (h *ExtrasHandler) CriarEtiqueta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	e, err := h.etiquetas.Criar(chi.URLParam(r, "boardID"), usuarioID, req.Nome, detiqueta.Cor(req.Cor))
+	e, err := h.etiquetas.Criar(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Nome, detiqueta.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar etiqueta", err)
 		return
@@ -93,7 +93,7 @@ func (h *ExtrasHandler) EditarEtiqueta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	e, err := h.etiquetas.Editar(chi.URLParam(r, "etiquetaID"), usuarioID, req.Nome, detiqueta.Cor(req.Cor))
+	e, err := h.etiquetas.Editar(r.Context(), chi.URLParam(r, "etiquetaID"), usuarioID, req.Nome, detiqueta.Cor(req.Cor))
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao editar etiqueta", err)
 		return
@@ -108,7 +108,7 @@ func (h *ExtrasHandler) ApagarEtiqueta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.etiquetas.Apagar(chi.URLParam(r, "etiquetaID"), usuarioID); err != nil {
+	if err := h.etiquetas.Apagar(r.Context(), chi.URLParam(r, "etiquetaID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar etiqueta", err)
 		return
 	}
@@ -122,7 +122,7 @@ func (h *ExtrasHandler) AplicarEtiqueta(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err := h.etiquetas.Aplicar(chi.URLParam(r, "cardID"), chi.URLParam(r, "etiquetaID"), usuarioID)
+	err := h.etiquetas.Aplicar(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "etiquetaID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao aplicar etiqueta", err)
 		return
@@ -137,7 +137,7 @@ func (h *ExtrasHandler) RemoverEtiqueta(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err := h.etiquetas.Remover(chi.URLParam(r, "cardID"), chi.URLParam(r, "etiquetaID"), usuarioID)
+	err := h.etiquetas.Remover(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "etiquetaID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao remover etiqueta", err)
 		return
@@ -158,7 +158,7 @@ func (h *ExtrasHandler) CriarChecklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.checklists.Criar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo)
+	c, err := h.checklists.Criar(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.Titulo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar checklist", err)
 		return
@@ -180,7 +180,7 @@ func (h *ExtrasHandler) RenomearChecklist(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	c, err := h.checklists.Renomear(chi.URLParam(r, "checklistID"), usuarioID, req.Titulo)
+	c, err := h.checklists.Renomear(r.Context(), chi.URLParam(r, "checklistID"), usuarioID, req.Titulo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao renomear checklist", err)
 		return
@@ -198,7 +198,7 @@ func (h *ExtrasHandler) ApagarChecklist(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.checklists.Apagar(chi.URLParam(r, "checklistID"), usuarioID); err != nil {
+	if err := h.checklists.Apagar(r.Context(), chi.URLParam(r, "checklistID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar checklist", err)
 		return
 	}
@@ -216,7 +216,7 @@ func (h *ExtrasHandler) CriarItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.checklists.CriarItem(chi.URLParam(r, "checklistID"), usuarioID, req.Texto)
+	item, err := h.checklists.CriarItem(r.Context(), chi.URLParam(r, "checklistID"), usuarioID, req.Texto)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao criar item", err)
 		return
@@ -235,7 +235,7 @@ func (h *ExtrasHandler) EditarItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.checklists.EditarItem(chi.URLParam(r, "itemID"), usuarioID, req.Texto, req.Concluido)
+	item, err := h.checklists.EditarItem(r.Context(), chi.URLParam(r, "itemID"), usuarioID, req.Texto, req.Concluido)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao editar item", err)
 		return
@@ -250,7 +250,7 @@ func (h *ExtrasHandler) ApagarItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.checklists.ApagarItem(chi.URLParam(r, "itemID"), usuarioID); err != nil {
+	if err := h.checklists.ApagarItem(r.Context(), chi.URLParam(r, "itemID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar item", err)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *ExtrasHandler) AnexarLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.anexos.AnexarLink(chi.URLParam(r, "cardID"), usuarioID, req.Nome, req.URL)
+	a, err := h.anexos.AnexarLink(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.Nome, req.URL)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao anexar link", err)
 		return
@@ -301,7 +301,7 @@ func (h *ExtrasHandler) AnexarArquivo(w http.ResponseWriter, r *http.Request) {
 	// decide, e o download força Content-Disposition de qualquer forma.
 	mime := cabecalho.Header.Get("Content-Type")
 
-	a, err := h.anexos.AnexarArquivo(
+	a, err := h.anexos.AnexarArquivo(r.Context(),
 		chi.URLParam(r, "cardID"), usuarioID, cabecalho.Filename, mime, cabecalho.Size, arquivo,
 	)
 	if err != nil {
@@ -318,7 +318,7 @@ func (h *ExtrasHandler) BaixarAnexo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conteudo, err := h.anexos.Baixar(chi.URLParam(r, "anexoID"), usuarioID)
+	conteudo, err := h.anexos.Baixar(r.Context(), chi.URLParam(r, "anexoID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao baixar anexo", err)
 		return
@@ -350,7 +350,7 @@ func (h *ExtrasHandler) ApagarAnexo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.anexos.Apagar(chi.URLParam(r, "anexoID"), usuarioID); err != nil {
+	if err := h.anexos.Apagar(r.Context(), chi.URLParam(r, "anexoID"), usuarioID); err != nil {
 		responderErroDeQuadro(w, r, "erro ao apagar anexo", err)
 		return
 	}

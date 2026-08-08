@@ -15,12 +15,12 @@ import (
 
 // ConvitePostgres persiste convites de quadro no PostgreSQL.
 type ConvitePostgres struct {
-	pool *pgxpool.Pool
+	db consultante
 }
 
 // NovoConvitePostgres cria o repositório de convites sobre o pool informado.
 func NovoConvitePostgres(pool *pgxpool.Pool) *ConvitePostgres {
-	return &ConvitePostgres{pool: pool}
+	return &ConvitePostgres{db: pool}
 }
 
 const camposConvite = `id, board_id, email, papel, token_hash, criado_por, criado_em, expira_em, aceito_em`
@@ -28,8 +28,8 @@ const camposConvite = `id, board_id, email, papel, token_hash, criado_por, criad
 // Salvar persiste um convite novo. Traduz a violação do índice único parcial em
 // convite.ErrJaConvidado: entre a checagem do usecase e o INSERT cabe outro
 // convite para o mesmo email, e quem descobre a colisão é o banco.
-func (r *ConvitePostgres) Salvar(c *convite.Convite) error {
-	_, err := r.pool.Exec(context.Background(),
+func (r *ConvitePostgres) Salvar(ctx context.Context, c *convite.Convite) error {
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO convites_board (`+camposConvite+`)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		c.ID, c.BoardID, c.Email, string(c.Papel), c.TokenHash, c.CriadoPor,
@@ -43,8 +43,8 @@ func (r *ConvitePostgres) Salvar(c *convite.Convite) error {
 }
 
 // Atualizar grava a aceitação do convite.
-func (r *ConvitePostgres) Atualizar(c *convite.Convite) error {
-	_, err := r.pool.Exec(context.Background(),
+func (r *ConvitePostgres) Atualizar(ctx context.Context, c *convite.Convite) error {
+	_, err := r.db.Exec(ctx,
 		`UPDATE convites_board SET papel = $2, aceito_em = $3 WHERE id = $1`,
 		c.ID, string(c.Papel), c.AceitoEm,
 	)
@@ -52,22 +52,22 @@ func (r *ConvitePostgres) Atualizar(c *convite.Convite) error {
 }
 
 // BuscarPorID retorna (convite, nil) quando encontra e (nil, nil) quando não existe.
-func (r *ConvitePostgres) BuscarPorID(id string) (*convite.Convite, error) {
-	return r.buscar(`WHERE id = $1`, id)
+func (r *ConvitePostgres) BuscarPorID(ctx context.Context, id string) (*convite.Convite, error) {
+	return r.buscar(ctx, `WHERE id = $1`, id)
 }
 
 // BuscarPorTokenHash retorna (convite, nil) quando encontra e (nil, nil) quando
 // nenhum convite corresponde ao hash.
-func (r *ConvitePostgres) BuscarPorTokenHash(hash string) (*convite.Convite, error) {
-	return r.buscar(`WHERE token_hash = $1`, hash)
+func (r *ConvitePostgres) BuscarPorTokenHash(ctx context.Context, hash string) (*convite.Convite, error) {
+	return r.buscar(ctx, `WHERE token_hash = $1`, hash)
 }
 
 // BuscarPendentePorEmail retorna o convite ainda não aceito daquele email no
 // quadro, ou (nil, nil) se não houver.
-func (r *ConvitePostgres) BuscarPendentePorEmail(boardID, email string) (*convite.Convite, error) {
+func (r *ConvitePostgres) BuscarPendentePorEmail(ctx context.Context, boardID, email string) (*convite.Convite, error) {
 	var c convite.Convite
 	var papel string
-	err := r.pool.QueryRow(context.Background(),
+	err := r.db.QueryRow(ctx,
 		`SELECT `+camposConvite+` FROM convites_board
 		 WHERE board_id = $1 AND email = $2 AND aceito_em IS NULL`,
 		boardID, usuario.NormalizarEmail(email),
@@ -86,8 +86,8 @@ func (r *ConvitePostgres) BuscarPendentePorEmail(boardID, email string) (*convit
 // ListarPendentes devolve os convites do quadro que ainda não foram aceitos,
 // inclusive os vencidos — a tela mostra o vencimento e deixa o dono decidir
 // entre revogar e convidar de novo.
-func (r *ConvitePostgres) ListarPendentes(boardID string) ([]convite.Convite, error) {
-	linhas, err := r.pool.Query(context.Background(),
+func (r *ConvitePostgres) ListarPendentes(ctx context.Context, boardID string) ([]convite.Convite, error) {
+	linhas, err := r.db.Query(ctx,
 		`SELECT `+camposConvite+` FROM convites_board
 		 WHERE board_id = $1 AND aceito_em IS NULL
 		 ORDER BY criado_em DESC`, boardID,
@@ -112,15 +112,15 @@ func (r *ConvitePostgres) ListarPendentes(boardID string) ([]convite.Convite, er
 }
 
 // Remover apaga o convite, invalidando o link já entregue.
-func (r *ConvitePostgres) Remover(id string) error {
-	_, err := r.pool.Exec(context.Background(), `DELETE FROM convites_board WHERE id = $1`, id)
+func (r *ConvitePostgres) Remover(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM convites_board WHERE id = $1`, id)
 	return err
 }
 
-func (r *ConvitePostgres) buscar(filtro string, arg any) (*convite.Convite, error) {
+func (r *ConvitePostgres) buscar(ctx context.Context, filtro string, arg any) (*convite.Convite, error) {
 	var c convite.Convite
 	var papel string
-	err := r.pool.QueryRow(context.Background(),
+	err := r.db.QueryRow(ctx,
 		`SELECT `+camposConvite+` FROM convites_board `+filtro, arg,
 	).Scan(&c.ID, &c.BoardID, &c.Email, &papel, &c.TokenHash, &c.CriadoPor,
 		&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm)

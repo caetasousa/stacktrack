@@ -1,6 +1,9 @@
 package auth
 
-import "stacktrack/internal/domain/usuario"
+import (
+	"context"
+	"stacktrack/internal/domain/usuario"
+)
 
 // PerfilUseCase devolve os dados da conta autenticada.
 type PerfilUseCase struct {
@@ -16,8 +19,8 @@ func NovoPerfilUseCase(usuarios buscadorUsuario) *PerfilUseCase {
 // ErrSessaoInvalida quando o usuário não existe mais — a conta foi apagada
 // enquanto a sessão ainda estava viva, e uma sessão sem dono não autentica
 // ninguém.
-func (uc *PerfilUseCase) Executar(usuarioID string) (*usuario.Usuario, error) {
-	u, err := uc.usuarios.BuscarPorID(usuarioID)
+func (uc *PerfilUseCase) Executar(ctx context.Context, usuarioID string) (*usuario.Usuario, error) {
+	u, err := uc.usuarios.BuscarPorID(ctx, usuarioID)
 	if err != nil {
 		return nil, err
 	}

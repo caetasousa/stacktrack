@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"time"
 
 	"stacktrack/internal/pkg/token"
@@ -20,8 +21,8 @@ func NovoValidarSessaoUseCase(sessoes repositorioSessao) *ValidarSessaoUseCase {
 // Executar busca a sessão pelo hash do token informado e retorna a identidade
 // do usuário autenticado. Retorna ErrSessaoInvalida se a sessão não existir ou
 // já tiver expirado.
-func (uc *ValidarSessaoUseCase) Executar(tokenPuro string) (*Identidade, error) {
-	s, err := uc.sessoes.BuscarPorTokenHash(token.Hash(tokenPuro))
+func (uc *ValidarSessaoUseCase) Executar(ctx context.Context, tokenPuro string) (*Identidade, error) {
+	s, err := uc.sessoes.BuscarPorTokenHash(ctx, token.Hash(tokenPuro))
 	if err != nil {
 		return nil, err
 	}

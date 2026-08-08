@@ -13,19 +13,19 @@ import (
 // AnexoPostgres persiste os anexos dos cards. O conteúdo dos arquivos não fica
 // aqui — só o registro; o binário vive no armazém.
 type AnexoPostgres struct {
-	pool *pgxpool.Pool
+	db consultante
 }
 
 // NovoAnexoPostgres cria o repositório de anexos sobre o pool informado.
 func NovoAnexoPostgres(pool *pgxpool.Pool) *AnexoPostgres {
-	return &AnexoPostgres{pool: pool}
+	return &AnexoPostgres{db: pool}
 }
 
 const camposAnexo = `id, card_id, tipo, nome, url, caminho, tamanho, mime, criado_por, criado_em`
 
 // Salvar persiste um anexo novo.
-func (r *AnexoPostgres) Salvar(a *anexo.Anexo) error {
-	_, err := r.pool.Exec(context.Background(),
+func (r *AnexoPostgres) Salvar(ctx context.Context, a *anexo.Anexo) error {
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO anexos (`+camposAnexo+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		a.ID, a.CardID, string(a.Tipo), a.Nome,
 		vazioParaNulo(a.URL), vazioParaNulo(a.Caminho),
@@ -36,8 +36,8 @@ func (r *AnexoPostgres) Salvar(a *anexo.Anexo) error {
 }
 
 // BuscarPorID retorna (anexo, nil) quando encontra e (nil, nil) quando não existe.
-func (r *AnexoPostgres) BuscarPorID(id string) (*anexo.Anexo, error) {
-	linha := r.pool.QueryRow(context.Background(),
+func (r *AnexoPostgres) BuscarPorID(ctx context.Context, id string) (*anexo.Anexo, error) {
+	linha := r.db.QueryRow(ctx,
 		`SELECT `+camposAnexo+` FROM anexos WHERE id = $1`, id)
 
 	a, err := lerAnexo(linha)
@@ -51,8 +51,8 @@ func (r *AnexoPostgres) BuscarPorID(id string) (*anexo.Anexo, error) {
 }
 
 // ListarDoCard devolve os anexos do card, do mais recente para o mais antigo.
-func (r *AnexoPostgres) ListarDoCard(cardID string) ([]anexo.Anexo, error) {
-	linhas, err := r.pool.Query(context.Background(),
+func (r *AnexoPostgres) ListarDoCard(ctx context.Context, cardID string) ([]anexo.Anexo, error) {
+	linhas, err := r.db.Query(ctx,
 		`SELECT `+camposAnexo+` FROM anexos WHERE card_id = $1 ORDER BY criado_em DESC`, cardID)
 	if err != nil {
 		return nil, err
@@ -72,15 +72,15 @@ func (r *AnexoPostgres) ListarDoCard(cardID string) ([]anexo.Anexo, error) {
 
 // Apagar remove o registro do anexo. O arquivo no armazém é apagado pelo
 // usecase, que é quem sabe se havia arquivo.
-func (r *AnexoPostgres) Apagar(id string) error {
-	_, err := r.pool.Exec(context.Background(), `DELETE FROM anexos WHERE id = $1`, id)
+func (r *AnexoPostgres) Apagar(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM anexos WHERE id = $1`, id)
 	return err
 }
 
 // ContarPorCardDoBoard devolve quantos anexos cada card do quadro tem — numa
 // consulta só, pelo mesmo motivo do progresso de checklist.
-func (r *AnexoPostgres) ContarPorCardDoBoard(boardID string) (map[string]int, error) {
-	linhas, err := r.pool.Query(context.Background(),
+func (r *AnexoPostgres) ContarPorCardDoBoard(ctx context.Context, boardID string) (map[string]int, error) {
+	linhas, err := r.db.Query(ctx,
 		`SELECT a.card_id, COUNT(*)
 		 FROM anexos a
 		 JOIN cards c   ON c.id = a.card_id

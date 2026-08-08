@@ -13,17 +13,17 @@ import (
 
 // CardPostgres persiste cards no PostgreSQL.
 type CardPostgres struct {
-	pool *pgxpool.Pool
+	db consultante
 }
 
 // NovoCardPostgres cria o repositório de cards sobre o pool informado.
 func NovoCardPostgres(pool *pgxpool.Pool) *CardPostgres {
-	return &CardPostgres{pool: pool}
+	return &CardPostgres{db: pool}
 }
 
 // Salvar persiste um card novo.
-func (r *CardPostgres) Salvar(c *card.Card) error {
-	_, err := r.pool.Exec(context.Background(),
+func (r *CardPostgres) Salvar(ctx context.Context, c *card.Card) error {
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
@@ -48,8 +48,8 @@ func (r *CardPostgres) Salvar(c *card.Card) error {
 // Zero linhas também acontece se o card foi APAGADO no meio do caminho. Os dois
 // casos viram o mesmo erro de propósito: para quem escreveu, a diferença não
 // muda o que fazer — recarregar e decidir de novo.
-func (r *CardPostgres) Atualizar(c *card.Card) error {
-	tag, err := r.pool.Exec(context.Background(),
+func (r *CardPostgres) Atualizar(ctx context.Context, c *card.Card) error {
+	tag, err := r.db.Exec(ctx,
 		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, cor = $5, posicao = $6,
 		        version = $7, prazo = $8, atualizado_em = $9
 		 WHERE id = $1 AND version = $7 - 1`,
@@ -66,10 +66,10 @@ func (r *CardPostgres) Atualizar(c *card.Card) error {
 }
 
 // BuscarPorID retorna (card, nil) quando encontra e (nil, nil) quando não existe.
-func (r *CardPostgres) BuscarPorID(id string) (*card.Card, error) {
+func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, error) {
 	var c card.Card
 	var corLida *string
-	err := r.pool.QueryRow(context.Background(),
+	err := r.db.QueryRow(ctx,
 		`SELECT id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em
 		 FROM cards WHERE id = $1`, id,
 	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
@@ -85,8 +85,8 @@ func (r *CardPostgres) BuscarPorID(id string) (*card.Card, error) {
 
 // ListarDoBoard devolve todos os cards do quadro em ordem de posição, numa
 // consulta só — uma por coluna seria um N+1 que piora conforme o quadro cresce.
-func (r *CardPostgres) ListarDoBoard(boardID string) ([]card.Card, error) {
-	linhas, err := r.pool.Query(context.Background(),
+func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
+	linhas, err := r.db.Query(ctx,
 		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.posicao, c.version, c.prazo, c.criado_em, c.atualizado_em
 		 FROM cards c
 		 JOIN colunas col ON col.id = c.coluna_id
@@ -112,16 +112,16 @@ func (r *CardPostgres) ListarDoBoard(boardID string) ([]card.Card, error) {
 }
 
 // Apagar remove o card.
-func (r *CardPostgres) Apagar(id string) error {
-	_, err := r.pool.Exec(context.Background(), `DELETE FROM cards WHERE id = $1`, id)
+func (r *CardPostgres) Apagar(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM cards WHERE id = $1`, id)
 	return err
 }
 
 // UltimaPosicao devolve a maior posição em uso na coluna, ou 0 quando ela está
 // vazia.
-func (r *CardPostgres) UltimaPosicao(colunaID string) (float64, error) {
+func (r *CardPostgres) UltimaPosicao(ctx context.Context, colunaID string) (float64, error) {
 	var ultima float64
-	err := r.pool.QueryRow(context.Background(),
+	err := r.db.QueryRow(ctx,
 		`SELECT COALESCE(MAX(posicao), 0) FROM cards WHERE coluna_id = $1`, colunaID,
 	).Scan(&ultima)
 	return ultima, err

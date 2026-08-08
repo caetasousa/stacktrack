@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"stacktrack/internal/domain/usuario"
 	"stacktrack/internal/pkg/token"
 )
@@ -31,13 +32,13 @@ func NovoLoginUseCase(usuarios buscadorUsuario, sessoes repositorioSessao, hashe
 // Executar valida as credenciais e, se corretas, cria uma nova sessão com
 // validade de TTLSessao. Retorna ErrCredenciaisInvalidas tanto para email
 // inexistente quanto para senha incorreta.
-func (uc *LoginUseCase) Executar(input LoginInput) (*SessaoAberta, error) {
-	u, err := uc.usuarios.BuscarPorEmail(usuario.NormalizarEmail(input.Email))
+func (uc *LoginUseCase) Executar(ctx context.Context, input LoginInput) (*SessaoAberta, error) {
+	u, err := uc.usuarios.BuscarPorEmail(ctx, usuario.NormalizarEmail(input.Email))
 	if err != nil {
 		return nil, err
 	}
 	if u == nil {
-		uc.equalizarTempo(input.Senha)
+		uc.equalizarTempo(ctx, input.Senha)
 		return nil, ErrCredenciaisInvalidas
 	}
 
@@ -49,7 +50,7 @@ func (uc *LoginUseCase) Executar(input LoginInput) (*SessaoAberta, error) {
 		return nil, ErrCredenciaisInvalidas
 	}
 
-	return abrirSessao(uc.sessoes, u)
+	return abrirSessao(ctx, uc.sessoes, u)
 }
 
 // equalizarTempo queima o mesmo custo de CPU que uma verificação real quando o
@@ -59,7 +60,7 @@ func (uc *LoginUseCase) Executar(input LoginInput) (*SessaoAberta, error) {
 // ~50ms do Argon2id — e essa diferença, medida de fora, vira um oráculo que
 // diz quais emails têm conta aqui. A resposta já é genérica; o tempo também
 // precisa ser.
-func (uc *LoginUseCase) equalizarTempo(senha string) {
+func (uc *LoginUseCase) equalizarTempo(ctx context.Context, senha string) {
 	if uc.hashDummy != "" {
 		uc.hasher.Verificar(senha, uc.hashDummy)
 		return

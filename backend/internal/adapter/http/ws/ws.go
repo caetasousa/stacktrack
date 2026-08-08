@@ -40,7 +40,7 @@ const (
 // pergunta que o usecase faz antes de qualquer leitura — declarada aqui como
 // interface para o adaptador não depender do usecase concreto.
 type Autorizador interface {
-	PodeVer(boardID, usuarioID string) bool
+	PodeVer(ctx context.Context, boardID, usuarioID string) bool
 }
 
 // Identificador extrai a identidade do contexto, já validada pelo middleware
@@ -49,12 +49,12 @@ type Identificador func(ctx context.Context) (string, bool)
 
 // Nomeador resolve o nome de exibição de quem conectou. É o que a presença
 // mostra: um avatar com id cru não diz nada a ninguém.
-type Nomeador func(usuarioID string) string
+type Nomeador func(ctx context.Context, usuarioID string) string
 
 // Historico é o log do quadro, consultado no reconnect.
 type Historico interface {
-	Desde(boardID string, seq int64, limite int) ([]evento.Evento, error)
-	UltimoSeq(boardID string) (int64, error)
+	Desde(ctx context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error)
+	UltimoSeq(ctx context.Context, boardID string) (int64, error)
 }
 
 // maxBacklog é o teto de eventos entregues num reconnect.
@@ -127,7 +127,7 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	}
 	// Mesma regra do resto da API: quem não participa recebe 404, nunca 403 —
 	// um 403 confirmaria que o quadro existe.
-	if !h.autorizador.PodeVer(boardID, usuarioID) {
+	if !h.autorizador.PodeVer(r.Context(), boardID, usuarioID) {
 		http.Error(w, "quadro não encontrado", http.StatusNotFound)
 		return
 	}
@@ -142,7 +142,7 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conexao.CloseNow()
 
-	assinante := h.hub.Assinar(boardID, hub.Pessoa{ID: usuarioID, Nome: h.nome(usuarioID)})
+	assinante := h.hub.Assinar(boardID, hub.Pessoa{ID: usuarioID, Nome: h.nome(r.Context(), usuarioID)})
 	if assinante == nil {
 		// O hub está desligando.
 		_ = conexao.Close(websocket.StatusGoingAway, "servidor encerrando")
@@ -191,8 +191,10 @@ func (h *Handler) lerAteMorrer(ctx context.Context, encerrar context.CancelFunc,
 		if _, _, err := c.Read(ctx); err != nil {
 			return
 		}
-		// O cliente não manda nada hoje. Quando mandar (a presença da fase 6),
-		// é aqui que entra o tratamento.
+		// O cliente não manda nada, e não é esquecimento: a presença é derivada
+		// do próprio mapa de conexões do hub, então não há o que ele informe
+		// que o servidor já não saiba. Se um dia mandar (um cursor, um "estou
+		// digitando"), é aqui que entra o tratamento.
 	}
 }
 
@@ -269,7 +271,7 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde s
 	}
 
 	if desde == "" {
-		atual, err := h.historico.UltimoSeq(boardID)
+		atual, err := h.historico.UltimoSeq(ctx, boardID)
 		if err != nil {
 			return err
 		}
@@ -284,7 +286,7 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde s
 		return fmt.Errorf("desde inválido: %q", desde)
 	}
 
-	perdidos, err := h.historico.Desde(boardID, ultimoAplicado, maxBacklog+1)
+	perdidos, err := h.historico.Desde(ctx, boardID, ultimoAplicado, maxBacklog+1)
 	if err != nil {
 		return err
 	}
@@ -293,7 +295,7 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde s
 	// tela buscar o quadro inteiro. Uma requisição resolve, e o resultado é o
 	// mesmo — com a vantagem de ser sempre correto.
 	if len(perdidos) > maxBacklog {
-		atual, err := h.historico.UltimoSeq(boardID)
+		atual, err := h.historico.UltimoSeq(ctx, boardID)
 		if err != nil {
 			return err
 		}
@@ -308,5 +310,6 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde s
 			return err
 		}
 	}
+
 	return nil
 }

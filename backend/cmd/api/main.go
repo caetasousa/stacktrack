@@ -139,8 +139,8 @@ func main() {
 		// vez de derrubar a conexão: ver quem está no quadro é acessório, e
 		// perder o tempo real por causa disso seria trocar o essencial pelo
 		// secundário.
-		func(usuarioID string) string {
-			u, err := perfilUC.Executar(usuarioID)
+		func(ctx context.Context, usuarioID string) string {
+			u, err := perfilUC.Executar(ctx, usuarioID)
 			if err != nil || u == nil {
 				return "alguém"
 			}

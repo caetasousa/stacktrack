@@ -36,7 +36,7 @@ func (a *Auth) Autenticar(next http.Handler) http.Handler {
 			return
 		}
 
-		id, err := a.validar.Executar(cookie.Value)
+		id, err := a.validar.Executar(r.Context(), cookie.Value)
 		if err != nil {
 			responderNaoAutenticado(w)
 			return

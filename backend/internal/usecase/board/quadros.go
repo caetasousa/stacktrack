@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	dboard "stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/coluna"
@@ -16,10 +17,10 @@ import (
 // nenhuma.
 type QuadroUseCase struct {
 	eventos
-	boards     repositorioBoard
+	boards     RepositorioBoard
 	membros    repositorioMembro
-	colunas    repositorioColuna
-	cards      repositorioCard
+	colunas    RepositorioColuna
+	cards      RepositorioCard
 	etiquetas  repositorioEtiqueta
 	checklists repositorioChecklist
 	anexos     repositorioAnexo
@@ -27,10 +28,10 @@ type QuadroUseCase struct {
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
 func NovoQuadroUseCase(
-	boards repositorioBoard,
+	boards RepositorioBoard,
 	membros repositorioMembro,
-	colunas repositorioColuna,
-	cards repositorioCard,
+	colunas RepositorioColuna,
+	cards RepositorioCard,
 	etiquetas repositorioEtiqueta,
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
@@ -49,12 +50,12 @@ func NovoQuadroUseCase(
 // todo mundo, inclusive para quem o criou, porque toda leitura passa pelo
 // vínculo. É lixo, não é risco, e a transação entra quando houver mais de uma
 // escrita que precise andar junto (a fase 7, com o evento no outbox).
-func (uc *QuadroUseCase) Criar(usuarioID, titulo string) (*dboard.Board, error) {
+func (uc *QuadroUseCase) Criar(ctx context.Context, usuarioID, titulo string) (*dboard.Board, error) {
 	b, err := dboard.Novo(uuid.NewString(), titulo)
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Salvar(b); err != nil {
+	if err := uc.boards.Salvar(ctx, b); err != nil {
 		return nil, err
 	}
 
@@ -62,7 +63,7 @@ func (uc *QuadroUseCase) Criar(usuarioID, titulo string) (*dboard.Board, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.membros.Salvar(vinculo); err != nil {
+	if err := uc.membros.Salvar(ctx, vinculo); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -70,20 +71,20 @@ func (uc *QuadroUseCase) Criar(usuarioID, titulo string) (*dboard.Board, error) 
 
 // Listar devolve os quadros de que o usuário participa, com o papel dele em
 // cada um. Nunca devolve quadro de terceiro: a consulta parte do vínculo.
-func (uc *QuadroUseCase) Listar(usuarioID string) ([]Resumo, error) {
-	return uc.boards.ListarDoUsuario(usuarioID)
+func (uc *QuadroUseCase) Listar(ctx context.Context, usuarioID string) ([]Resumo, error) {
+	return uc.boards.ListarDoUsuario(ctx, usuarioID)
 }
 
 // Detalhar devolve o quadro com colunas e cards, em ordem de posição. Retorna
 // dboard.ErrNaoEncontrado se o quadro não existir ou se o usuário não
 // participar dele.
-func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error) {
-	vinculo, err := acesso(uc.membros, boardID, usuarioID)
+func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string) (*Detalhado, error) {
+	vinculo, err := acesso(ctx, uc.membros, boardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
 
-	b, err := uc.boards.BuscarPorID(boardID)
+	b, err := uc.boards.BuscarPorID(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +92,11 @@ func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error)
 		return nil, dboard.ErrNaoEncontrado
 	}
 
-	listaColunas, err := uc.colunas.ListarDoBoard(boardID)
+	listaColunas, err := uc.colunas.ListarDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
-	listaCards, err := uc.cards.ListarDoBoard(boardID)
+	listaCards, err := uc.cards.ListarDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,19 +105,19 @@ func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error)
 	// tela do quadro mostra selo de etiqueta, "2/5" de checklist e contagem de
 	// anexos em TODO card, e uma consulta por card seria um N+1 que piora
 	// justamente nos quadros grandes.
-	etiquetasPorCard, err := uc.etiquetas.EtiquetasDoBoardPorCard(boardID)
+	etiquetasPorCard, err := uc.etiquetas.EtiquetasDoBoardPorCard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
-	progressoPorCard, err := uc.checklists.ProgressoDoBoard(boardID)
+	progressoPorCard, err := uc.checklists.ProgressoDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
-	anexosPorCard, err := uc.anexos.ContarPorCardDoBoard(boardID)
+	anexosPorCard, err := uc.anexos.ContarPorCardDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
-	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(boardID)
+	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,18 +138,18 @@ func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error)
 // Devolve bool, e não erro, porque quem chama só precisa decidir entre aceitar
 // e recusar: distinguir "não existe" de "não participa" seria justamente a
 // informação que o 404 do resto da API esconde.
-func (uc *QuadroUseCase) PodeVer(boardID, usuarioID string) bool {
-	_, err := acesso(uc.membros, boardID, usuarioID)
+func (uc *QuadroUseCase) PodeVer(ctx context.Context, boardID, usuarioID string) bool {
+	_, err := acesso(ctx, uc.membros, boardID, usuarioID)
 	return err == nil
 }
 
 // DefinirFundo troca o fundo do quadro. Exige papel de administração.
-func (uc *QuadroUseCase) DefinirFundo(boardID, usuarioID, fundo string) (*dboard.Board, error) {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *QuadroUseCase) DefinirFundo(ctx context.Context, boardID, usuarioID, fundo string) (*dboard.Board, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
 
-	b, err := uc.boards.BuscarPorID(boardID)
+	b, err := uc.boards.BuscarPorID(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,20 +159,20 @@ func (uc *QuadroUseCase) DefinirFundo(boardID, usuarioID, fundo string) (*dboard
 	if err := b.DefinirFundo(fundo); err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Atualizar(b); err != nil {
+	if err := uc.boards.Atualizar(ctx, b); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 
 // Renomear troca o título do quadro. Exige papel de administração (dono).
-func (uc *QuadroUseCase) Renomear(boardID, usuarioID, titulo string) (*dboard.Board, error) {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *QuadroUseCase) Renomear(ctx context.Context, boardID, usuarioID, titulo string) (*dboard.Board, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
 
-	b, err := uc.boards.BuscarPorID(boardID)
+	b, err := uc.boards.BuscarPorID(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
@@ -181,20 +182,20 @@ func (uc *QuadroUseCase) Renomear(boardID, usuarioID, titulo string) (*dboard.Bo
 	if err := b.Renomear(titulo); err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Atualizar(b); err != nil {
+	if err := uc.boards.Atualizar(ctx, b); err != nil {
 		return nil, err
 	}
-	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 
 // Apagar remove o quadro. Exige papel de administração (dono). Colunas, cards
 // e vínculos vão junto, pelo ON DELETE CASCADE do schema.
-func (uc *QuadroUseCase) Apagar(boardID, usuarioID string) error {
-	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
+func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) error {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
-	return uc.boards.Apagar(boardID)
+	return uc.boards.Apagar(ctx, boardID)
 }
 
 // agrupar distribui os cards nas colunas a que pertencem, preservando a ordem

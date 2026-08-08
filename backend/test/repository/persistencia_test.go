@@ -35,11 +35,11 @@ func cenario(t *testing.T) (boardID, colunaID, usuarioID string) {
 	if err != nil {
 		t.Fatalf("board: %v", err)
 	}
-	if err := repository.NovoBoardPostgres(pool).Salvar(b); err != nil {
+	if err := repository.NovoBoardPostgres(pool).Salvar(context.Background(), b); err != nil {
 		t.Fatalf("salvar board: %v", err)
 	}
 	m, _ := membro.Novo(b.ID, usuarioID, membro.PapelDono)
-	if err := repository.NovoMembroPostgres(pool).Salvar(m); err != nil {
+	if err := repository.NovoMembroPostgres(pool).Salvar(context.Background(), m); err != nil {
 		t.Fatalf("membro: %v", err)
 	}
 
@@ -47,7 +47,7 @@ func cenario(t *testing.T) (boardID, colunaID, usuarioID string) {
 	if err != nil {
 		t.Fatalf("coluna: %v", err)
 	}
-	if err := repository.NovoColunaPostgres(pool).Salvar(c); err != nil {
+	if err := repository.NovoColunaPostgres(pool).Salvar(context.Background(), c); err != nil {
 		t.Fatalf("salvar coluna: %v", err)
 	}
 	return b.ID, c.ID, usuarioID
@@ -69,11 +69,11 @@ func TestTodoCampoDoCardSobreviveAoBanco(t *testing.T) {
 	}
 	c.DefinirPrazo(&prazo)
 
-	if err := repo.Salvar(c); err != nil {
+	if err := repo.Salvar(context.Background(), c); err != nil {
 		t.Fatalf("salvar: %v", err)
 	}
 
-	lido, err := repo.BuscarPorID(c.ID)
+	lido, err := repo.BuscarPorID(context.Background(), c.ID)
 	if err != nil || lido == nil {
 		t.Fatalf("buscar: %v", err)
 	}
@@ -103,18 +103,18 @@ func TestFundoDoQuadroSobreviveAoBanco(t *testing.T) {
 	boardID, _, _ := cenario(t)
 	repo := repository.NovoBoardPostgres(pool)
 
-	b, err := repo.BuscarPorID(boardID)
+	b, err := repo.BuscarPorID(context.Background(), boardID)
 	if err != nil || b == nil {
 		t.Fatalf("buscar: %v", err)
 	}
 	if err := b.DefinirFundo("oceano"); err != nil {
 		t.Fatalf("definir fundo: %v", err)
 	}
-	if err := repo.Atualizar(b); err != nil {
+	if err := repo.Atualizar(context.Background(), b); err != nil {
 		t.Fatalf("atualizar: %v", err)
 	}
 
-	relido, err := repo.BuscarPorID(boardID)
+	relido, err := repo.BuscarPorID(context.Background(), boardID)
 	if err != nil || relido == nil {
 		t.Fatalf("reler: %v", err)
 	}
@@ -131,25 +131,25 @@ func TestOBancoRecusaEscritaComVersaoDefasada(t *testing.T) {
 	repo := repository.NovoCardPostgres(pool)
 
 	c, _ := card.Novo(uuid.NewString(), colunaID, "Disputado", "", "", 1024)
-	if err := repo.Salvar(c); err != nil {
+	if err := repo.Salvar(context.Background(), c); err != nil {
 		t.Fatalf("salvar: %v", err)
 	}
 
 	// Duas cópias da mesma linha, como duas requisições que leram juntas.
-	copiaAna, _ := repo.BuscarPorID(c.ID)
-	copiaBob, _ := repo.BuscarPorID(c.ID)
+	copiaAna, _ := repo.BuscarPorID(context.Background(), c.ID)
+	copiaBob, _ := repo.BuscarPorID(context.Background(), c.ID)
 
 	_ = copiaAna.Editar("Da ana", "", "")
-	if err := repo.Atualizar(copiaAna); err != nil {
+	if err := repo.Atualizar(context.Background(), copiaAna); err != nil {
 		t.Fatalf("a primeira escrita devia passar: %v", err)
 	}
 
 	_ = copiaBob.Editar("Do bob", "", "")
-	if err := repo.Atualizar(copiaBob); err != card.ErrConflito {
+	if err := repo.Atualizar(context.Background(), copiaBob); err != card.ErrConflito {
 		t.Errorf("erro = %v, esperado ErrConflito", err)
 	}
 
-	final, _ := repo.BuscarPorID(c.ID)
+	final, _ := repo.BuscarPorID(context.Background(), c.ID)
 	if final.Titulo != "Da ana" {
 		t.Errorf("titulo = %q — a escrita defasada sobrescreveu", final.Titulo)
 	}
@@ -163,7 +163,7 @@ func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 
 	var seqs []int64
 	for i := 0; i < 3; i++ {
-		seq, err := log.Registrar(evento.Novo(evento.ColunaCriada, boardID, usuarioID,
+		seq, err := log.Registrar(context.Background(), evento.Novo(evento.ColunaCriada, boardID, usuarioID,
 			map[string]string{"titulo": "coluna"}))
 		if err != nil {
 			t.Fatalf("registrar: %v", err)
@@ -178,7 +178,7 @@ func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 	}
 
 	// A partir do primeiro, só os dois seguintes.
-	perdidos, err := log.Desde(boardID, seqs[0], 100)
+	perdidos, err := log.Desde(context.Background(), boardID, seqs[0], 100)
 	if err != nil {
 		t.Fatalf("desde: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 		t.Error("o payload voltou vazio do log")
 	}
 
-	ultimo, err := log.UltimoSeq(boardID)
+	ultimo, err := log.UltimoSeq(context.Background(), boardID)
 	if err != nil || ultimo != seqs[2] {
 		t.Errorf("ultimoSeq = %d, esperado %d (%v)", ultimo, seqs[2], err)
 	}
@@ -209,11 +209,11 @@ func TestLogNaoVazaEntreQuadros(t *testing.T) {
 	boardB, _, _ := cenario(t)
 	log := repository.NovoEventoPostgres(pool)
 
-	if _, err := log.Registrar(evento.Novo(evento.CardCriado, boardA, usuarioID, nil)); err != nil {
+	if _, err := log.Registrar(context.Background(), evento.Novo(evento.CardCriado, boardA, usuarioID, nil)); err != nil {
 		t.Fatalf("registrar: %v", err)
 	}
 
-	deB, err := log.Desde(boardB, 0, 100)
+	deB, err := log.Desde(context.Background(), boardB, 0, 100)
 	if err != nil {
 		t.Fatalf("desde: %v", err)
 	}
@@ -228,10 +228,10 @@ func TestApagarQuadroLevaOLogJunto(t *testing.T) {
 	boardID, _, usuarioID := cenario(t)
 	log := repository.NovoEventoPostgres(pool)
 
-	if _, err := log.Registrar(evento.Novo(evento.CardCriado, boardID, usuarioID, nil)); err != nil {
+	if _, err := log.Registrar(context.Background(), evento.Novo(evento.CardCriado, boardID, usuarioID, nil)); err != nil {
 		t.Fatalf("registrar: %v", err)
 	}
-	if err := repository.NovoBoardPostgres(pool).Apagar(boardID); err != nil {
+	if err := repository.NovoBoardPostgres(pool).Apagar(context.Background(), boardID); err != nil {
 		t.Fatalf("apagar: %v", err)
 	}
 

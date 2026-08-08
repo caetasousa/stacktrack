@@ -4,6 +4,7 @@
 package usecase_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -63,14 +64,14 @@ func (q *quadro) convidar(t *testing.T, boardID, usuarioID string, papel membro.
 	if err != nil {
 		t.Fatalf("vínculo inválido: %v", err)
 	}
-	if err := q.membros.Salvar(m); err != nil {
+	if err := q.membros.Salvar(context.Background(), m); err != nil {
 		t.Fatalf("erro ao salvar vínculo: %v", err)
 	}
 }
 
 func (q *quadro) criarQuadro(t *testing.T, usuarioID, titulo string) string {
 	t.Helper()
-	b, err := q.quadros.Criar(usuarioID, titulo)
+	b, err := q.quadros.Criar(context.Background(), usuarioID, titulo)
 	if err != nil {
 		t.Fatalf("erro ao criar quadro: %v", err)
 	}
@@ -79,7 +80,7 @@ func (q *quadro) criarQuadro(t *testing.T, usuarioID, titulo string) string {
 
 func (q *quadro) criarColuna(t *testing.T, boardID, usuarioID, titulo string) string {
 	t.Helper()
-	c, err := q.coluna.Criar(boardID, usuarioID, titulo, "")
+	c, err := q.coluna.Criar(context.Background(), boardID, usuarioID, titulo, "")
 	if err != nil {
 		t.Fatalf("erro ao criar coluna: %v", err)
 	}
@@ -88,7 +89,7 @@ func (q *quadro) criarColuna(t *testing.T, boardID, usuarioID, titulo string) st
 
 func (q *quadro) criarCard(t *testing.T, colunaID, usuarioID, titulo string) string {
 	t.Helper()
-	c, err := q.card.Criar(colunaID, usuarioID, titulo, "", "")
+	c, err := q.card.Criar(context.Background(), colunaID, usuarioID, titulo, "", "")
 	if err != nil {
 		t.Fatalf("erro ao criar card: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestCriarQuadroVinculaQuemCriouComoDono(t *testing.T) {
 
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 
-	vinculo, _ := q.membros.Buscar(boardID, "ana")
+	vinculo, _ := q.membros.Buscar(context.Background(), boardID, "ana")
 	if vinculo == nil {
 		t.Fatal("quem criou o quadro devia ter virado membro")
 	}
@@ -114,7 +115,7 @@ func TestListarSoTrazOsQuadrosDeQuemPede(t *testing.T) {
 	q.criarQuadro(t, "ana", "Da Ana")
 	q.criarQuadro(t, "bob", "Do Bob")
 
-	daAna, err := q.quadros.Listar("ana")
+	daAna, err := q.quadros.Listar(context.Background(), "ana")
 	if err != nil {
 		t.Fatalf("erro ao listar: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestListarSoTrazOsQuadrosDeQuemPede(t *testing.T) {
 func TestListarDeQuemNaoTemQuadroVemVazioENaoNulo(t *testing.T) {
 	q := novoQuadro()
 
-	lista, err := q.quadros.Listar("ninguem")
+	lista, err := q.quadros.Listar(context.Background(), "ninguem")
 	if err != nil {
 		t.Fatalf("erro ao listar: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestQuadroDeTerceiroRespondeNaoEncontradoENaoProibido(t *testing.T) {
 	q := novoQuadro()
 	boardID := q.criarQuadro(t, "ana", "Da Ana")
 
-	_, err := q.quadros.Detalhar(boardID, "bob")
+	_, err := q.quadros.Detalhar(context.Background(), boardID, "bob")
 
 	if !errors.Is(err, dboard.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
@@ -164,7 +165,7 @@ func TestDetalharTrazColunasECardsEmOrdem(t *testing.T) {
 	q.criarCard(t, primeira, "ana", "Card 1")
 	q.criarCard(t, primeira, "ana", "Card 2")
 
-	detalhado, err := q.quadros.Detalhar(boardID, "ana")
+	detalhado, err := q.quadros.Detalhar(context.Background(), boardID, "ana")
 	if err != nil {
 		t.Fatalf("erro ao detalhar: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestColunaSemCardsVemComoSliceVazia(t *testing.T) {
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 	q.criarColuna(t, boardID, "ana", "A fazer")
 
-	detalhado, _ := q.quadros.Detalhar(boardID, "ana")
+	detalhado, _ := q.quadros.Detalhar(context.Background(), boardID, "ana")
 
 	if detalhado.Colunas[0].Cards == nil {
 		t.Error("os cards de uma coluna vazia precisam ser slice vazia, não nil")
@@ -205,13 +206,13 @@ func TestLeitorEnxergaMasNaoEdita(t *testing.T) {
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 	q.convidar(t, boardID, "bob", membro.PapelLeitor)
 
-	if _, err := q.quadros.Detalhar(boardID, "bob"); err != nil {
+	if _, err := q.quadros.Detalhar(context.Background(), boardID, "bob"); err != nil {
 		t.Errorf("o leitor devia enxergar o quadro: %v", err)
 	}
 
 	// Quem já enxerga o quadro recebe 'sem permissão' — a recusa não revela
 	// nada que ele ainda não saiba.
-	if _, err := q.coluna.Criar(boardID, "bob", "Nova", ""); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := q.coluna.Criar(context.Background(), boardID, "bob", "Nova", ""); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("erro = %v, esperado ErrSemPermissao", err)
 	}
 }
@@ -221,13 +222,13 @@ func TestEditorMexeNoConteudoMasNaoNoQuadro(t *testing.T) {
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 	q.convidar(t, boardID, "bob", membro.PapelEditor)
 
-	if _, err := q.coluna.Criar(boardID, "bob", "Nova", ""); err != nil {
+	if _, err := q.coluna.Criar(context.Background(), boardID, "bob", "Nova", ""); err != nil {
 		t.Errorf("o editor devia poder criar coluna: %v", err)
 	}
-	if _, err := q.quadros.Renomear(boardID, "bob", "Outro nome"); !errors.Is(err, membro.ErrSemPermissao) {
+	if _, err := q.quadros.Renomear(context.Background(), boardID, "bob", "Outro nome"); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("erro = %v, esperado ErrSemPermissao ao renomear o quadro", err)
 	}
-	if err := q.quadros.Apagar(boardID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
+	if err := q.quadros.Apagar(context.Background(), boardID, "bob"); !errors.Is(err, membro.ErrSemPermissao) {
 		t.Errorf("erro = %v, esperado ErrSemPermissao ao apagar o quadro", err)
 	}
 }
@@ -241,10 +242,13 @@ func TestNaoDaParaMexerEmColunaDeQuadroAlheio(t *testing.T) {
 	q.criarQuadro(t, "bob", "Do Bob")
 
 	casos := map[string]error{
-		"renomear": func() error { _, err := q.coluna.Renomear(colunaDaAna, "bob", "Invadida", ""); return err }(),
-		"apagar":   q.coluna.Apagar(colunaDaAna, "bob"),
+		"renomear": func() error {
+			_, err := q.coluna.Renomear(context.Background(), colunaDaAna, "bob", "Invadida", "")
+			return err
+		}(),
+		"apagar": q.coluna.Apagar(context.Background(), colunaDaAna, "bob"),
 		"criar card": func() error {
-			_, err := q.card.Criar(colunaDaAna, "bob", "Invasor", "", "")
+			_, err := q.card.Criar(context.Background(), colunaDaAna, "bob", "Invasor", "", "")
 			return err
 		}(),
 	}
@@ -269,10 +273,10 @@ func TestNaoDaParaMexerEmCardDeQuadroAlheio(t *testing.T) {
 	colunaDaAna := q.criarColuna(t, daAna, "ana", "A fazer")
 	cardDaAna := q.criarCard(t, colunaDaAna, "ana", "Segredo")
 
-	if _, err := q.card.Editar(cardDaAna, "bob", "Invadido", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
+	if _, err := q.card.Editar(context.Background(), cardDaAna, "bob", "Invadido", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
 	}
-	if err := q.card.Apagar(cardDaAna, "bob"); !errors.Is(err, dcard.ErrNaoEncontrado) {
+	if err := q.card.Apagar(context.Background(), cardDaAna, "bob"); !errors.Is(err, dcard.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
 	}
 	if q.cards.Quantidade() != 1 {
@@ -286,15 +290,15 @@ func TestApagarQuadroLevaColunasECardsJunto(t *testing.T) {
 	colunaID := q.criarColuna(t, boardID, "ana", "A fazer")
 	q.criarCard(t, colunaID, "ana", "Tarefa")
 
-	if err := q.quadros.Apagar(boardID, "ana"); err != nil {
+	if err := q.quadros.Apagar(context.Background(), boardID, "ana"); err != nil {
 		t.Fatalf("erro ao apagar: %v", err)
 	}
 
-	lista, _ := q.quadros.Listar("ana")
+	lista, _ := q.quadros.Listar(context.Background(), "ana")
 	if len(lista) != 0 {
 		t.Errorf("o quadro devia ter sumido da listagem: %+v", lista)
 	}
-	if _, err := q.quadros.Detalhar(boardID, "ana"); !errors.Is(err, dboard.ErrNaoEncontrado) {
+	if _, err := q.quadros.Detalhar(context.Background(), boardID, "ana"); !errors.Is(err, dboard.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
 	}
 }
@@ -305,7 +309,7 @@ func TestApagarColunaLevaOsCardsDela(t *testing.T) {
 	colunaID := q.criarColuna(t, boardID, "ana", "A fazer")
 	q.criarCard(t, colunaID, "ana", "Tarefa")
 
-	if err := q.coluna.Apagar(colunaID, "ana"); err != nil {
+	if err := q.coluna.Apagar(context.Background(), colunaID, "ana"); err != nil {
 		t.Fatalf("erro ao apagar coluna: %v", err)
 	}
 
@@ -318,9 +322,9 @@ func TestCadaColunaNovaVaiParaOFim(t *testing.T) {
 	q := novoQuadro()
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 
-	primeira, _ := q.coluna.Criar(boardID, "ana", "A fazer", "")
-	segunda, _ := q.coluna.Criar(boardID, "ana", "Fazendo", "")
-	terceira, _ := q.coluna.Criar(boardID, "ana", "Pronto", "")
+	primeira, _ := q.coluna.Criar(context.Background(), boardID, "ana", "A fazer", "")
+	segunda, _ := q.coluna.Criar(context.Background(), boardID, "ana", "Fazendo", "")
+	terceira, _ := q.coluna.Criar(context.Background(), boardID, "ana", "Pronto", "")
 
 	if !(primeira.Posicao < segunda.Posicao && segunda.Posicao < terceira.Posicao) {
 		t.Errorf("posições fora de ordem: %v, %v, %v", primeira.Posicao, segunda.Posicao, terceira.Posicao)
@@ -335,9 +339,9 @@ func TestPosicaoDosCardsEPorColuna(t *testing.T) {
 	colunaA := q.criarColuna(t, boardID, "ana", "A fazer")
 	colunaB := q.criarColuna(t, boardID, "ana", "Fazendo")
 
-	primeiroDeA, _ := q.card.Criar(colunaA, "ana", "A1", "", "")
+	primeiroDeA, _ := q.card.Criar(context.Background(), colunaA, "ana", "A1", "", "")
 	q.criarCard(t, colunaA, "ana", "A2")
-	primeiroDeB, _ := q.card.Criar(colunaB, "ana", "B1", "", "")
+	primeiroDeB, _ := q.card.Criar(context.Background(), colunaB, "ana", "B1", "", "")
 
 	if primeiroDeA.Posicao != primeiroDeB.Posicao {
 		t.Errorf("o primeiro card de cada coluna devia ter a mesma posição inicial: %v vs %v",
@@ -351,7 +355,7 @@ func TestEditarCardTrocaOTextoESobeAVersao(t *testing.T) {
 	colunaID := q.criarColuna(t, boardID, "ana", "A fazer")
 	cardID := q.criarCard(t, colunaID, "ana", "Rascunho")
 
-	editado, err := q.card.Editar(cardID, "ana", "Definitivo", "com descrição", "", 0)
+	editado, err := q.card.Editar(context.Background(), cardID, "ana", "Definitivo", "com descrição", "", 0)
 	if err != nil {
 		t.Fatalf("erro ao editar: %v", err)
 	}
@@ -367,13 +371,13 @@ func TestEditarCardTrocaOTextoESobeAVersao(t *testing.T) {
 func TestOperacoesEmRecursoInexistenteRespondemNaoEncontrado(t *testing.T) {
 	q := novoQuadro()
 
-	if _, err := q.quadros.Detalhar("quadro-que-nao-existe", "ana"); !errors.Is(err, dboard.ErrNaoEncontrado) {
+	if _, err := q.quadros.Detalhar(context.Background(), "quadro-que-nao-existe", "ana"); !errors.Is(err, dboard.ErrNaoEncontrado) {
 		t.Errorf("quadro: erro = %v", err)
 	}
-	if _, err := q.coluna.Renomear("coluna-que-nao-existe", "ana", "x", ""); !errors.Is(err, dcoluna.ErrNaoEncontrada) {
+	if _, err := q.coluna.Renomear(context.Background(), "coluna-que-nao-existe", "ana", "x", ""); !errors.Is(err, dcoluna.ErrNaoEncontrada) {
 		t.Errorf("coluna: erro = %v", err)
 	}
-	if _, err := q.card.Editar("card-que-nao-existe", "ana", "x", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
+	if _, err := q.card.Editar(context.Background(), "card-que-nao-existe", "ana", "x", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
 		t.Errorf("card: erro = %v", err)
 	}
 }
@@ -386,7 +390,7 @@ func TestFalhaDeInfraestruturaNaoViraNaoEncontrado(t *testing.T) {
 	falha := errors.New("conexão recusada")
 	q.membros.ErroForcado = falha
 
-	_, err := q.quadros.Detalhar(boardID, "ana")
+	_, err := q.quadros.Detalhar(context.Background(), boardID, "ana")
 
 	if !errors.Is(err, falha) {
 		t.Errorf("erro = %v, esperado a falha de infraestrutura", err)

@@ -1,6 +1,10 @@
 package board
 
-import "stacktrack/internal/domain/evento"
+import (
+	"context"
+
+	"stacktrack/internal/domain/evento"
+)
 
 // Publicador é a porta de saída de eventos. Quem a implementa é o hub, em
 // adapter/realtime — e é justamente por ser uma interface declarada AQUI, no
@@ -19,7 +23,7 @@ type Publicador interface {
 // 41?" ao voltar — sem ele, reconectar seria recomeçar do zero sem saber o que
 // se perdeu.
 type RegistroDeEventos interface {
-	Registrar(evento.Evento) (int64, error)
+	Registrar(ctx context.Context, e evento.Evento) (int64, error)
 }
 
 // eventos é embutido em cada usecase de escrita. Fica separado do usecase para
@@ -48,9 +52,8 @@ func (e *eventos) ComRegistro(r RegistroDeEventos) {
 // ⚠️ Só deve ser chamado DEPOIS da escrita ter dado certo. Publicar antes
 // anunciaria uma mudança que pode não acontecer — e o cliente que recebesse o
 // evento e recarregasse veria o estado velho, concluindo que o servidor está
-// mentindo. Enquanto não há transação explícita, "depois do commit" é depois do
-// repositório retornar sem erro.
-func (e *eventos) publicar(tipo evento.Tipo, boardID, autorID string, dados any) {
+// mentindo.
+func (e *eventos) publicar(ctx context.Context, tipo evento.Tipo, boardID, autorID string, dados any) {
 	ev := evento.Novo(tipo, boardID, autorID, dados)
 
 	// O log vem ANTES da entrega ao vivo, e a ordem importa: é ele que atribui
@@ -62,7 +65,7 @@ func (e *eventos) publicar(tipo evento.Tipo, boardID, autorID string, dados any)
 	// um problema de presente. Quem reconectar depois cai no caminho de
 	// recarga completa, que é sempre correto.
 	if e.log != nil {
-		if seq, err := e.log.Registrar(ev); err == nil {
+		if seq, err := e.log.Registrar(ctx, ev); err == nil {
 			ev.Seq = seq
 		}
 	}

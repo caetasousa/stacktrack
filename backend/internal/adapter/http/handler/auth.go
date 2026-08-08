@@ -60,7 +60,7 @@ func (h *AuthHandler) Cadastrar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.cadastrar.Executar(ucauth.CadastroInput{
+	out, err := h.cadastrar.Executar(r.Context(), ucauth.CadastroInput{
 		Nome:  req.Nome,
 		Email: req.Email.String(),
 		Senha: req.Senha,
@@ -98,7 +98,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.login.Executar(ucauth.LoginInput{Email: req.Email.String(), Senha: req.Senha})
+	out, err := h.login.Executar(r.Context(), ucauth.LoginInput{Email: req.Email.String(), Senha: req.Senha})
 	if err != nil {
 		// só o fracasso conta para o teto — quem acerta a senha nunca fica
 		// trancado fora da própria conta por excesso de logins
@@ -123,7 +123,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // autenticado — já vale, e distinguir os casos só ajudaria quem está sondando.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(NomeCookieSessao(h.cookieSeguro)); err == nil {
-		if err := h.logout.Executar(cookie.Value); err != nil {
+		if err := h.logout.Executar(r.Context(), cookie.Value); err != nil {
 			logging.RequisicaoLogger(r).Error("erro ao encerrar sessão", slog.String("erro", err.Error()))
 		}
 	}
@@ -139,7 +139,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.perfil.Executar(identidade.UsuarioID)
+	u, err := h.perfil.Executar(r.Context(), identidade.UsuarioID)
 	if err != nil {
 		if errors.Is(err, ucauth.ErrSessaoInvalida) {
 			responderErro(w, http.StatusUnauthorized, "não autenticado")

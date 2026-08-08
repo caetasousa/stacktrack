@@ -7,6 +7,7 @@
 package memoria
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -30,7 +31,7 @@ func NovosUsuarios() *Usuarios {
 
 // Salvar grava a conta, devolvendo usuario.ErrEmailEmUso quando o email já
 // existe — o mesmo comportamento do UNIQUE no Postgres.
-func (r *Usuarios) Salvar(u *usuario.Usuario) error {
+func (r *Usuarios) Salvar(ctx context.Context, u *usuario.Usuario) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -45,7 +46,7 @@ func (r *Usuarios) Salvar(u *usuario.Usuario) error {
 }
 
 // BuscarPorID devolve (nil, nil) quando não encontra.
-func (r *Usuarios) BuscarPorID(id string) (*usuario.Usuario, error) {
+func (r *Usuarios) BuscarPorID(ctx context.Context, id string) (*usuario.Usuario, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -59,7 +60,7 @@ func (r *Usuarios) BuscarPorID(id string) (*usuario.Usuario, error) {
 
 // BuscarPorEmail devolve (nil, nil) quando não encontra. Normaliza o email
 // antes de comparar, como o repositório de verdade faz.
-func (r *Usuarios) BuscarPorEmail(email string) (*usuario.Usuario, error) {
+func (r *Usuarios) BuscarPorEmail(ctx context.Context, email string) (*usuario.Usuario, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -93,7 +94,7 @@ func NovasSessoes() *Sessoes {
 }
 
 // Salvar grava a sessão.
-func (r *Sessoes) Salvar(s *session.Session) error {
+func (r *Sessoes) Salvar(ctx context.Context, s *session.Session) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
@@ -103,7 +104,7 @@ func (r *Sessoes) Salvar(s *session.Session) error {
 }
 
 // BuscarPorTokenHash devolve (nil, nil) quando não encontra.
-func (r *Sessoes) BuscarPorTokenHash(hash string) (*session.Session, error) {
+func (r *Sessoes) BuscarPorTokenHash(ctx context.Context, hash string) (*session.Session, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado
 	}
@@ -116,13 +117,13 @@ func (r *Sessoes) BuscarPorTokenHash(hash string) (*session.Session, error) {
 }
 
 // Remover apaga a sessão. Remover o que não existe não é erro.
-func (r *Sessoes) Remover(hash string) error {
+func (r *Sessoes) Remover(ctx context.Context, hash string) error {
 	delete(r.porHash, hash)
 	return nil
 }
 
 // RemoverExpiradas apaga as sessões vencidas e conta a chamada.
-func (r *Sessoes) RemoverExpiradas() error {
+func (r *Sessoes) RemoverExpiradas(ctx context.Context) error {
 	r.LimpezasChamadas++
 	agora := time.Now()
 	for hash, s := range r.porHash {

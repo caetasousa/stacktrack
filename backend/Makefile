@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: test test-fast test-tempo-real
+.PHONY: test test-fast test-tempo-real test-integracao
 
 # Roda todos os testes e mostra, de forma legível, cada caso que passou ou
 # falhou. Falha o alvo (exit != 0) se qualquer teste quebrar, para não mascarar
@@ -29,3 +29,15 @@ test-tempo-real:
 	@go test -race -tags tempo_real -v ./test/realtime/ 2>&1 \
 		| grep -E -- '--- (PASS|FAIL)' \
 		| sed -E 's/.*--- (PASS|FAIL): /\1 /; s/ \(.*\)//; s/_/ /g'
+
+# Testes de repositório contra um PostgreSQL de verdade, subido pelo
+# Testcontainers e derrubado no fim. Exige Docker, e por isso fica atrás de
+# build tag: sem ela o `go test ./...` de quem não o tem passaria a falhar.
+#
+# É a camada que os fakes não alcançam — eles copiam a struct inteira, então um
+# campo que o SQL não grava passa por eles sem reclamar. Foi assim que
+# cards.prazo e boards.fundo existiram em todas as camadas sem serem gravados.
+test-integracao:
+	@go test -tags integracao -v ./test/repository/ 2>&1 \
+		| grep -E -- '--- (PASS|FAIL|SKIP)' \
+		| sed -E 's/.*--- (PASS|FAIL|SKIP): /\1 /; s/ \(.*\)//; s/_/ /g'

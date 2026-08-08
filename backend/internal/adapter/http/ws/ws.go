@@ -201,7 +201,7 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	// reposição ficam na fila do canal e são entregues em seguida — sem buraco
 	// entre o fim da história e o começo do ao vivo, que é exatamente onde um
 	// desenho ingênuo perde eventos.
-	if err := h.repor(r.Context(), conexao, boardID, r.URL.Query().Get("desde")); err != nil {
+	if err := h.repor(r.Context(), conexao, boardID, usuarioID, r.URL.Query().Get("desde")); err != nil {
 		h.log.Debug("falha ao repor o histórico", "erro", err, "board", boardID)
 		return
 	}
@@ -340,7 +340,11 @@ func (h *Handler) enviar(ctx context.Context, c *websocket.Conn, e evento.Evento
 // Sem `desde`, é a primeira conexão: nada de história, só a posição atual —
 // para a próxima reconexão ter de onde partir. Com `desde` grande demais, ou
 // com backlog além do teto, manda recarregar tudo em vez de reproduzir.
-func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde string) error {
+//
+// O eco do próprio autor é filtrado aqui pelo mesmo motivo que no ao vivo: o
+// que a pessoa fez ela já viu acontecer na própria tela, e devolver isso na
+// reconexão faria a tela dela dar um solavanco reaplicando o próprio passado.
+func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, usuarioID, desde string) error {
 	if h.historico == nil {
 		return nil
 	}
@@ -380,11 +384,27 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde s
 		})
 	}
 
+	var ultimoDoIntervalo int64
 	for _, e := range perdidos {
+		ultimoDoIntervalo = e.Seq
+		if e.AutorID == usuarioID {
+			continue
+		}
 		if err := h.enviar(ctx, c, e); err != nil {
 			return err
 		}
 	}
 
+	// Fecha o intervalo dizendo até onde ele ia, mesmo que nada tenha sido
+	// entregue. Sem isto, um backlog inteiro de eventos do próprio autor não
+	// faria o cliente avançar o seq: ele pediria o MESMO intervalo na próxima
+	// reconexão, e o intervalo só cresceria — até estourar o teto e provocar
+	// uma recarga completa que nada justificava.
+	if ultimoDoIntervalo > 0 {
+		return h.enviar(ctx, c, evento.Evento{
+			Tipo: evento.Sincronizado, BoardID: boardID, Seq: ultimoDoIntervalo,
+			OcorridoEm: time.Now(),
+		})
+	}
 	return nil
 }

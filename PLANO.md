@@ -408,7 +408,7 @@ prova seu valor.
 
 ---
 
-### Fase 9 (opcional) — Chaves de ordenação textuais
+### Fase 9 — Chaves de ordenação textuais ⏳
 
 **Conceito novo:** consertar em produção uma escolha de tipo, usando a doutrina expand/contract do
 próprio agendaGo.
@@ -421,10 +421,30 @@ do domínio**, nunca por SQL na migration.
 **Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
 · o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
 
-> **Deixou de ser opcional.** `ordem.ErrSemEspaco` não é hipótese: ~50 solturas no mesmo ponto
-> esgotam a mantissa e a pessoa recebe um erro que ela não tem como resolver pela interface. É a
-> única falha conhecida ainda de pé, e por isso esta fase é **conserto**, não funcionalidade —
-> trate-a em paralelo com as de baixo, não depois delas.
+> **Deixou de ser opcional.** `ordem.ErrSemEspaco` não é hipótese: o teste mede o
+> esgotamento em **52 inserções** seguidas no mesmo ponto, e a pessoa recebe um
+> erro que não tem como resolver pela interface. Por isso esta fase é
+> **conserto**, não funcionalidade.
+>
+> ⏳ **O domínio está feito e provado** (`internal/domain/ordem/chave.go`): mil
+> inserções no mesmo ponto não esgotam, e 100 delas produzem uma chave de nove
+> caracteres. A invariante que sustenta o esquema é que **nenhuma chave termina
+> no menor caractere** — sem ela, uma chave `"a"` seria um beco sem saída, porque
+> não existe string entre `""` e `"a"`, e inserir no topo passaria a ser
+> impossível. (O plano ilustrava com "entre a e b cabe an"; na implementação
+> `"a"` não é chave válida, e o exemplo equivalente é entre `"b"` e `"c"`.)
+>
+> **O que falta é o ciclo de schema**, e ele é deliberadamente um passo à parte —
+> são três deploys pela doutrina do próprio `CLAUDE.md`:
+>
+> 1. **expand**: coluna `chave` anulável em `cards` e `colunas`;
+> 2. **código novo**: escreve as duas colunas, e um comando **do domínio**
+>    preenche as linhas antigas — nunca SQL na migration;
+> 3. **contract**: `SET NOT NULL` e `DROP` de `posicao`, no deploy seguinte.
+>
+> ⚠️ Uma armadilha a não esquecer no passo 1: a ordenação de texto no Postgres
+> depende da **collation**. O `ORDER BY` da chave precisa de `COLLATE "C"` para
+> não depender de uma configuração que ordena diferente do que o domínio assume.
 
 ---
 

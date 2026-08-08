@@ -121,19 +121,29 @@ type Servidor struct {
 // seja: os endpoints de debug existem no processo, com dump de heap e de
 // goroutines; o que os torna inalcançáveis é esta linha, e nada além dela.
 //
-// ⚠️ WriteTimeout e a fase 5: estes tetos são a decisão certa para uma API que
-// só troca JSONs pequenos, e a errada para uma conexão que fica aberta por
-// horas. Quando o WebSocket entrar, este é o primeiro lugar a revisitar — o
-// diagnóstico típico é "a conexão cai sozinha sempre no mesmo tempo".
+// ⚠️ WriteTimeout e ReadTimeout são ZERO de propósito, desde a fase 5.
+//
+// Eles valem para a conexão inteira, não por requisição — e uma conexão de
+// WebSocket fica aberta por horas. Com os 15s que havia aqui, o quadro em tempo
+// real caía sozinho sempre no mesmo tempo, sem erro do lado do cliente e sem
+// nada no log. Era o teto que estava certo para uma API que só troca JSON
+// pequeno e errado para esta.
+//
+// O que substitui a proteção que eles davam:
+//   - ReadHeaderTimeout continua cortando quem abre conexão e não manda
+//     cabeçalho (o Slowloris), que é o ataque que o ReadTimeout barrava aqui;
+//   - IdleTimeout fecha conexão ociosa entre requisições HTTP comuns;
+//   - o corpo já é limitado por LimitarCorpo;
+//   - no WebSocket, cada envio tem prazo próprio e o ping/pong derruba quem
+//     morreu (ver adapter/http/ws).
 func NovoServidor(r *chi.Mux) *Servidor {
 	return &Servidor{
 		Server: http.Server{
-			Addr:           Porta(),
-			Handler:        r,
-			ReadTimeout:    15 * time.Second,
-			WriteTimeout:   15 * time.Second,
-			IdleTimeout:    60 * time.Second,
-			MaxHeaderBytes: 1 << 20,
+			Addr:              Porta(),
+			Handler:           r,
+			ReadHeaderTimeout: 15 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
 		},
 	}
 }

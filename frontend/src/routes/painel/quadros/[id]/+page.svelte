@@ -70,6 +70,12 @@
 			c.fechar();
 			conexao = null;
 			presentes = [];
+			// Uma recarga agendada que dispare depois da saída invalidaria dados
+			// de um quadro que já não está na tela.
+			if (recargaAgendada) {
+				clearTimeout(recargaAgendada);
+				recargaAgendada = null;
+			}
 		};
 	});
 
@@ -99,7 +105,31 @@
 
 		// Tudo o mais — inclusive `recarregue.tudo`, quando o intervalo perdido
 		// foi grande demais para repor — cai na recarga do quadro.
-		recarregar();
+		agendarRecarga();
+	}
+
+	// Quanto tempo se espera para juntar eventos numa recarga só.
+	//
+	// Curto o bastante para continuar parecendo instantâneo, longo o bastante
+	// para colapsar uma rajada. É o que separa "uma recarga por evento" de "uma
+	// recarga por surto de atividade".
+	const JANELA_DE_RECARGA = 150;
+	let recargaAgendada: ReturnType<typeof setTimeout> | null = null;
+
+	// Junta eventos próximos numa recarga só.
+	//
+	// Sem isto, cada evento vira um GET do quadro inteiro — e são dois os
+	// momentos em que isso machuca. Na reconexão, o backlog pode trazer até 200
+	// eventos de uma vez, o que dispararia 200 recargas em sequência. E ao vivo,
+	// o teto de requisições por sessão passa a ser consumido pelo movimento dos
+	// OUTROS: quem está apenas olhando um quadro movimentado esgotaria a própria
+	// cota e começaria a levar 429 justamente enquanto não fez nada.
+	function agendarRecarga() {
+		if (recargaAgendada) return;
+		recargaAgendada = setTimeout(() => {
+			recargaAgendada = null;
+			recarregar();
+		}, JANELA_DE_RECARGA);
 	}
 
 	// Quem está com este quadro aberto agora, incluindo você.

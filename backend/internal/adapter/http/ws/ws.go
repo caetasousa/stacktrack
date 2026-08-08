@@ -34,6 +34,17 @@ const (
 	// tempoDeEscrita limita cada envio. Sem ele, um cliente que aceita a
 	// conexão e para de ler travaria a goroutine de escrita indefinidamente.
 	tempoDeEscrita = 10 * time.Second
+	// intervaloRevalidacao é de quanto em quanto tempo se reconfere que quem
+	// está na ponta AINDA pode estar ali.
+	//
+	// O handshake autoriza uma vez; a conexão dura horas. Sem reconferir, quem
+	// é removido do quadro — ou desloga — continua recebendo o quadro ao vivo
+	// até fechar a aba, porque nada no caminho de escrita toca no banco de novo.
+	//
+	// Separado do ping de propósito: detectar cliente morto e reconferir
+	// permissão são preocupações diferentes, e uma não deve reger a cadência da
+	// outra.
+	intervaloRevalidacao = 30 * time.Second
 )
 
 // Autorizador responde se o usuário pode acompanhar o quadro. É a mesma
@@ -50,6 +61,13 @@ type Identificador func(ctx context.Context) (string, bool)
 // Nomeador resolve o nome de exibição de quem conectou. É o que a presença
 // mostra: um avatar com id cru não diz nada a ninguém.
 type Nomeador func(ctx context.Context, usuarioID string) string
+
+// SessaoValida informa se o token de sessão continua valendo.
+//
+// Existe porque o middleware de autenticação roda uma vez, no handshake, e a
+// conexão sobrevive a ele por horas: sem reconferir, o logout apaga a sessão no
+// banco e o socket segue transmitindo.
+type SessaoValida func(ctx context.Context, token string) bool
 
 // Historico é o log do quadro, consultado no reconnect.
 type Historico interface {
@@ -72,7 +90,10 @@ type Handler struct {
 	autorizador    Autorizador
 	identidade     Identificador
 	nome           Nomeador
+	sessaoValida   SessaoValida
+	nomeCookie     string
 	origensAceitas []string
+	revalidarACada time.Duration
 	log            *slog.Logger
 }
 
@@ -83,19 +104,41 @@ type Handler struct {
 // que a vítima visite abre uma conexão autenticada com o cookie dela e passa a
 // ler o quadro inteiro em tempo real — o Cross-Site WebSocket Hijacking. O
 // SameSite=Lax do cookie é a segunda camada, não a primeira.
+//
+// sessaoValida e nomeCookie são o que permite reconferir a sessão enquanto a
+// conexão vive; nil desliga a reconferência da sessão (a da participação no
+// quadro continua valendo).
 func NovoHandler(
 	h *hub.Hub,
 	hist Historico,
 	a Autorizador,
 	id Identificador,
 	nome Nomeador,
+	sessaoValida SessaoValida,
+	nomeCookie string,
 	origensAceitas []string,
 	log *slog.Logger,
 ) *Handler {
 	return &Handler{
 		hub: h, historico: hist, autorizador: a, identidade: id, nome: nome,
+		sessaoValida: sessaoValida, nomeCookie: nomeCookie,
 		origensAceitas: origensAceitas, log: log,
+		revalidarACada: intervaloRevalidacao,
 	}
+}
+
+// ComIntervaloDeRevalidacao ajusta de quanto em quanto tempo a permissão é
+// reconferida. Valor não positivo restaura o padrão.
+//
+// É o compromisso entre quanto tempo alguém que perdeu o acesso continua
+// recebendo o quadro e quantas consultas por conexão o servidor paga para
+// evitá-lo.
+func (h *Handler) ComIntervaloDeRevalidacao(d time.Duration) *Handler {
+	if d <= 0 {
+		d = intervaloRevalidacao
+	}
+	h.revalidarACada = d
+	return h
 }
 
 // mensagem é o formato que viaja no fio. É separado de evento.Evento de
@@ -169,6 +212,14 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	ctx, encerrar := context.WithCancel(r.Context())
 	defer encerrar()
 
+	// O token da sessão, guardado para ser reconferido enquanto a conexão vive.
+	// Lido aqui porque só o handshake é uma requisição HTTP com cookie; daqui
+	// para a frente não há mais requisição nenhuma.
+	var tokenDaSessao string
+	if c, err := r.Cookie(h.nomeCookie); err == nil {
+		tokenDaSessao = c.Value
+	}
+
 	// UMA goroutine de leitura e UMA de escrita, nunca mais.
 	//
 	// Escrever de dois lugares ao mesmo tempo corrompe o frame — a biblioteca
@@ -177,7 +228,20 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	// única fonte é o canal do assinante.
 	go h.lerAteMorrer(ctx, encerrar, conexao)
 
-	h.escreverAteMorrer(ctx, conexao, assinante, usuarioID, boardID)
+	h.escreverAteMorrer(ctx, conexao, assinante, usuarioID, boardID, tokenDaSessao)
+}
+
+// aindaPodeAcompanhar reconfere, com a conexão já aberta, que quem está na
+// ponta continua tendo direito ao que recebe.
+//
+// São duas perguntas independentes, e as duas mudam sem que a conexão saiba:
+// a sessão pode ter sido encerrada (logout) e a participação no quadro pode ter
+// sido revogada (o dono removeu o membro).
+func (h *Handler) aindaPodeAcompanhar(ctx context.Context, usuarioID, boardID, token string) bool {
+	if h.sessaoValida != nil && !h.sessaoValida(ctx, token) {
+		return false
+	}
+	return h.autorizador.PodeVer(ctx, boardID, usuarioID)
 }
 
 // lerAteMorrer existe mesmo sem o cliente mandar nada.
@@ -202,15 +266,26 @@ func (h *Handler) escreverAteMorrer(
 	ctx context.Context,
 	c *websocket.Conn,
 	a *hub.Assinante,
-	usuarioID, boardID string,
+	usuarioID, boardID, tokenDaSessao string,
 ) {
 	ticker := time.NewTicker(intervaloPing)
 	defer ticker.Stop()
+
+	revalidar := time.NewTicker(h.revalidarACada)
+	defer revalidar.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+
+		case <-revalidar.C:
+			if !h.aindaPodeAcompanhar(ctx, usuarioID, boardID, tokenDaSessao) {
+				h.log.Info("conexão encerrada: o acesso ao quadro deixou de valer",
+					"board", boardID, "usuario", usuarioID)
+				_ = c.Close(websocket.StatusPolicyViolation, "acesso revogado")
+				return
+			}
 
 		case e, aberto := <-a.Eventos:
 			if !aberto {

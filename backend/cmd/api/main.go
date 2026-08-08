@@ -153,6 +153,14 @@ func main() {
 			}
 			return u.Nome
 		},
+		// A sessão é reconferida enquanto a conexão vive. O middleware autentica
+		// uma vez, no handshake, e a conexão dura horas: sem isto, o logout
+		// apaga a sessão no banco e o socket continua transmitindo o quadro.
+		func(ctx context.Context, token string) bool {
+			_, err := validarSessaoUC.Executar(ctx, token)
+			return err == nil
+		},
+		handler.NomeCookieSessao(config.CookieSeguro()),
 		[]string{origemSemEsquema(config.OrigemFrontend())},
 		slog.Default(),
 	)

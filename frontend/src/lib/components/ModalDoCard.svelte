@@ -46,7 +46,11 @@
 	let conflito = $state(false);
 	let carregando = $state(true);
 
-	let editandoTexto = $state(false);
+	// Título e descrição têm editores SEPARADOS. Antes havia um só, aberto por
+	// um link no cabeçalho, e a seção "Descrição" era só leitura — quem via
+	// "Sem descrição." não tinha pista nenhuma de como escrever uma.
+	let editandoTitulo = $state(false);
+	let editandoDescricao = $state(false);
 	let titulo = $state('');
 	let descricao = $state('');
 	let tituloDaChecklist = $state('');
@@ -116,24 +120,43 @@
 		carregar();
 	});
 
-	function abrirEdicaoDeTexto() {
+	function abrirEdicaoDeTitulo() {
 		if (!podeEditar || !card) return;
 		titulo = card.titulo;
-		descricao = card.descricao;
-		editandoTexto = true;
+		editandoTitulo = true;
 	}
 
-	async function salvarTexto(evento: SubmitEvent) {
+	function abrirEdicaoDeDescricao() {
+		if (!podeEditar || !card) return;
+		descricao = card.descricao;
+		editandoDescricao = true;
+	}
+
+	async function salvarTitulo(evento: SubmitEvent) {
 		evento.preventDefault();
+		if (!card) return;
+		await gravarTexto(titulo, card.descricao, () => (editandoTitulo = false));
+	}
+
+	async function salvarDescricao(evento: SubmitEvent) {
+		evento.preventDefault();
+		if (!card) return;
+		await gravarTexto(card.titulo, descricao, () => (editandoDescricao = false));
+	}
+
+	// gravarTexto é o PATCH compartilhado pelos dois editores.
+	//
+	// A rota grava o card INTEIRO, então cada editor manda o campo que não está
+	// editando com o valor atual — omiti-lo apagaria o outro. A cor vai junto
+	// pela mesma razão.
+	//
+	// A versão é a que estava na tela quando o campo foi aberto: se outra pessoa
+	// gravou nesse meio-tempo, o servidor recusa com 409 em vez de deixar este
+	// texto apagar o dela.
+	async function gravarTexto(novoTitulo: string, novaDescricao: string, aoConcluir: () => void) {
 		try {
-			// A cor vai junto porque o PATCH grava o card inteiro: omiti-la aqui
-			// apagaria a cor do card a cada edição de texto.
-			//
-			// A versão é a que estava na tela quando o campo foi aberto. Se outra
-			// pessoa gravou nesse meio-tempo, o servidor recusa com 409 em vez de
-			// deixar este texto apagar o dela.
-			await editarCard(cardId, titulo, descricao, card?.cor ?? '', card?.version ?? 0);
-			editandoTexto = false;
+			await editarCard(cardId, novoTitulo, novaDescricao, card?.cor ?? '', card?.version ?? 0);
+			aoConcluir();
 			conflito = false;
 			await recarregar();
 		} catch (e) {
@@ -144,7 +167,7 @@
 				conflito = true;
 				return;
 			}
-			falhar(e, 'não foi possível salvar o card');
+			falhar(e, 'não foi possível salvar');
 		}
 	}
 
@@ -152,7 +175,8 @@
 	// aviso. Chamado pelo botão do conflito.
 	async function trazerVersaoNova() {
 		conflito = false;
-		editandoTexto = false;
+		editandoTitulo = false;
+		editandoDescricao = false;
 		await carregar();
 		await recarregar();
 	}
@@ -316,8 +340,8 @@
 		{:else}
 			<header class="flex items-start justify-between gap-4 border-b border-hairline p-5">
 				<div class="min-w-0 flex-1">
-					{#if editandoTexto}
-						<form onsubmit={salvarTexto} class="space-y-3">
+					{#if editandoTitulo}
+						<form onsubmit={salvarTitulo} class="space-y-3">
 							<input
 								class="campo"
 								bind:value={titulo}
@@ -325,19 +349,12 @@
 								maxlength="200"
 								aria-label="Título"
 							/>
-							<textarea
-								class="campo font-mono text-xs"
-								bind:value={descricao}
-								rows="8"
-								maxlength="5000"
-								placeholder="Descrição — aceita markdown: **negrito**, listas, [links](https://…)"
-								aria-label="Descrição"></textarea>
 							<div class="flex gap-2">
 								<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Salvar</button>
 								<button
 									type="button"
 									class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
-									onclick={() => (editandoTexto = false)}>Cancelar</button
+									onclick={() => (editandoTitulo = false)}>Cancelar</button
 								>
 							</div>
 						</form>
@@ -346,7 +363,7 @@
 						{#if podeEditar}
 							<button
 								class="mt-1 cursor-pointer text-xs text-mute hover:text-ink"
-								onclick={abrirEdicaoDeTexto}>Editar título e descrição</button
+								onclick={abrirEdicaoDeTitulo}>Editar título</button
 							>
 						{/if}
 					{/if}
@@ -473,13 +490,52 @@
 					</div>
 				</section>
 
-				<!-- descrição -->
+				<!-- descrição: editável AQUI, e não por um link no cabeçalho.
+				     Antes esta seção era só leitura, e a única porta de entrada era
+				     "Editar título e descrição" lá em cima — longe do campo e fácil
+				     de não ver. Quem lia "Sem descrição." não tinha pista nenhuma de
+				     que dava para escrever uma. -->
 				<section>
 					<h3 class="text-xs font-semibold tracking-widest text-mute uppercase">Descrição</h3>
-					{#if card.descricao.trim()}
+
+					{#if editandoDescricao}
+						<form onsubmit={salvarDescricao} class="mt-2 space-y-2">
+							<textarea
+								class="campo font-mono text-xs"
+								bind:value={descricao}
+								rows="8"
+								maxlength="5000"
+								placeholder="Aceita markdown: **negrito**, listas, [links](https://…)"
+								aria-label="Descrição"></textarea>
+							<div class="flex gap-2">
+								<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Salvar</button>
+								<button
+									type="button"
+									class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
+									onclick={() => (editandoDescricao = false)}>Cancelar</button
+								>
+							</div>
+						</form>
+					{:else if card.descricao.trim()}
 						<!-- O HTML vem do renderizador próprio, que escapa tudo antes de
 						     aplicar as marcas — ver lib/markdown.ts -->
 						<div class="markdown mt-2">{@html renderizarMarkdown(card.descricao)}</div>
+						{#if podeEditar}
+							<button
+								class="mt-1 cursor-pointer text-xs text-mute hover:text-ink"
+								onclick={abrirEdicaoDeDescricao}>Editar descrição</button
+							>
+						{/if}
+					{:else if podeEditar}
+						<!-- O convite é a própria área: um retângulo tracejado do tamanho
+						     do que vai ser escrito diz "escreva aqui" sem precisar de
+						     rótulo. -->
+						<button
+							class="mt-2 w-full cursor-pointer rounded-sm border border-dashed border-hairline-strong p-3 text-left text-sm text-mute hover:border-accent hover:text-body"
+							onclick={abrirEdicaoDeDescricao}
+						>
+							+ adicionar uma descrição
+						</button>
 					{:else}
 						<p class="mt-2 text-sm text-mute">Sem descrição.</p>
 					{/if}

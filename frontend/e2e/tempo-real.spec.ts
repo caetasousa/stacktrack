@@ -180,8 +180,10 @@ test('quem grava por último recebe o aviso em vez de sobrescrever', async () =>
 	// Os dois abrem o mesmo card: enxergam a mesma versão.
 	await telaAna.getByText(titulo).click();
 	await telaBruno.getByText(titulo).click();
-	await telaAna.getByRole('button', { name: 'Editar título e descrição' }).click();
-	await telaBruno.getByRole('button', { name: 'Editar título e descrição' }).click();
+	// Título e descrição têm editores separados desde a fase 11: o do título fica
+	// no cabeçalho, e o da descrição na própria seção dela.
+	await telaAna.getByRole('button', { name: 'Editar título', exact: true }).click();
+	await telaBruno.getByRole('button', { name: 'Editar título', exact: true }).click();
 
 	// Ana grava primeiro.
 	await telaAna.getByLabel('Título', { exact: true }).fill('Texto da ana');

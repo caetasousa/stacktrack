@@ -97,14 +97,21 @@ func main() {
 	// os mesmos usecases sem saber que tempo real existe.
 	salaDeEventos := hub.Novo()
 	logDeEventos := repository.NovoEventoPostgres(pool)
+	// A unidade de trabalho é o que faz o dado e o evento caírem no MESMO
+	// commit. Sem ela ligada, o usecase ainda funciona — grava numa transação e
+	// registra noutra —, e é assim que os testes de regra rodam, sem banco.
+	// Em produção, essa separação deixaria buraco invisível no log do quadro.
+	unidadeDeTrabalho := repository.NovaUnidadeDeTrabalho(pool)
 	for _, uc := range []interface {
 		ComPublicador(ucboard.Publicador)
 		ComRegistro(ucboard.RegistroDeEventos)
+		ComEscritaAtomica(ucboard.EscritaAtomica)
 	}{
 		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC,
 	} {
 		uc.ComPublicador(salaDeEventos)
 		uc.ComRegistro(logDeEventos)
+		uc.ComEscritaAtomica(unidadeDeTrabalho)
 	}
 
 	// handlers e middlewares

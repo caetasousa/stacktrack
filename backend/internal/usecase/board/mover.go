@@ -67,10 +67,10 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 	}
 
 	c.Mover(destino.ID, posicao)
-	if err := uc.cards.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.CardMovido, boardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.CardMovido, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -149,10 +149,10 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 	}
 
 	c.MoverPara(posicao)
-	if err := uc.colunas.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID, c)
 	return c, nil
 }
 

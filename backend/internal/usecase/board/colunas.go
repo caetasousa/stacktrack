@@ -36,10 +36,10 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.colunas.Salvar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.ColunaCriada, boardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Colunas.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.ColunaCriada, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -56,10 +56,10 @@ func (uc *ColunaUseCase) Renomear(ctx context.Context, colunaID, usuarioID, titu
 	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
-	if err := uc.colunas.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, c)
 	return c, nil
 }
 
@@ -69,11 +69,9 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 	if err != nil {
 		return err
 	}
-	if err := uc.colunas.Apagar(ctx, colunaID); err != nil {
-		return err
-	}
-	uc.publicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID, map[string]string{"id": colunaID})
-	return nil
+	return uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
+		map[string]string{"id": colunaID},
+		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) })
 }
 
 // carregarComAcessoDeEdicao busca a coluna e confere o acesso ao quadro DELA —

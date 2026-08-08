@@ -159,10 +159,10 @@ func (uc *QuadroUseCase) DefinirFundo(ctx context.Context, boardID, usuarioID, f
 	if err := b.DefinirFundo(fundo); err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Atualizar(ctx, b); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil,
+		uc.escrita(), func(e Escrita) error { return e.Boards.Atualizar(ctx, b) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 
@@ -182,10 +182,10 @@ func (uc *QuadroUseCase) Renomear(ctx context.Context, boardID, usuarioID, titul
 	if err := b.Renomear(titulo); err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Atualizar(ctx, b); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil,
+		uc.escrita(), func(e Escrita) error { return e.Boards.Atualizar(ctx, b) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 

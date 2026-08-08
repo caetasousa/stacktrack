@@ -99,10 +99,10 @@ func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID strin
 		return nil, err
 	}
 	c.DefinirPrazo(prazo)
-	if err := uc.cards.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.CardAlterado, boardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -129,10 +129,10 @@ func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, d
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.cards.Salvar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.CardCriado, col.BoardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Cards.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.CardCriado, col.BoardID, usuarioID, c)
 	return c, nil
 }
 
@@ -159,10 +159,10 @@ func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, de
 	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err
 	}
-	if err := uc.cards.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.CardAlterado, boardID, usuarioID, c,
+		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -172,11 +172,9 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 	if err != nil {
 		return err
 	}
-	if err := uc.cards.Apagar(ctx, cardID); err != nil {
-		return err
-	}
-	uc.publicar(ctx, evento.CardApagado, boardID, usuarioID, map[string]string{"id": cardID})
-	return nil
+	return uc.escreverEPublicar(ctx, evento.CardApagado, boardID, usuarioID,
+		map[string]string{"id": cardID},
+		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) })
 }
 
 // carregarComAcessoDeEdicao percorre card → coluna → quadro para descobrir a

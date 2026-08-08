@@ -3,12 +3,14 @@ package board
 import (
 	dcoluna "stacktrack/internal/domain/coluna"
 	detiqueta "stacktrack/internal/domain/etiqueta"
+	"stacktrack/internal/domain/evento"
 
 	"github.com/google/uuid"
 )
 
 // EtiquetaUseCase reúne as etiquetas do quadro e a aplicação delas nos cards.
 type EtiquetaUseCase struct {
+	eventos
 	membros   repositorioMembro
 	colunas   repositorioColuna
 	cards     repositorioCard
@@ -52,6 +54,7 @@ func (uc *EtiquetaUseCase) Criar(boardID, usuarioID, nome string, cor detiqueta.
 	if err := uc.etiquetas.Salvar(e); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	return e, nil
 }
 
@@ -67,16 +70,22 @@ func (uc *EtiquetaUseCase) Editar(etiquetaID, usuarioID, nome string, cor detiqu
 	if err := uc.etiquetas.Atualizar(e); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, e.BoardID, usuarioID, nil)
 	return e, nil
 }
 
 // Apagar remove a etiqueta do quadro. Ela some de todos os cards junto, pelo
 // ON DELETE CASCADE — é o comportamento esperado: a marcação deixou de existir.
 func (uc *EtiquetaUseCase) Apagar(etiquetaID, usuarioID string) error {
-	if _, err := uc.carregarComAcessoDeEdicao(etiquetaID, usuarioID); err != nil {
+	e, err := uc.carregarComAcessoDeEdicao(etiquetaID, usuarioID)
+	if err != nil {
 		return err
 	}
-	return uc.etiquetas.Apagar(etiquetaID)
+	if err := uc.etiquetas.Apagar(etiquetaID); err != nil {
+		return err
+	}
+	uc.publicar(evento.QuadroAlterado, e.BoardID, usuarioID, nil)
+	return nil
 }
 
 // Aplicar pendura a etiqueta no card. Aplicar duas vezes não é erro: a chave
@@ -86,7 +95,11 @@ func (uc *EtiquetaUseCase) Aplicar(cardID, etiquetaID, usuarioID string) error {
 	if err := uc.conferirMesmoQuadro(cardID, etiquetaID, usuarioID); err != nil {
 		return err
 	}
-	return uc.etiquetas.Aplicar(cardID, etiquetaID)
+	if err := uc.etiquetas.Aplicar(cardID, etiquetaID); err != nil {
+		return err
+	}
+	uc.publicarDoCard(cardID, usuarioID)
+	return nil
 }
 
 // Remover tira a etiqueta do card, sem apagá-la do quadro.
@@ -94,7 +107,22 @@ func (uc *EtiquetaUseCase) Remover(cardID, etiquetaID, usuarioID string) error {
 	if err := uc.conferirMesmoQuadro(cardID, etiquetaID, usuarioID); err != nil {
 		return err
 	}
-	return uc.etiquetas.Remover(cardID, etiquetaID)
+	if err := uc.etiquetas.Remover(cardID, etiquetaID); err != nil {
+		return err
+	}
+	uc.publicarDoCard(cardID, usuarioID)
+	return nil
+}
+
+// publicarDoCard resolve o quadro a partir do card e avisa a sala. Falha aqui
+// não desfaz a escrita nem vira erro para quem chamou: o dado já mudou, e o
+// pior que acontece é a outra aba levar um F5 para ver.
+func (uc *EtiquetaUseCase) publicarDoCard(cardID, usuarioID string) {
+	boardID, err := uc.boardDoCard(cardID)
+	if err != nil {
+		return
+	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 }
 
 // conferirMesmoQuadro é a checagem que impede pendurar num card a etiqueta de

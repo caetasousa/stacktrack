@@ -3,12 +3,14 @@ package board
 import (
 	dcoluna "stacktrack/internal/domain/coluna"
 	dcor "stacktrack/internal/domain/cor"
+	"stacktrack/internal/domain/evento"
 
 	"github.com/google/uuid"
 )
 
 // ColunaUseCase reúne as operações sobre colunas.
 type ColunaUseCase struct {
+	eventos
 	membros repositorioMembro
 	colunas repositorioColuna
 }
@@ -36,6 +38,7 @@ func (uc *ColunaUseCase) Criar(boardID, usuarioID, titulo string, cores dcor.Cor
 	if err := uc.colunas.Salvar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.ColunaCriada, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -55,15 +58,21 @@ func (uc *ColunaUseCase) Renomear(colunaID, usuarioID, titulo string, cores dcor
 	if err := uc.colunas.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.ColunaAlterada, c.BoardID, usuarioID, c)
 	return c, nil
 }
 
 // Apagar remove a coluna e, por cascata, os cards dela. Exige papel de edição.
 func (uc *ColunaUseCase) Apagar(colunaID, usuarioID string) error {
-	if _, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID); err != nil {
+	c, err := uc.carregarComAcessoDeEdicao(colunaID, usuarioID)
+	if err != nil {
 		return err
 	}
-	return uc.colunas.Apagar(colunaID)
+	if err := uc.colunas.Apagar(colunaID); err != nil {
+		return err
+	}
+	uc.publicar(evento.ColunaApagada, c.BoardID, usuarioID, map[string]string{"id": colunaID})
+	return nil
 }
 
 // carregarComAcessoDeEdicao busca a coluna e confere o acesso ao quadro DELA —

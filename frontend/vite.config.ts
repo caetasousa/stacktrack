@@ -45,6 +45,9 @@ export default defineConfig(({ mode }) => {
 						'style-src': ['self', 'unsafe-inline'],
 						'img-src': ['self', 'data:'],
 						'font-src': ['self'],
+						// Em produção não há exceção a abrir: front e API compartilham a
+						// origem, e `self` já cobre o wss:// do quadro — foi para isso
+						// que o /api ficou no mesmo domínio.
 						'connect-src': dev ? ['self', 'http://localhost:8080', 'ws:'] : ['self'],
 						'object-src': ['none'],
 						'base-uri': ['self'],

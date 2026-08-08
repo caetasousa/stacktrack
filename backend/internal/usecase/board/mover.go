@@ -3,6 +3,7 @@ package board
 import (
 	dcard "stacktrack/internal/domain/card"
 	dcoluna "stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/ordem"
 )
 
@@ -35,7 +36,7 @@ type Vizinhos struct {
 // id da coluna de destino — e o card sumiria da vista de quem não participa do
 // quadro de origem.
 func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos Vizinhos) (*dcard.Card, error) {
-	c, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +69,7 @@ func (uc *CardUseCase) Mover(cardID, usuarioID, colunaDestinoID string, vizinhos
 	if err := uc.cards.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.CardMovido, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -149,6 +151,7 @@ func (uc *ColunaUseCase) Mover(colunaID, usuarioID string, vizinhos Vizinhos) (*
 	if err := uc.colunas.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.ColunaMovida, c.BoardID, usuarioID, c)
 	return c, nil
 }
 

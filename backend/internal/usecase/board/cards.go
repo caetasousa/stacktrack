@@ -11,12 +11,14 @@ import (
 	dcoluna "stacktrack/internal/domain/coluna"
 	dcor "stacktrack/internal/domain/cor"
 	detiqueta "stacktrack/internal/domain/etiqueta"
+	"stacktrack/internal/domain/evento"
 
 	"github.com/google/uuid"
 )
 
 // CardUseCase reúne as operações sobre cards.
 type CardUseCase struct {
+	eventos
 	membros    repositorioMembro
 	colunas    repositorioColuna
 	cards      repositorioCard
@@ -91,7 +93,7 @@ func (uc *CardUseCase) Detalhar(cardID, usuarioID string) (*CardDetalhado, error
 
 // DefinirPrazo marca ou limpa a data de entrega do card. Exige papel de edição.
 func (uc *CardUseCase) DefinirPrazo(cardID, usuarioID string, prazo *time.Time) (*dcard.Card, error) {
-	c, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +101,7 @@ func (uc *CardUseCase) DefinirPrazo(cardID, usuarioID string, prazo *time.Time) 
 	if err := uc.cards.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
@@ -128,13 +131,14 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, core
 	if err := uc.cards.Salvar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.CardCriado, col.BoardID, usuarioID, c)
 	return c, nil
 }
 
 // Editar troca título, descrição e cor do card, incrementando a versão. Exige
 // papel de edição.
 func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
-	c, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
 	if err != nil {
 		return nil, err
 	}
@@ -144,41 +148,49 @@ func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores
 	if err := uc.cards.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.CardAlterado, boardID, usuarioID, c)
 	return c, nil
 }
 
 // Apagar remove o card. Exige papel de edição.
 func (uc *CardUseCase) Apagar(cardID, usuarioID string) error {
-	if _, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID); err != nil {
+	_, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
+	if err != nil {
 		return err
 	}
-	return uc.cards.Apagar(cardID)
+	if err := uc.cards.Apagar(cardID); err != nil {
+		return err
+	}
+	uc.publicar(evento.CardApagado, boardID, usuarioID, map[string]string{"id": cardID})
+	return nil
 }
 
 // carregarComAcessoDeEdicao percorre card → coluna → quadro para descobrir a
 // quem pedir permissão. É o caminho que faz a autorização valer também para o
 // card, que não guarda o quadro a que pertence.
-func (uc *CardUseCase) carregarComAcessoDeEdicao(cardID, usuarioID string) (*dcard.Card, error) {
+// Devolve também o id do quadro: é a sala onde o evento correspondente será
+// publicado, e o card sozinho não sabe a que quadro pertence.
+func (uc *CardUseCase) carregarComAcessoDeEdicao(cardID, usuarioID string) (*dcard.Card, string, error) {
 	c, err := uc.cards.BuscarPorID(cardID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if c == nil {
-		return nil, dcard.ErrNaoEncontrado
+		return nil, "", dcard.ErrNaoEncontrado
 	}
 	col, err := uc.colunas.BuscarPorID(c.ColunaID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if col == nil {
 		// Card sem coluna é inconsistência de dados, não "não encontrado":
 		// o ON DELETE CASCADE deveria ter levado o card junto.
-		return nil, dcard.ErrNaoEncontrado
+		return nil, "", dcard.ErrNaoEncontrado
 	}
 	if _, err := acessoDeEdicao(uc.membros, col.BoardID, usuarioID); err != nil {
-		return nil, traduzirParaCard(err)
+		return nil, "", traduzirParaCard(err)
 	}
-	return c, nil
+	return c, col.BoardID, nil
 }
 
 // dcardNaoEncontrado é um atalho para os usecases que percorrem

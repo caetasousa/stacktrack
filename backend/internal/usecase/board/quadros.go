@@ -4,6 +4,7 @@ import (
 	dboard "stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 // structs só multiplicaria construtor e fiação, sem separar responsabilidade
 // nenhuma.
 type QuadroUseCase struct {
+	eventos
 	boards     repositorioBoard
 	membros    repositorioMembro
 	colunas    repositorioColuna
@@ -127,6 +129,19 @@ func (uc *QuadroUseCase) Detalhar(boardID, usuarioID string) (*Detalhado, error)
 	}, nil
 }
 
+// PodeVer informa se o usuário participa do quadro. É a pergunta que o
+// handshake do WebSocket faz antes de aceitar a conexão — sem ela, qualquer
+// pessoa autenticada assinaria a sala de qualquer quadro e leria tudo que
+// acontece nele em tempo real.
+//
+// Devolve bool, e não erro, porque quem chama só precisa decidir entre aceitar
+// e recusar: distinguir "não existe" de "não participa" seria justamente a
+// informação que o 404 do resto da API esconde.
+func (uc *QuadroUseCase) PodeVer(boardID, usuarioID string) bool {
+	_, err := acesso(uc.membros, boardID, usuarioID)
+	return err == nil
+}
+
 // DefinirFundo troca o fundo do quadro. Exige papel de administração.
 func (uc *QuadroUseCase) DefinirFundo(boardID, usuarioID, fundo string) (*dboard.Board, error) {
 	if _, err := acessoDeAdministracao(uc.membros, boardID, usuarioID); err != nil {
@@ -146,6 +161,7 @@ func (uc *QuadroUseCase) DefinirFundo(boardID, usuarioID, fundo string) (*dboard
 	if err := uc.boards.Atualizar(b); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 
@@ -168,6 +184,7 @@ func (uc *QuadroUseCase) Renomear(boardID, usuarioID, titulo string) (*dboard.Bo
 	if err := uc.boards.Atualizar(b); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	return b, nil
 }
 

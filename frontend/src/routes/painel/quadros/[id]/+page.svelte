@@ -27,6 +27,7 @@
 		TIPO_COLUNA,
 		vizinhosDe
 	} from '$lib/arrastar';
+	import { conectarAoQuadro, type EventoDoQuadro } from '$lib/realtime/conexao.svelte';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
@@ -45,6 +46,42 @@
 	$effect(() => {
 		colunas = data.quadro.colunas.map((c) => ({ ...c, cards: [...c.cards] }));
 	});
+
+	// --- tempo real ---------------------------------------------------------
+	//
+	// A conexão nasce e morre com a página do quadro: $effect devolve a função
+	// de limpeza, e o SvelteKit a chama ao navegar para fora. Sem isso, trocar
+	// de quadro deixaria a sala antiga aberta e a pessoa receberia eventos de
+	// um quadro que não está mais olhando.
+	//
+	// A dependência é `data.quadro.id`: mudar de quadro fecha uma conexão e abre
+	// a outra, sem passar pelo estado "duas abertas".
+	let conexao = $state<{ readonly situacao: string; fechar: () => void } | null>(null);
+
+	$effect(() => {
+		const id = data.quadro.id;
+		const c = conectarAoQuadro(id, aoReceberEvento);
+		conexao = c;
+		return () => {
+			c.fechar();
+			conexao = null;
+		};
+	});
+
+	// Toda mudança de outra pessoa recarrega o quadro.
+	//
+	// É deliberadamente grosseiro para a primeira versão: o servidor já manda o
+	// tipo e o payload de cada evento, mas aplicar diferença aqui significaria
+	// manter um caminho de aplicação por tipo — e qualquer um deles errado
+	// deixaria a tela discordando do banco em silêncio, que é o pior defeito
+	// possível num quadro colaborativo. Recarregar é sempre correto; o custo é
+	// uma requisição.
+	//
+	// O eco do próprio autor já foi filtrado pelo servidor: tudo que chega aqui
+	// foi feito por outra pessoa.
+	function aoReceberEvento(_e: EventoDoQuadro) {
+		recarregar();
+	}
 
 	let erro = $state('');
 	let renomeando = $state(false);
@@ -71,9 +108,8 @@
 		brasa: 'Brasa'
 	};
 
-	// Enquanto não há tempo real, é este recarregar que atualiza a tela — a
-	// pessoa só vê o que ela mesma fez. A fase 5 troca isto por um evento vindo
-	// do servidor, e é aí que o quadro vira colaborativo de verdade.
+	// Recarrega o quadro inteiro. É o que roda depois das próprias ações e
+	// também quando chega um evento de outra pessoa.
 	async function recarregar() {
 		erro = '';
 		await invalidateAll();
@@ -236,6 +272,16 @@
 			<span class="chip" class:chip-neutro={data.quadro.papel !== 'dono'}>
 				<i class="size-1.5 rounded-full bg-current"></i>{data.quadro.papel}
 			</span>
+			<!-- A situação da conexão fica à vista: quando ela cai, quem está
+			     olhando precisa saber que a tela parou de se atualizar sozinha —
+			     senão vai confiar num quadro velho. Ao vivo não vira selo verde
+			     de propósito: o normal não precisa de aviso. -->
+			{#if conexao && conexao.situacao !== 'ao-vivo'}
+				<span class="chip chip-neutro" title="A tela não está se atualizando sozinha">
+					<i class="size-1.5 rounded-full bg-aviso"></i>
+					{conexao.situacao === 'conectando' ? 'conectando' : 'reconectando'}
+				</span>
+			{/if}
 			{#if podeEditar}
 				<button
 					onclick={() => (criandoColuna = !criandoColuna)}

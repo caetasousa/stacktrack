@@ -3,12 +3,14 @@ package board
 import (
 	dcard "stacktrack/internal/domain/card"
 	dchecklist "stacktrack/internal/domain/checklist"
+	"stacktrack/internal/domain/evento"
 
 	"github.com/google/uuid"
 )
 
 // ChecklistUseCase reúne as listas de verificação dos cards e os itens delas.
 type ChecklistUseCase struct {
+	eventos
 	membros    repositorioMembro
 	colunas    repositorioColuna
 	cards      repositorioCard
@@ -43,6 +45,7 @@ func (uc *ChecklistUseCase) Criar(cardID, usuarioID, titulo string) (*dchecklist
 	if err := uc.checklists.Salvar(c); err != nil {
 		return nil, err
 	}
+	uc.publicarDoCard(cardID, usuarioID)
 	return c, nil
 }
 
@@ -58,15 +61,21 @@ func (uc *ChecklistUseCase) Renomear(checklistID, usuarioID, titulo string) (*dc
 	if err := uc.checklists.Atualizar(c); err != nil {
 		return nil, err
 	}
+	uc.publicarDoCard(c.CardID, usuarioID)
 	return c, nil
 }
 
 // Apagar remove a checklist e, por cascata, os itens dela.
 func (uc *ChecklistUseCase) Apagar(checklistID, usuarioID string) error {
-	if _, err := uc.carregarComAcessoDeEdicao(checklistID, usuarioID); err != nil {
+	c, err := uc.carregarComAcessoDeEdicao(checklistID, usuarioID)
+	if err != nil {
 		return err
 	}
-	return uc.checklists.Apagar(checklistID)
+	if err := uc.checklists.Apagar(checklistID); err != nil {
+		return err
+	}
+	uc.publicarDoCard(c.CardID, usuarioID)
+	return nil
 }
 
 // CriarItem acrescenta uma linha no fim da checklist.
@@ -87,6 +96,7 @@ func (uc *ChecklistUseCase) CriarItem(checklistID, usuarioID, texto string) (*dc
 	if err := uc.checklists.SalvarItem(item); err != nil {
 		return nil, err
 	}
+	uc.publicarDoChecklist(checklistID, usuarioID)
 	return item, nil
 }
 
@@ -118,6 +128,7 @@ func (uc *ChecklistUseCase) EditarItem(itemID, usuarioID string, texto *string, 
 	if err := uc.checklists.AtualizarItem(item); err != nil {
 		return nil, err
 	}
+	uc.publicarDoChecklist(item.ChecklistID, usuarioID)
 	return item, nil
 }
 
@@ -133,7 +144,34 @@ func (uc *ChecklistUseCase) ApagarItem(itemID, usuarioID string) error {
 	if _, err := uc.carregarComAcessoDeEdicao(item.ChecklistID, usuarioID); err != nil {
 		return dchecklist.ErrItemNaoEncontrado
 	}
-	return uc.checklists.ApagarItem(itemID)
+	if err := uc.checklists.ApagarItem(itemID); err != nil {
+		return err
+	}
+	uc.publicarDoChecklist(item.ChecklistID, usuarioID)
+	return nil
+}
+
+// publicarDoChecklist e publicarDoCard resolvem o quadro para achar a sala.
+// Falha na resolução não desfaz a escrita nem vira erro: o dado já mudou, e o
+// pior que acontece é a outra aba precisar de um F5.
+func (uc *ChecklistUseCase) publicarDoChecklist(checklistID, usuarioID string) {
+	c, err := uc.checklists.BuscarPorID(checklistID)
+	if err != nil || c == nil {
+		return
+	}
+	uc.publicarDoCard(c.CardID, usuarioID)
+}
+
+func (uc *ChecklistUseCase) publicarDoCard(cardID, usuarioID string) {
+	card, err := uc.cards.BuscarPorID(cardID)
+	if err != nil || card == nil {
+		return
+	}
+	col, err := uc.colunas.BuscarPorID(card.ColunaID)
+	if err != nil || col == nil {
+		return
+	}
+	uc.publicar(evento.QuadroAlterado, col.BoardID, usuarioID, nil)
 }
 
 // carregarComAcessoDeEdicao percorre checklist → card → coluna → quadro. É o

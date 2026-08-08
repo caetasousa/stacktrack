@@ -8,12 +8,14 @@ import (
 
 	danexo "stacktrack/internal/domain/anexo"
 	dcard "stacktrack/internal/domain/card"
+	"stacktrack/internal/domain/evento"
 
 	"github.com/google/uuid"
 )
 
 // AnexoUseCase reúne os arquivos e links pendurados nos cards.
 type AnexoUseCase struct {
+	eventos
 	membros repositorioMembro
 	colunas repositorioColuna
 	cards   repositorioCard
@@ -48,7 +50,8 @@ func (uc *AnexoUseCase) Listar(cardID, usuarioID string) ([]danexo.Anexo, error)
 
 // AnexarLink pendura uma URL no card. Exige papel de edição.
 func (uc *AnexoUseCase) AnexarLink(cardID, usuarioID, nome, endereco string) (*danexo.Anexo, error) {
-	if _, err := uc.boardComAcesso(cardID, usuarioID, true); err != nil {
+	boardID, err := uc.boardComAcesso(cardID, usuarioID, true)
+	if err != nil {
 		return nil, err
 	}
 
@@ -59,6 +62,7 @@ func (uc *AnexoUseCase) AnexarLink(cardID, usuarioID, nome, endereco string) (*d
 	if err := uc.anexos.Salvar(a); err != nil {
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	return a, nil
 }
 
@@ -74,7 +78,8 @@ func (uc *AnexoUseCase) AnexarArquivo(
 	tamanho int64,
 	conteudo io.Reader,
 ) (*danexo.Anexo, error) {
-	if _, err := uc.boardComAcesso(cardID, usuarioID, true); err != nil {
+	boardID, err := uc.boardComAcesso(cardID, usuarioID, true)
+	if err != nil {
 		return nil, err
 	}
 
@@ -104,6 +109,7 @@ func (uc *AnexoUseCase) AnexarArquivo(
 		uc.descartar(caminho)
 		return nil, err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	return a, nil
 }
 
@@ -139,13 +145,15 @@ func (uc *AnexoUseCase) Apagar(anexoID, usuarioID string) error {
 	if a == nil {
 		return danexo.ErrNaoEncontrado
 	}
-	if _, err := uc.boardComAcesso(a.CardID, usuarioID, true); err != nil {
+	boardID, err := uc.boardComAcesso(a.CardID, usuarioID, true)
+	if err != nil {
 		return traduzirParaAnexo(err)
 	}
 
 	if err := uc.anexos.Apagar(anexoID); err != nil {
 		return err
 	}
+	uc.publicar(evento.QuadroAlterado, boardID, usuarioID, nil)
 	// A linha some primeiro: com o arquivo órfão no disco a tela fica correta,
 	// e sobra lixo. Na ordem inversa, um erro deixaria a tela mostrando anexo
 	// que não abre.

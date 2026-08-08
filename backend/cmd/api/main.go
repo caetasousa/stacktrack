@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -23,6 +24,9 @@ import (
 	"stacktrack/internal/pkg/logging"
 	ucauth "stacktrack/internal/usecase/auth"
 	ucboard "stacktrack/internal/usecase/board"
+
+	"stacktrack/internal/adapter/http/ws"
+	"stacktrack/internal/adapter/realtime/hub"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
@@ -88,6 +92,16 @@ func main() {
 	anexoUC := ucboard.NovoAnexoUseCase(membroRepo, colunaRepo, cardRepo, anexoRepo, armazemAnexos)
 	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo)
 
+	// O hub é o adaptador que implementa a porta Publicador. Ligá-lo aqui, e
+	// não no construtor de cada usecase, é o que mantém os testes construindo
+	// os mesmos usecases sem saber que tempo real existe.
+	salaDeEventos := hub.Novo()
+	for _, uc := range []interface{ ComPublicador(ucboard.Publicador) }{
+		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC,
+	} {
+		uc.ComPublicador(salaDeEventos)
+	}
+
 	// handlers e middlewares
 	autenticacao := middleware.NovoAuth(validarSessaoUC, config.CookieSeguro())
 	identidadeDoContexto := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -102,6 +116,21 @@ func main() {
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, identidadeDoContexto)
+
+	// OriginPatterns com a origem do frontend, e nada além: WebSocket NÃO
+	// obedece CORS, então sem esta lista qualquer site que a vítima visitar
+	// abre uma conexão autenticada com o cookie dela e lê o quadro inteiro em
+	// tempo real (Cross-Site WebSocket Hijacking).
+	wsHandler := ws.NovoHandler(
+		salaDeEventos,
+		quadroUC,
+		func(ctx context.Context) (string, bool) {
+			id, ok := middleware.IdentidadeDoContexto(ctx)
+			return id.UsuarioID, ok
+		},
+		[]string{origemSemEsquema(config.OrigemFrontend())},
+		slog.Default(),
+	)
 
 	r := config.NovoRouter()
 	r.Get("/health", health)
@@ -142,6 +171,12 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(autenticacao.Autenticar)
 		r.Use(limitePorSessao(config.RateLimitAutenticadoPorMinuto(), config.CookieSeguro()))
+
+		// Tempo real. Fica FORA do teto por sessão de propósito: o limite conta
+		// requisições por minuto, e esta é uma requisição só que dura horas —
+		// sujeitá-la ao teto não protegeria nada e derrubaria a reconexão de
+		// quem estivesse ativo.
+		r.Get("/ws", wsHandler.Acompanhar)
 
 		r.Route("/boards", func(r chi.Router) {
 			r.Get("/", boardHandler.Listar)
@@ -221,6 +256,13 @@ func main() {
 	}()
 
 	<-ctx.Done()
+
+	// O hub fecha ANTES do Shutdown, e a ordem é o ponto: conexão de tempo real
+	// não termina sozinha, então o Shutdown esperaria o timeout inteiro com
+	// elas abertas e só então as cortaria no meio. Fechando aqui, cada conexão
+	// encerra de forma limpa e o Shutdown só espera as requisições HTTP comuns.
+	slog.Info("encerrando: fechando conexões de tempo real")
+	salaDeEventos.Fechar()
 
 	slog.Info("encerrando: aguardando requisições em andamento")
 	ctxDesligamento, cancelar := context.WithTimeout(context.Background(), 10*time.Second)
@@ -314,4 +356,15 @@ func ready(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
+}
+
+// origemSemEsquema devolve só o host da origem, que é o formato do
+// OriginPatterns do coder/websocket — ele compara contra o host do cabeçalho
+// Origin, não contra a URL inteira.
+func origemSemEsquema(origem string) string {
+	u, err := url.Parse(origem)
+	if err != nil || u.Host == "" {
+		return origem
+	}
+	return u.Host
 }

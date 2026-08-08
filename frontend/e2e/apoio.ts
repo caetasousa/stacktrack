@@ -1,0 +1,106 @@
+// Semeadura dos testes de ponta a ponta.
+//
+// Contas, quadro e convite são criados pela API, não pela tela. Passar por
+// formulário de cadastro em todo teste tornaria cada um lento e — pior —
+// dependente de telas que não são o assunto dele: um teste de tempo real que
+// quebra porque o botão de cadastro mudou de rótulo aponta para o lugar errado.
+
+import type { APIRequestContext, Browser, BrowserContext } from '@playwright/test';
+
+export const API = process.env.E2E_API_URL ?? 'http://localhost:8080';
+export const APP = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+
+export interface Conta {
+	nome: string;
+	email: string;
+	senha: string;
+	cookie: { name: string; value: string };
+}
+
+/** criarConta cadastra e autentica, devolvendo o cookie de sessão. */
+export async function criarConta(req: APIRequestContext, nome: string): Promise<Conta> {
+	const email = `${nome}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.dev`;
+	const senha = 'Senha!12345';
+
+	const cadastro = await req.post(`${API}/auth/cadastro`, { data: { nome, email, senha } });
+	if (!cadastro.ok()) {
+		throw new Error(`cadastro de ${nome} falhou: ${cadastro.status()} ${await cadastro.text()}`);
+	}
+
+	const login = await req.post(`${API}/auth/login`, { data: { email, senha } });
+	if (!login.ok()) {
+		// 429 aqui é o teto por IP do rate limiter, não defeito do produto.
+		throw new Error(`login de ${nome} falhou: ${login.status()} ${await login.text()}`);
+	}
+
+	const sessao = (await login.headersArray())
+		.filter((h) => h.name.toLowerCase() === 'set-cookie')
+		.map((h) => h.value)
+		.find((v) => v.includes('stacktrack_session'));
+	if (!sessao) throw new Error(`login de ${nome} não devolveu cookie de sessão`);
+
+	const [par] = sessao.split(';');
+	const corte = par.indexOf('=');
+	return {
+		nome,
+		email,
+		senha,
+		cookie: { name: par.slice(0, corte).trim(), value: par.slice(corte + 1).trim() }
+	};
+}
+
+/** criarQuadro cria um quadro pertencente à conta informada. */
+export async function criarQuadro(req: APIRequestContext, dono: Conta, titulo: string) {
+	const resp = await req.post(`${API}/boards`, {
+		data: { titulo },
+		headers: { Cookie: `${dono.cookie.name}=${dono.cookie.value}` }
+	});
+	if (!resp.ok()) throw new Error(`criar quadro: ${resp.status()} ${await resp.text()}`);
+	return (await resp.json()) as { id: string; titulo: string };
+}
+
+/** convidar adiciona alguém que JÁ TEM conta direto ao quadro, como editor. */
+export async function convidar(req: APIRequestContext, dono: Conta, boardId: string, quem: Conta) {
+	const resp = await req.post(`${API}/boards/${boardId}/membros`, {
+		data: { email: quem.email, papel: 'editor' },
+		headers: { Cookie: `${dono.cookie.name}=${dono.cookie.value}` }
+	});
+	if (!resp.ok()) throw new Error(`convidar ${quem.nome}: ${resp.status()} ${await resp.text()}`);
+}
+
+/** criarColuna cria uma coluna pela API — usado para preparar o cenário. */
+export async function criarColuna(
+	req: APIRequestContext,
+	quem: Conta,
+	boardId: string,
+	titulo: string
+) {
+	const resp = await req.post(`${API}/boards/${boardId}/colunas`, {
+		data: { titulo, cor: '' },
+		headers: { Cookie: `${quem.cookie.name}=${quem.cookie.value}` }
+	});
+	if (!resp.ok()) throw new Error(`criar coluna: ${resp.status()} ${await resp.text()}`);
+	return (await resp.json()) as { id: string };
+}
+
+/**
+ * abaDe abre um BrowserContext já autenticado como a conta informada.
+ *
+ * Um contexto por pessoa é o que torna o teste de duas abas possível: contextos
+ * têm cookies e armazenamento independentes, então duas contas convivem no
+ * mesmo navegador sem uma derrubar a sessão da outra.
+ */
+export async function abaDe(navegador: Browser, conta: Conta): Promise<BrowserContext> {
+	const contexto = await navegador.newContext({ baseURL: APP });
+	await contexto.addCookies([
+		{
+			name: conta.cookie.name,
+			value: conta.cookie.value,
+			domain: new URL(APP).hostname,
+			path: '/',
+			httpOnly: true,
+			sameSite: 'Lax'
+		}
+	]);
+	return contexto;
+}

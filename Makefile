@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: run test test-backend test-frontend
+.PHONY: run test test-backend test-frontend test-e2e
 
 # Sobe a stack inteira: Postgres, migrations (Flyway), API, frontend e Mailpit.
 # Roda em primeiro plano — os logs dos cinco serviços saem juntos e Ctrl+C
@@ -56,3 +56,12 @@ test-backend:
 # Testes unitários do frontend (Vitest).
 test-frontend:
 	@cd frontend && npm run test:unit
+
+# Testes de ponta a ponta: navegador de verdade contra a stack inteira.
+#
+# Exige `make run` noutro terminal. Não sobe a stack sozinho de propósito — ela
+# são quatro serviços com dependências na ordem certa, e duplicar isso na
+# configuração do Playwright criaria uma segunda forma de subir o projeto, que
+# divergiria da primeira no dia em que alguém mexesse só numa.
+test-e2e:
+	@cd frontend && npx playwright test

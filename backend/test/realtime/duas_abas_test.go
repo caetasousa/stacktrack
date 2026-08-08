@@ -56,8 +56,21 @@ func criarPessoa(t *testing.T, nome string) pessoa {
 	senha := "Senha!12345"
 
 	corpo := fmt.Sprintf(`{"nome":%q,"email":%q,"senha":%q}`, nome, email, senha)
-	if _, _, err := pedir(t, "POST", "/auth/cadastro", "", corpo); err != nil {
+	status, resposta, err := pedir(t, "POST", "/auth/cadastro", "", corpo)
+	if err != nil {
 		t.Fatalf("cadastro de %s: %v", nome, err)
+	}
+	// O status do cadastro precisa ser conferido AQUI. Sem isto, um 429 passava
+	// em silêncio, a conta nunca era criada, e a falha aparecia lá embaixo como
+	// "login não devolveu cookie: 401" — que manda procurar defeito na
+	// autenticação quando o problema é o teto por IP do cadastro (5/min).
+	// Acontece de verdade ao rodar esta suíte logo depois do Playwright, que
+	// cria várias contas do mesmo IP.
+	if status == http.StatusTooManyRequests {
+		t.Skipf("teto por IP do cadastro atingido ao criar %s — espere um minuto e rode de novo", nome)
+	}
+	if status < 200 || status > 299 {
+		t.Fatalf("cadastro de %s: status %d — %s", nome, status, resposta)
 	}
 
 	resp, err := http.Post(baseAPI()+"/auth/login", "application/json",

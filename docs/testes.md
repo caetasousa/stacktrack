@@ -1,6 +1,6 @@
 # 🧪 Testes
 
-Seis camadas hoje, e duas que faltam. Este documento diz o que cada uma cobre,
+Sete camadas hoje, e uma que falta. Este documento diz o que cada uma cobre,
 o que ela **não** cobre, e onde isso já custou caro.
 
 ```bash
@@ -10,10 +10,13 @@ make test-frontend   # vitest run
 
 cd backend && make test        # com -race
 cd frontend && npm run check   # tipos (svelte-check)
-cd frontend && npx prettier --check "src/**/*.{svelte,ts}"
+cd frontend && npx prettier --check "src/**/*.{svelte,ts}" "e2e/*.ts"
 
-cd backend && make test-tempo-real   # exige a API no ar (build tag)
+cd backend && make test-tempo-real   # protocolo do tempo real (build tag)
+make test-e2e                        # navegador de verdade sobre a stack
 ```
+
+Os dois últimos exigem `make run` noutro terminal.
 
 ---
 
@@ -96,7 +99,36 @@ Hijacking, que o CORS não impede); e sem sessão, **401**.
 > Um `429` ali não é defeito: é o teto por IP do rate limiter, que a suíte
 > inteira divide. O teste vira *skip* com a causa escrita, em vez de vermelho.
 
-## 6. Guard de schema (Go, sem banco)
+## 6. Ponta a ponta (Playwright)
+
+`frontend/e2e/` — navegador de verdade contra a stack inteira. É a camada que
+fecha a fase 5, e a que faltava quando dois defeitos passaram por todo o resto
+verde: a alça de arrastar coluna que nunca funcionou e a cor de card que não
+pintava.
+
+O teste que define o projeto abre **dois `BrowserContext`** — cookies e
+armazenamento independentes, então duas contas convivem no mesmo navegador:
+
+| Caso | O que prova |
+|---|---|
+| a conexão fica no ar | o indicador só aparece quando ela NÃO está; a ausência dele é a prova |
+| ana cria um card, bruno vê | propagação sem nenhum reload chamado pelo teste |
+| bruno cria uma coluna, ana vê | o caminho inverso |
+| a queda aparece e volta sozinha | a tela não mente sobre ter parado de se atualizar |
+
+Contas, quadro e convite são semeados **pela API**, não pela tela: um teste de
+tempo real que quebra porque o botão de cadastro mudou de rótulo aponta para o
+lugar errado.
+
+> A queda é simulada com `routeWebSocket`, que deixa o teste interceptar a
+> conexão e fechá-la. `context.setOffline()` **não** serve: ele não derruba um
+> socket já estabelecido, que só perceberia a rede ausente no ping seguinte,
+> 30 segundos depois.
+
+Sem paralelismo (`workers: 1`), pelo mesmo motivo do teste em Go: cadastro e
+login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
+
+## 7. Guard de schema (Go, sem banco)
 
 `backend/test/repository/sql_cobre_as_colunas_test.go` — lê as migrations,
 extrai toda coluna criada e falha se ela não aparecer em nenhum SQL do pacote de
@@ -117,9 +149,17 @@ Ver [entrega-continua.md](entrega-continua.md). Além dos testes: `gofmt`,
 nas três imagens.
 
 O `go test` roda com **`-race`** — obrigatório desde que o hub existe.
-Concorrência sem detector de corrida é fé, não engenharia. O teste de duas abas
-NÃO roda na esteira: ele exige a stack no ar, e isso chega junto com o job de
-ponta a ponta.
+Concorrência sem detector de corrida é fé, não engenharia.
+
+O job `e2e` sobe a stack inteira com `docker compose up -d --wait`, espera
+`/ready` e a página responderem, e roda o Playwright. Ele é pré-requisito da
+publicação: imagem só vai para o registry depois de o navegador ter aberto o
+quadro.
+
+O `duas_abas_test.go` do backend NÃO roda na esteira — o job `e2e` cobre o
+mesmo caminho pela tela, que é o que faltava. Ele fica como ferramenta de
+diagnóstico: quando o E2E falha, ele diz se o problema é do protocolo ou do
+cliente.
 
 ---
 
@@ -135,19 +175,13 @@ Junto vem o `compatibilidade_schema_test.go`, que compara o schema antes e
 depois de uma migration e reprova coluna nova obrigatória, coluna removida e
 coluna apertada — transformando a regra dos dois deploys em falha de build.
 
-### Ponta a ponta (Playwright)
+### Arrastar e soltar sob o Playwright
 
-A lacuna mais cara até aqui. Dois defeitos passaram por todos os testes verdes:
+A suíte de ponta a ponta cobre criação e propagação, mas **ainda não o arraste**
+— que é justamente onde os dois defeitos históricos moravam. Automatizar o
+`svelte-dnd-action` exige uma sequência de `mouse.down/move/up` com passos
+intermediários, e um teste de arraste mal calibrado falha por motivo errado com
+frequência suficiente para virar ruído.
 
-- a **alça de arrastar coluna nunca funcionou** — a biblioteca só registra o
-  `mousedown` quando `dragDisabled` já é falso, e o interruptor ligado no
-  `pointerdown` chegava tarde;
-- a **cor do card não pintava**, porque a marcação que a aplicava não estava no
-  arquivo.
-
-Os dois só apareceram quando alguém usou a tela.
-
-O `duas_abas_test.go` já cobre o **protocolo** do tempo real de ponta a ponta —
-handshake, autorização, origem, entrega —, mas não cobre a tela: se o cliente
-deixar de aplicar o evento, ele continua verde. É esse pedaço que falta, com dois
-`BrowserContext` no Playwright.
+É o próximo caso a escrever, e o candidato natural para o teste de duas abas
+completo: uma pessoa arrasta, a outra vê o card mudar de coluna.

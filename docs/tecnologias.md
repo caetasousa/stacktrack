@@ -224,6 +224,17 @@ site em `/home/deploy/caddy/sites`. Ver
 
 ---
 
+### Playwright
+
+Ponta a ponta em navegador de verdade, sobre a stack do `docker compose`. A
+configuração NÃO sobe a stack (`webServer`): ela são quatro serviços com
+dependências na ordem certa, e o `make run` já os orquestra — duplicar isso
+criaria uma segunda forma de subir o projeto, que divergiria da primeira.
+
+📚 [Playwright](https://playwright.dev/docs/intro) · [browser contexts](https://playwright.dev/docs/browser-contexts) · [routeWebSocket](https://playwright.dev/docs/mock#mock-websockets)
+
+---
+
 ## Armadilhas do ambiente
 
 Coisas que já custaram tempo aqui.

@@ -76,6 +76,8 @@ make test            # backend (rápidos) + frontend
 make test-backend    # go test ./...
 make test-frontend   # vitest run
 
+make test-e2e        # Playwright sobre a stack (exige `make run` no ar)
+
 cd backend && make test        # com -race, o detector de corrida
 cd frontend && npm run check   # tipos (svelte-check)
 ```

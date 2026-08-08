@@ -250,3 +250,43 @@ func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
 		t.Error("o card não podia ter sido movido")
 	}
 }
+
+// A PROVA DA FASE 9, e o contraste direto com o teste do float acima: mover
+// sempre para o mesmo ponto deixou de esgotar.
+//
+// Com `posicao` em double precision isto falhava com 409 depois de ~50
+// movimentos, e a pessoa ficava com um erro que não tinha como resolver pela
+// interface. Com a chave textual, cem movimentos passam — e passariam mil.
+func TestMoverCemVezesParaOMesmoPontoNaoEsgotaMais(t *testing.T) {
+	q := novoQuadro()
+	ana := "u-ana"
+	boardID := q.criarQuadro(t, ana, "Estudos")
+	colunaID := q.criarColuna(t, boardID, ana, "A fazer")
+
+	primeiro := q.criarCard(t, colunaID, ana, "primeiro")
+	segundo := q.criarCard(t, colunaID, ana, "segundo")
+	viajante := q.criarCard(t, colunaID, ana, "viajante")
+
+	// Sempre entre os mesmos dois vizinhos — o pior caso possível.
+	for i := 0; i < 100; i++ {
+		_, err := q.card.Mover(context.Background(), viajante, ana, colunaID,
+			ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
+		if err != nil {
+			t.Fatalf("no movimento %d: %v — a chave textual não devia esgotar", i, err)
+		}
+	}
+
+	// E a ordem continua correta depois de tudo isso.
+	cards, err := q.cards.ListarDoBoard(context.Background(), boardID)
+	if err != nil {
+		t.Fatalf("listar: %v", err)
+	}
+	porChave := map[string]string{}
+	for _, c := range cards {
+		porChave[c.Titulo] = c.Chave
+	}
+	if !(porChave["primeiro"] < porChave["viajante"] && porChave["viajante"] < porChave["segundo"]) {
+		t.Errorf("a ordem se perdeu: primeiro=%q viajante=%q segundo=%q",
+			porChave["primeiro"], porChave["viajante"], porChave["segundo"])
+	}
+}

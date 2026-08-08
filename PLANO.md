@@ -408,7 +408,7 @@ prova seu valor.
 
 ---
 
-### Fase 9 — Chaves de ordenação textuais ⏳
+### Fase 9 — Chaves de ordenação textuais ✅ (falta o contract)
 
 **Conceito novo:** consertar em produção uma escolha de tipo, usando a doutrina expand/contract do
 próprio agendaGo.
@@ -421,30 +421,41 @@ do domínio**, nunca por SQL na migration.
 **Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
 · o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
 
-> **Deixou de ser opcional.** `ordem.ErrSemEspaco` não é hipótese: o teste mede o
-> esgotamento em **52 inserções** seguidas no mesmo ponto, e a pessoa recebe um
-> erro que não tem como resolver pela interface. Por isso esta fase é
-> **conserto**, não funcionalidade.
+> **Feita — menos o contract, que é do PRÓXIMO deploy.**
 >
-> ⏳ **O domínio está feito e provado** (`internal/domain/ordem/chave.go`): mil
-> inserções no mesmo ponto não esgotam, e 100 delas produzem uma chave de nove
-> caracteres. A invariante que sustenta o esquema é que **nenhuma chave termina
-> no menor caractere** — sem ela, uma chave `"a"` seria um beco sem saída, porque
-> não existe string entre `""` e `"a"`, e inserir no topo passaria a ser
-> impossível. (O plano ilustrava com "entre a e b cabe an"; na implementação
-> `"a"` não é chave válida, e o exemplo equivalente é entre `"b"` e `"c"`.)
+> O limite era real e está medido: o teste do float mede o esgotamento em **52
+> inserções** seguidas no mesmo ponto. A chave textual não esgota — mil
+> inserções passam, e cem produzem uma chave de nove caracteres.
 >
-> **O que falta é o ciclo de schema**, e ele é deliberadamente um passo à parte —
-> são três deploys pela doutrina do próprio `CLAUDE.md`:
+> A invariante que sustenta o esquema: **nenhuma chave termina no menor
+> caractere**. Sem ela, `"a"` seria um beco sem saída, porque não existe string
+> entre `""` e `"a"` — e inserir no topo passaria a ser impossível. (O plano
+> ilustrava com "entre a e b cabe an"; na implementação `"a"` não é chave
+> válida, e o exemplo equivalente é entre `"b"` e `"c"`.)
 >
-> 1. **expand**: coluna `chave` anulável em `cards` e `colunas`;
-> 2. **código novo**: escreve as duas colunas, e um comando **do domínio**
->    preenche as linhas antigas — nunca SQL na migration;
-> 3. **contract**: `SET NOT NULL` e `DROP` de `posicao`, no deploy seguinte.
+> O que já está no ar, nesta ordem:
 >
-> ⚠️ Uma armadilha a não esquecer no passo 1: a ordenação de texto no Postgres
-> depende da **collation**. O `ORDER BY` da chave precisa de `COLLATE "C"` para
-> não depender de uma configuração que ordena diferente do que o domínio assume.
+> 1. **expand** (`V18`): `chave` anulável em `cards` e `colunas`, com índice em
+>    `COLLATE "C"`;
+> 2. **código novo**: escreve as duas colunas, o `mover` calcula pela chave, e a
+>    leitura ordena por ela com a posição como desempate (`NULLS FIRST`, para a
+>    linha ainda não preenchida aparecer onde aparecia);
+> 3. **backfill**: comando do domínio (`BackfillUseCase`), idempotente e
+>    retomável, que roda no start da aplicação. Preserva a ordem que a posição
+>    ditava — um backfill que embaralhasse o quadro seria pior que nenhum — e
+>    **não sobe a `version`**, porque preencher a chave não é uma edição feita
+>    por ninguém e subir a versão faria o bloqueio otimista recusar a próxima
+>    gravação legítima.
+>
+> ⏳ **Falta o contract**, e ele é deliberadamente do deploy seguinte:
+> `SET NOT NULL` na chave e `DROP` de `posicao`. Fazê-lo junto quebraria a
+> versão anterior da aplicação, que continua no ar durante o deploy e é para
+> onde um rollback volta. Só depois de o backfill ter rodado em produção.
+>
+> ⚠️ A armadilha que se confirmou: **a ordenação de texto no Postgres depende da
+> collation**. O `ORDER BY` e o índice usam `COLLATE "C"` — a ordem de bytes,
+> que é a que o domínio assume. Com collations diferentes entre índice e
+> consulta, o Postgres nem usaria o índice.
 
 ---
 

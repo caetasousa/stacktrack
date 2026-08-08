@@ -52,7 +52,11 @@ type Card struct {
 	Titulo    string
 	Descricao string
 	Posicao   float64
-	Version   int
+	// Chave é a ordenação TEXTUAL, que substitui Posicao. Durante o expand as
+	// duas convivem: o código novo escreve as duas, e a leitura já ordena pela
+	// chave. Vazia só nas linhas antigas, até o backfill passar.
+	Chave   string
+	Version int
 	// Cor é opcional: card sem cor usa o visual padrão. Vira uma tarja na
 	// lateral — as etiquetas já ocupam o topo do card.
 	Cor cor.Cor
@@ -79,9 +83,10 @@ func (c *Card) DefinirPrazo(prazo *time.Time) {
 // A posição vem pronta: quem a calcula é quem enxerga os vizinhos (ver
 // usecase/board e o pacote ordem). O card não tem como saber ao lado de quem
 // foi solto.
-func (c *Card) Mover(colunaID string, posicao float64) {
+func (c *Card) Mover(colunaID string, posicao float64, chave string) {
 	c.ColunaID = colunaID
 	c.Posicao = posicao
+	c.Chave = chave
 	c.Version++
 	c.AtualizadoEm = time.Now()
 }
@@ -94,7 +99,7 @@ func (c *Card) Vencido(agora time.Time) bool {
 
 // Novo cria um card na posição informada. A descrição é opcional; o título,
 // não.
-func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64) (*Card, error) {
+func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64, chave string) (*Card, error) {
 	titulo, descricao, err := validar(titulo, descricao)
 	if err != nil {
 		return nil, err
@@ -111,6 +116,7 @@ func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64
 		Descricao:    descricao,
 		Cor:          cores,
 		Posicao:      posicao,
+		Chave:        chave,
 		Version:      1,
 		CriadoEm:     agora,
 		AtualizadoEm: agora,
@@ -148,4 +154,18 @@ func validar(titulo, descricao string) (string, string, error) {
 		return "", "", ErrDescricaoLonga
 	}
 	return titulo, descricao, nil
+}
+
+// DefinirChaveDeOrdem grava a chave textual de ordenação.
+//
+// Existe para o BACKFILL: as linhas criadas antes do expand não têm chave, e
+// quem as preenche é um comando do domínio — nunca SQL numa migration, porque
+// decidir com que valor as linhas antigas ficam é decisão de negócio, e em SQL
+// ela viraria uma segunda fonte da verdade sem teste e sem conserto.
+//
+// Não mexe em Version: preencher a chave não é uma edição feita por ninguém, e
+// subir a versão faria o bloqueio otimista recusar a próxima gravação legítima
+// de quem estava com o card aberto.
+func (c *Card) DefinirChaveDeOrdem(chave string) {
+	c.Chave = chave
 }

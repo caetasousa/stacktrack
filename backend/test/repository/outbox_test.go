@@ -19,6 +19,7 @@ import (
 	"stacktrack/internal/adapter/repository"
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/evento"
+	"stacktrack/internal/domain/ordem"
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/google/uuid"
@@ -41,7 +42,7 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	ctx := context.Background()
 	boardID, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	antes := contarEventos(t, boardID)
 
 	unidade := repository.NovaUnidadeDeTrabalho(pool)
-	c.Mover(colunaID, 2048)
+	c.Mover(colunaID, 2048, "t")
 	e := evento.Novo(evento.CardMovido, boardID, usuarioID, c)
 
 	seq, err := unidade.Escrever(ctx, e, func(esc ucboard.Escrita) error {
@@ -85,7 +86,7 @@ func TestFalhaNaMudancaNaoDeixaEventoOrfao(t *testing.T) {
 	ctx := context.Background()
 	boardID, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
@@ -119,13 +120,13 @@ func TestFalhaAoGravarEventoDesfazAMudanca(t *testing.T) {
 	ctx := context.Background()
 	_, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
 
 	unidade := repository.NovaUnidadeDeTrabalho(pool)
-	c.Mover(colunaID, 4096)
+	c.Mover(colunaID, 4096, "t")
 	// Quadro que não existe: o INSERT em board_events vai bater na FK.
 	e := evento.Novo(evento.CardMovido, uuid.NewString(), usuarioID, c)
 

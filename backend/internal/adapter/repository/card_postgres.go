@@ -24,10 +24,10 @@ func NovoCardPostgres(pool *pgxpool.Pool) *CardPostgres {
 // Salvar persiste um card novo.
 func (r *CardPostgres) Salvar(ctx context.Context, c *card.Card) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, posicao, chave, version, prazo, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
-		c.Posicao, c.Version, c.Prazo, c.CriadoEm, c.AtualizadoEm,
+		c.Posicao, vazioParaNulo(c.Chave), c.Version, c.Prazo, c.CriadoEm, c.AtualizadoEm,
 	)
 	return err
 }
@@ -51,10 +51,10 @@ func (r *CardPostgres) Salvar(ctx context.Context, c *card.Card) error {
 func (r *CardPostgres) Atualizar(ctx context.Context, c *card.Card) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, cor = $5, posicao = $6,
-		        version = $7, prazo = $8, atualizado_em = $9
-		 WHERE id = $1 AND version = $7 - 1`,
+		        chave = $7, version = $8, prazo = $9, atualizado_em = $10
+		 WHERE id = $1 AND version = $8 - 1`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
-		c.Posicao, c.Version, c.Prazo, c.AtualizadoEm,
+		c.Posicao, vazioParaNulo(c.Chave), c.Version, c.Prazo, c.AtualizadoEm,
 	)
 	if err != nil {
 		return err
@@ -68,11 +68,11 @@ func (r *CardPostgres) Atualizar(ctx context.Context, c *card.Card) error {
 // BuscarPorID retorna (card, nil) quando encontra e (nil, nil) quando não existe.
 func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, error) {
 	var c card.Card
-	var corLida *string
+	var corLida, chaveLida *string
 	err := r.db.QueryRow(ctx,
-		`SELECT id, coluna_id, titulo, descricao, cor, posicao, version, prazo, criado_em, atualizado_em
+		`SELECT id, coluna_id, titulo, descricao, cor, posicao, chave, version, prazo, criado_em, atualizado_em
 		 FROM cards WHERE id = $1`, id,
-	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
+	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &chaveLida, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -80,6 +80,7 @@ func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, 
 		return nil, err
 	}
 	c.Cor = cor.Cor(valorOuVazio(corLida))
+	c.Chave = valorOuVazio(chaveLida)
 	return &c, nil
 }
 
@@ -87,11 +88,11 @@ func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, 
 // consulta só — uma por coluna seria um N+1 que piora conforme o quadro cresce.
 func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
 	linhas, err := r.db.Query(ctx,
-		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.posicao, c.version, c.prazo, c.criado_em, c.atualizado_em
+		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.posicao, c.chave, c.version, c.prazo, c.criado_em, c.atualizado_em
 		 FROM cards c
 		 JOIN colunas col ON col.id = c.coluna_id
 		 WHERE col.board_id = $1
-		 ORDER BY c.posicao, c.id`, boardID,
+		 ORDER BY c.chave COLLATE "C" NULLS FIRST, c.posicao, c.id`, boardID,
 	)
 	if err != nil {
 		return nil, err
@@ -101,11 +102,12 @@ func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]car
 	cards := make([]card.Card, 0)
 	for linhas.Next() {
 		var c card.Card
-		var corLida *string
-		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+		var corLida, chaveLida *string
+		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &chaveLida, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
 			return nil, err
 		}
 		c.Cor = cor.Cor(valorOuVazio(corLida))
+		c.Chave = valorOuVazio(chaveLida)
 		cards = append(cards, c)
 	}
 	return cards, linhas.Err()
@@ -125,4 +127,58 @@ func (r *CardPostgres) UltimaPosicao(ctx context.Context, colunaID string) (floa
 		`SELECT COALESCE(MAX(posicao), 0) FROM cards WHERE coluna_id = $1`, colunaID,
 	).Scan(&ultima)
 	return ultima, err
+}
+
+// UltimaChave devolve a maior chave em uso na coluna, ou vazio quando a coluna
+// está vazia — ou quando nenhum card dela foi alcançado pelo backfill ainda.
+func (r *CardPostgres) UltimaChave(ctx context.Context, colunaID string) (string, error) {
+	var chave *string
+	err := r.db.QueryRow(ctx,
+		`SELECT max(chave COLLATE "C") FROM cards WHERE coluna_id = $1`, colunaID,
+	).Scan(&chave)
+	if err != nil {
+		return "", err
+	}
+	return valorOuVazio(chave), nil
+}
+
+// SemChave devolve os cards que o backfill ainda não alcançou.
+//
+// A ordem é a POSIÇÃO — é ela que ainda manda nessas linhas, e é a ordem que o
+// backfill precisa preservar ao gerar as chaves. Agrupado por coluna porque a
+// ordenação é dentro dela.
+func (r *CardPostgres) SemChave(ctx context.Context, limite int) ([]card.Card, error) {
+	linhas, err := r.db.Query(ctx,
+		`SELECT id, coluna_id, titulo, descricao, cor, posicao, chave, version, prazo, criado_em, atualizado_em
+		   FROM cards WHERE chave IS NULL
+		  ORDER BY coluna_id, posicao, id
+		  LIMIT $1`, limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	cards := make([]card.Card, 0)
+	for linhas.Next() {
+		var c card.Card
+		var corLida, chaveLida *string
+		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Posicao, &chaveLida, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+			return nil, err
+		}
+		c.Cor = cor.Cor(valorOuVazio(corLida))
+		c.Chave = valorOuVazio(chaveLida)
+		cards = append(cards, c)
+	}
+	return cards, linhas.Err()
+}
+
+// GravarChave grava SÓ a chave, sem tocar em version.
+//
+// O backfill não é uma edição feita por ninguém: passar pelo Atualizar normal
+// subiria a versão e faria o bloqueio otimista recusar a próxima gravação
+// legítima de quem estivesse com o card aberto.
+func (r *CardPostgres) GravarChave(ctx context.Context, id, chave string) error {
+	_, err := r.db.Exec(ctx, `UPDATE cards SET chave = $2 WHERE id = $1`, id, chave)
+	return err
 }

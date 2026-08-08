@@ -267,6 +267,27 @@ invisível para quem reconecta.
 📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real
 📝 [Exponential backoff and jitter (AWS Builders' Library)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — por que o jitter importa quando cinquenta clientes reconectam juntos
 
+### Chave de ordenação textual
+
+A ordem de cards e colunas é uma **chave de texto**, não um número. A posição
+fracionária em `double precision` funcionava até a mantissa acabar — o teste do
+domínio mede o esgotamento em **52 inserções** seguidas no mesmo ponto —, e a
+partir daí o movimento respondia 409 com um erro sem saída pela interface.
+
+Com chave textual não há limite: entre `"b"` e `"c"` cabe `"bn"`, e a chave
+cresce um caractere por colisão. Ver
+[`internal/domain/ordem/chave.go`](../backend/internal/domain/ordem/chave.go).
+
+⚠️ **`COLLATE "C"` não é detalhe.** A ordenação de texto no Postgres depende da
+collation do banco, e uma que ignore caixa ou trate acentos ordenaria diferente
+do que o domínio assume ao gerar a chave. `"C"` é a ordem de BYTES — a mesma que
+`ChaveEntre` usa para decidir o que vem antes. E o índice precisa da mesma
+collation da consulta: com collations diferentes o Postgres nem o usa, e a
+ordenação vira sort em memória a cada leitura do quadro.
+
+📚 [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) — o algoritmo, e o termo para pesquisar depois é *LexoRank*
+📚 [PostgreSQL — collation support](https://www.postgresql.org/docs/current/collation.html)
+
 ### Testcontainers
 
 Sobe um PostgreSQL de verdade para os testes de repositório e o derruba no fim.

@@ -22,8 +22,11 @@ type Coluna struct {
 	Titulo  string
 	// Cor é opcional: coluna sem cor usa o visual padrão. Serve para dar
 	// significado à etapa — verde no começo, amarelo no meio, azul no fim.
-	Cor          cor.Cor
-	Posicao      float64
+	Cor     cor.Cor
+	Posicao float64
+	// Chave é a ordenação TEXTUAL, que substitui Posicao. Durante o expand as
+	// duas convivem. Vazia só nas linhas antigas, até o backfill passar.
+	Chave        string
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
 }
@@ -40,7 +43,7 @@ func (c *Coluna) DefinirCor(nova cor.Cor) error {
 
 // Nova cria uma coluna na posição informada. O título segue a mesma régua do
 // quadro (board.ValidarTitulo).
-func Nova(id, boardID, titulo string, cores cor.Cor, posicao float64) (*Coluna, error) {
+func Nova(id, boardID, titulo string, cores cor.Cor, posicao float64, chave string) (*Coluna, error) {
 	titulo, err := board.ValidarTitulo(titulo)
 	if err != nil {
 		return nil, err
@@ -56,6 +59,7 @@ func Nova(id, boardID, titulo string, cores cor.Cor, posicao float64) (*Coluna, 
 		Titulo:       titulo,
 		Cor:          cores,
 		Posicao:      posicao,
+		Chave:        chave,
 		CriadoEm:     agora,
 		AtualizadoEm: agora,
 	}, nil
@@ -84,7 +88,14 @@ func PosicaoNoFim(ultimaPosicao float64) float64 {
 
 // MoverPara reposiciona a coluna. A posição é calculada por quem sabe quem são
 // os vizinhos — ver usecase/board e o pacote ordem.
-func (c *Coluna) MoverPara(posicao float64) {
+func (c *Coluna) MoverPara(posicao float64, chave string) {
+	c.Chave = chave
 	c.Posicao = posicao
 	c.AtualizadoEm = time.Now()
+}
+
+// DefinirChaveDeOrdem grava a chave textual de ordenação. É o que o comando de
+// backfill usa para preencher as colunas criadas antes do expand.
+func (c *Coluna) DefinirChaveDeOrdem(chave string) {
+	c.Chave = chave
 }

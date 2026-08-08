@@ -160,11 +160,23 @@ depois:  A(2048)   C(2560)   B(3072)          ← só C foi escrito
 
 O card continua se movendo na tela na hora. Ele só não decide o número.
 
-**O limite do `double precision` é real e está medido.** Dividir sempre o mesmo
-intervalo esgota a mantissa de 53 bits em **52 inserções seguidas no mesmo
-ponto**, e há teste que mede isso. Quando acontece, o movimento responde `409`
-em vez de gravar em silêncio duas posições iguais. A saída definitiva é trocar o
-float por chave textual — é a fase 9 do [PLANO.md](../PLANO.md).
+**O limite do `double precision` era real e está medido:** dividir sempre o
+mesmo intervalo esgotava a mantissa de 53 bits em **52 inserções seguidas no
+mesmo ponto**, e o movimento respondia `409` — um erro que a pessoa não tinha
+como resolver pela interface.
+
+**A ordem passou a ser uma chave textual**, e o limite deixou de existir: entre
+`"b"` e `"c"` cabe `"bn"`, infinitamente. A chave cresce um caractere por
+colisão — cem inserções no mesmo ponto produzem nove caracteres.
+
+A invariante que sustenta o esquema: **nenhuma chave termina no menor
+caractere**. Sem ela, uma chave `"a"` seria um beco sem saída — não existe
+string entre `""` e `"a"`, e inserir no topo passaria a ser impossível.
+
+A `posicao` em float ainda existe no banco: a coluna nova entrou anulável
+(*expand*), o código escreve as duas, e um comando **do domínio** preencheu as
+linhas antigas preservando a ordem que elas tinham. O `DROP` da antiga é a
+migration do deploy seguinte — ver [PLANO.md](../PLANO.md), fase 9.
 
 ---
 

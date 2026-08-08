@@ -5,6 +5,7 @@ import (
 	dcoluna "stacktrack/internal/domain/coluna"
 	dcor "stacktrack/internal/domain/cor"
 	"stacktrack/internal/domain/evento"
+	"stacktrack/internal/domain/ordem"
 
 	"github.com/google/uuid"
 )
@@ -32,7 +33,16 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 		return nil, err
 	}
 
-	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, dcoluna.PosicaoNoFim(ultima))
+	ultimaChave, err := uc.colunas.UltimaChave(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+	chave, err := ordem.ChaveEntre(ultimaChave, "")
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, dcoluna.PosicaoNoFim(ultima), chave)
 	if err != nil {
 		return nil, err
 	}

@@ -362,3 +362,108 @@ func ordenarPorPosicao[T any](lista []T, chave func(T) (float64, string)) {
 		return idi < idj
 	})
 }
+
+// --- chave de ordenação (fase 9) -------------------------------------------
+
+// UltimaChave devolve a maior chave em uso na coluna, ou vazio.
+func (r *Cards) UltimaChave(ctx context.Context, colunaID string) (string, error) {
+	if r.ErroForcado != nil {
+		return "", r.ErroForcado
+	}
+	maior := ""
+	for _, c := range r.porID {
+		if c.ColunaID == colunaID && c.Chave > maior {
+			maior = c.Chave
+		}
+	}
+	return maior, nil
+}
+
+// SemChave devolve os cards que o backfill ainda não alcançou, na ordem que a
+// POSIÇÃO ainda dita — é a ordem que o backfill precisa preservar.
+func (r *Cards) SemChave(ctx context.Context, limite int) ([]card.Card, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]card.Card, 0)
+	for _, c := range r.porID {
+		if c.Chave == "" {
+			lista = append(lista, *c)
+		}
+	}
+	sort.Slice(lista, func(i, j int) bool {
+		if lista[i].ColunaID != lista[j].ColunaID {
+			return lista[i].ColunaID < lista[j].ColunaID
+		}
+		if lista[i].Posicao != lista[j].Posicao {
+			return lista[i].Posicao < lista[j].Posicao
+		}
+		return lista[i].ID < lista[j].ID
+	})
+	if len(lista) > limite {
+		lista = lista[:limite]
+	}
+	return lista, nil
+}
+
+// GravarChave grava só a chave, sem subir a version.
+func (r *Cards) GravarChave(ctx context.Context, id, chave string) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	if c, existe := r.porID[id]; existe {
+		c.Chave = chave
+	}
+	return nil
+}
+
+// UltimaChave devolve a maior chave em uso no quadro, ou vazio.
+func (r *Colunas) UltimaChave(ctx context.Context, boardID string) (string, error) {
+	if r.ErroForcado != nil {
+		return "", r.ErroForcado
+	}
+	maior := ""
+	for _, c := range r.porID {
+		if c.BoardID == boardID && c.Chave > maior {
+			maior = c.Chave
+		}
+	}
+	return maior, nil
+}
+
+// SemChave devolve as colunas que o backfill ainda não alcançou.
+func (r *Colunas) SemChave(ctx context.Context, limite int) ([]coluna.Coluna, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]coluna.Coluna, 0)
+	for _, c := range r.porID {
+		if c.Chave == "" {
+			lista = append(lista, *c)
+		}
+	}
+	sort.Slice(lista, func(i, j int) bool {
+		if lista[i].BoardID != lista[j].BoardID {
+			return lista[i].BoardID < lista[j].BoardID
+		}
+		if lista[i].Posicao != lista[j].Posicao {
+			return lista[i].Posicao < lista[j].Posicao
+		}
+		return lista[i].ID < lista[j].ID
+	})
+	if len(lista) > limite {
+		lista = lista[:limite]
+	}
+	return lista, nil
+}
+
+// GravarChave grava só a chave.
+func (r *Colunas) GravarChave(ctx context.Context, id, chave string) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	if c, existe := r.porID[id]; existe {
+		c.Chave = chave
+	}
+	return nil
+}

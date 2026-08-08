@@ -65,8 +65,15 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 	if err != nil {
 		return nil, err
 	}
+	// A CHAVE é o que passa a mandar na ordem; a posição continua sendo escrita
+	// só enquanto o expand não terminar. Ao contrário dela, a chave nunca falta:
+	// ChaveEntre só erra por entrada inválida, nunca por falta de espaço.
+	chave, err := uc.chaveEntreCards(ctx, vizinhos)
+	if err != nil {
+		return nil, err
+	}
 
-	c.Mover(destino.ID, posicao)
+	c.Mover(destino.ID, posicao, chave)
 	// A coluna de ORIGEM entra no evento porque ela se perde no próprio Mover:
 	// depois dele, o card só sabe onde está. Sem isto o histórico diria "moveu
 	// este card", que é a metade inútil da informação — e essa era exatamente a
@@ -81,6 +88,35 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 		return nil, err
 	}
 	return c, nil
+}
+
+// chaveEntreCards resolve os vizinhos em chaves reais e calcula a do meio.
+//
+// Vizinho sem chave — linha antiga, que o backfill ainda não alcançou — conta
+// como ponta: é o comportamento seguro durante o expand, porque colocar o card
+// entre uma chave e um vazio produziria uma ordem que não corresponde ao que a
+// tela mostrava.
+func (uc *CardUseCase) chaveEntreCards(ctx context.Context, vizinhos Vizinhos) (string, error) {
+	anterior, err := uc.chaveDoCard(ctx, vizinhos.AnteriorID)
+	if err != nil {
+		return "", err
+	}
+	proximo, err := uc.chaveDoCard(ctx, vizinhos.ProximoID)
+	if err != nil {
+		return "", err
+	}
+	return ordem.ChaveEntre(anterior, proximo)
+}
+
+func (uc *CardUseCase) chaveDoCard(ctx context.Context, cardID string) (string, error) {
+	if cardID == "" {
+		return "", nil
+	}
+	c, err := uc.cards.BuscarPorID(ctx, cardID)
+	if err != nil || c == nil {
+		return "", err
+	}
+	return c.Chave, nil
 }
 
 // posicaoEntreCards resolve os vizinhos em posições reais e calcula o meio.
@@ -157,13 +193,42 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 		}
 	}
 
-	c.MoverPara(posicao)
+	chave, err := uc.chaveEntreColunas(ctx, vizinhos)
+	if err != nil {
+		return nil, err
+	}
+
+	c.MoverPara(posicao, chave)
 	if err := uc.escreverEPublicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID,
 		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// chaveEntreColunas faz para colunas o que chaveEntreCards faz para cards.
+func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, vizinhos Vizinhos) (string, error) {
+	anterior, err := uc.chaveDaColuna(ctx, vizinhos.AnteriorID)
+	if err != nil {
+		return "", err
+	}
+	proximo, err := uc.chaveDaColuna(ctx, vizinhos.ProximoID)
+	if err != nil {
+		return "", err
+	}
+	return ordem.ChaveEntre(anterior, proximo)
+}
+
+func (uc *ColunaUseCase) chaveDaColuna(ctx context.Context, colunaID string) (string, error) {
+	if colunaID == "" {
+		return "", nil
+	}
+	c, err := uc.colunas.BuscarPorID(ctx, colunaID)
+	if err != nil || c == nil {
+		return "", err
+	}
+	return c.Chave, nil
 }
 
 func (uc *ColunaUseCase) posicaoDaColunaNoBoard(ctx context.Context, colunaID, boardID string) (float64, error) {

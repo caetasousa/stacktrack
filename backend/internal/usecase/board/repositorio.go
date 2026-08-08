@@ -170,6 +170,14 @@ type RepositorioColuna interface {
 	// UltimaPosicao devolve a maior posição em uso no quadro, ou 0 se não
 	// houver coluna nenhuma.
 	UltimaPosicao(ctx context.Context, boardID string) (float64, error)
+	// UltimaChave devolve a maior chave em uso no quadro, ou vazio quando não
+	// há coluna nenhuma — ou quando nenhuma foi alcançada pelo backfill ainda.
+	UltimaChave(ctx context.Context, boardID string) (string, error)
+	// SemChave devolve as colunas do quadro que o backfill ainda não alcançou,
+	// em ordem de posição — é assim que o comando de backfill as encontra.
+	SemChave(ctx context.Context, limite int) ([]coluna.Coluna, error)
+	// GravarChave grava só a chave, sem tocar no resto da linha.
+	GravarChave(ctx context.Context, id, chave string) error
 }
 
 type RepositorioCard interface {
@@ -184,4 +192,12 @@ type RepositorioCard interface {
 	// UltimaPosicao devolve a maior posição em uso na coluna, ou 0 se a coluna
 	// estiver vazia.
 	UltimaPosicao(ctx context.Context, colunaID string) (float64, error)
+	// UltimaChave devolve a maior chave em uso na coluna, ou vazio.
+	UltimaChave(ctx context.Context, colunaID string) (string, error)
+	// SemChave devolve os cards que o backfill ainda não alcançou, em ordem de
+	// posição.
+	SemChave(ctx context.Context, limite int) ([]card.Card, error)
+	// GravarChave grava só a chave, sem subir a version — o backfill não é uma
+	// edição feita por ninguém.
+	GravarChave(ctx context.Context, id, chave string) error
 }

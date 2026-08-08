@@ -13,6 +13,7 @@ import (
 	dcor "stacktrack/internal/domain/cor"
 	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/evento"
+	"stacktrack/internal/domain/ordem"
 
 	"github.com/google/uuid"
 )
@@ -138,8 +139,15 @@ func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, d
 	if err != nil {
 		return nil, err
 	}
+	// Card novo nasce no FIM da coluna: a chave é calculada depois da última,
+	// sem próximo. Se a coluna estiver vazia — ou se a última for de antes do
+	// backfill —, sai a chave inicial.
+	chave, err := uc.chaveNoFimDaColuna(ctx, colunaID)
+	if err != nil {
+		return nil, err
+	}
 
-	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, dcoluna.PosicaoNoFim(ultima))
+	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, dcoluna.PosicaoNoFim(ultima), chave)
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +208,15 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 	return uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
 		DadosDoCard{CardID: cardID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) })
+}
+
+// chaveNoFimDaColuna devolve a chave de um item acrescentado no fim.
+func (uc *CardUseCase) chaveNoFimDaColuna(ctx context.Context, colunaID string) (string, error) {
+	ultima, err := uc.cards.UltimaChave(ctx, colunaID)
+	if err != nil {
+		return "", err
+	}
+	return ordem.ChaveEntre(ultima, "")
 }
 
 // carregarComAcessoDeEdicao percorre card → coluna → quadro para descobrir a

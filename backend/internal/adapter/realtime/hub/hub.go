@@ -178,12 +178,17 @@ func (h *Hub) removerBloqueado(a *Assinante) bool {
 // goroutine de escrita daquela conexão encerra sozinha ao ver o fechamento. É
 // a decisão que impede um cliente travado de segurar o publicador — que, no
 // caminho de escrita, é a requisição HTTP de outra pessoa.
+//
+// Derrubar alguém MUDA quem está no quadro, e por isso a sala é avisada em
+// seguida. Sem esse aviso, o avatar de quem caiu por lentidão ficava preso na
+// tela dos outros: o `defer Cancelar` do handler roda depois e encontra o
+// assinante já fora da sala, então não anuncia nada — e ninguém mais o faria.
 func (h *Hub) Publicar(e evento.Evento) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	sala := h.salas[e.BoardID]
 	if len(sala) == 0 {
+		h.mu.Unlock()
 		return
 	}
 
@@ -200,10 +205,25 @@ func (h *Hub) Publicar(e evento.Evento) {
 	for _, a := range lentos {
 		h.removerBloqueado(a)
 	}
+
+	var presentes []Pessoa
+	if len(lentos) > 0 {
+		presentes = h.presentesBloqueado(e.BoardID)
+	}
+	h.mu.Unlock()
+
+	// Fora do lock, como em Assinar e Cancelar: anunciarPresenca chama Publicar,
+	// e com o mutex na mão isso travaria o processo em si mesmo.
+	//
+	// A recursão termina: cada volta só acontece quando alguém foi removido, e
+	// a sala é finita — no limite ela esvazia e o `len(sala) == 0` acima corta.
+	if len(lentos) > 0 {
+		h.anunciarPresenca(e.BoardID, presentes)
+	}
 }
 
-// Inscritos informa quantas conexões acompanham o quadro. Serve para o teste e,
-// na fase 6, para a presença.
+// Inscritos informa quantas CONEXÕES acompanham o quadro — não quantas pessoas.
+// Duas abas da mesma conta contam duas vezes aqui e uma só em Presentes.
 func (h *Hub) Inscritos(boardID string) int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

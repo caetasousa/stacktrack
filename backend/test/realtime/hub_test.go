@@ -300,6 +300,63 @@ func TestSairAvisaQuemFicou(t *testing.T) {
 	}
 }
 
+// Cair por lentidão também é sair, e quem fica precisa saber.
+//
+// É o defeito que este teste tranca: a remoção por lentidão acontece dentro de
+// Publicar, e o `defer Cancelar` do handler roda depois — encontrando o
+// assinante já fora da sala, ele não anuncia nada. Sem o aviso de dentro do
+// próprio Publicar, o avatar de quem caiu ficava preso na tela dos outros até
+// o próximo evento de presença, que pode nunca vir.
+func TestQuedaPorLentidaoAvisaQuemFicou(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+
+	// A ana lê o tempo todo; sem isso ela encheria junto e cairia também.
+	recebidos := make(chan evento.Evento, 4096)
+	go func() {
+		for e := range ana.Eventos {
+			recebidos <- e
+		}
+	}()
+
+	h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"}) // o bob nunca lê
+
+	// Consome as presenças até ver a sala com os dois: só a partir daí uma
+	// presença com uma pessoa significa "o bob saiu".
+	esperarPresencaCom(t, recebidos, 2)
+
+	for i := 0; i < 100; i++ {
+		h.Publicar(evt("quadro-1", "ana"))
+		// A pausa dá à goroutine da ana a chance de drenar. Sem ela os dois
+		// enchem, os dois caem, e o teste deixaria de falar sobre a presença.
+		time.Sleep(time.Millisecond)
+	}
+
+	if p := h.Presentes("quadro-1"); len(p) != 1 {
+		t.Fatalf("o bob não foi derrubado; presentes = %#v", p)
+	}
+	esperarPresencaCom(t, recebidos, 1)
+}
+
+// esperarPresencaCom lê até achar um evento de presença com o tamanho pedido.
+func esperarPresencaCom(t *testing.T, recebidos chan evento.Evento, quantos int) {
+	t.Helper()
+	prazo := time.After(time.Second)
+	for {
+		select {
+		case e := <-recebidos:
+			if e.Tipo != evento.PresencaAlterada {
+				continue
+			}
+			if p, _ := e.Dados.([]hub.Pessoa); len(p) == quantos {
+				return
+			}
+		case <-prazo:
+			t.Fatalf("não chegou presenca.alterada com %d pessoa(s)", quantos)
+		}
+	}
+}
+
 // A presença não vaza entre quadros pelo mesmo motivo que os eventos não vazam:
 // a sala é a fronteira.
 func TestPresencaNaoVazaEntreQuadros(t *testing.T) {

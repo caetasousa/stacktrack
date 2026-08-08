@@ -3,8 +3,18 @@
 //
 // É a peça concorrente do projeto, e o desenho segue o padrão do exemplo de
 // chat do gorilla/websocket: o estado compartilhado é um mapa de salas, e todo
-// acesso a ele passa por um RWMutex — leitura (publicar) é muito mais frequente
-// que escrita (entrar e sair), e o RWMutex deixa as leituras correrem juntas.
+// acesso a ele passa por um mutex.
+//
+// ⚠️ O mutex é RWMutex, mas NÃO espere dele leituras concorrentes no caminho
+// quente. `Publicar` toma o lock EXCLUSIVO, e não o de leitura, porque ele
+// pode remover da sala quem não acompanha o ritmo — remoção é escrita. Só
+// `Presentes` e `Inscritos` usam RLock de verdade.
+//
+// A consequência a conhecer: como o mutex é do hub inteiro, e não de cada sala,
+// publicar no quadro A serializa com publicar no quadro B. Enquanto o gargalo
+// for a rede, e não o mapa, isso não aparece; o dia em que aparecer, o caminho
+// é um mutex por sala (ou sync.Map de salas), não trocar este por RLock — que
+// seria uma corrida, já que a remoção do lento escreve no mapa.
 //
 // A regra que sustenta tudo: **publicar nunca bloqueia**. Cada assinante tem um
 // canal com buffer, e quem não consegue acompanhar é DESCONECTADO em vez de

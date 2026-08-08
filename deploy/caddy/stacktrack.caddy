@@ -55,10 +55,11 @@ stacktrack.duckdns.org {
 			# header_up substitui qualquer valor que o cliente tenha mandado.
 			header_up X-Real-IP {remote_host}
 
-			# Fase 5: o WebSocket do quadro é transparente aqui — o Caddy faz o
-			# upgrade sozinho e não impõe timeout de leitura à conexão. Quem
-			# ainda derruba é o WriteTimeout de 15s do lado Go
-			# (config/server.go), que precisa ser revisto quando o hub entrar.
+			# O WebSocket do quadro é transparente aqui — o Caddy faz o
+			# upgrade sozinho e não impõe timeout de leitura à conexão. Do lado
+			# Go não há mais o que derrubá-lo: ReadTimeout e WriteTimeout são
+			# zero de propósito (config/server.go), porque valem para a conexão
+			# inteira e cortariam uma conexão longa no meio.
 		}
 	}
 

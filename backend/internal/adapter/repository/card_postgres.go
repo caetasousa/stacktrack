@@ -32,11 +32,6 @@ func (r *CardPostgres) Salvar(c *card.Card) error {
 	return err
 }
 
-// Atualizar grava as alterações de um card existente.
-//
-// O UPDATE ainda não filtra por version — a versão é gravada, não conferida.
-// O `WHERE ... AND version = $x` com 409 na volta é o bloqueio otimista da
-// fase 6; até lá, a última escrita vence.
 // Atualizar grava as alterações de um card existente, com BLOQUEIO OTIMISTA.
 //
 // O `AND version = $7 - 1` é o coração disto: o domínio já incrementou a versão

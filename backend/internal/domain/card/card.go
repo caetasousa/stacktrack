@@ -41,10 +41,11 @@ var (
 
 // Card é uma tarefa dentro de uma coluna.
 //
-// Version conta as edições. Ninguém a confere ainda: ela é o contador do
-// bloqueio otimista da fase 6, quando duas pessoas editarem o mesmo card ao
-// mesmo tempo e a segunda precisar receber 409 em vez de sobrescrever a
-// primeira em silêncio.
+// Version conta as edições, e é o contador do bloqueio otimista. Quem grava
+// leva a versão que leu; se ela já não for a atual, a escrita é recusada com
+// ErrConflito em vez de sobrescrever o trabalho alheio em silêncio. A regra é
+// aplicada em dois lugares: no usecase (que pega o conflito lento, de quem
+// abriu o card há cinco minutos) e no WHERE do UPDATE (que pega o simultâneo).
 type Card struct {
 	ID        string
 	ColunaID  string

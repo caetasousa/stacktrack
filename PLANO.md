@@ -30,7 +30,7 @@ recarregar a página.
 |---|---|
 | Autenticação | Completa, como no agendaGo (confirmação por email, recuperação de senha, rate limiting, convites) |
 | Infra inicial | Postgres + Docker Compose + Flyway. Swagger, Testcontainers e CI entram na fase 8 |
-| Proxy e TLS | nginx do próprio VPS, que já atende outro serviço — roteia por `server_name`. O Caddy saiu do plano por isso: dois proxies em série só somariam timeouts para depurar |
+| Proxy e TLS | **Caddy** — o que já atende o agendaGo no mesmo VPS, roteando por domínio. O plano original dizia nginx; na fase 8 ficou claro que o VPS já rodava Caddy, e enfiar um segundo proxy em série só somaria timeouts para depurar. O stacktrack deposita um bloco de site em `deploy/caddy/` e o Caddy do vizinho o importa |
 | WebSocket | `github.com/coder/websocket` (API sobre `context`, casa com o shutdown gracioso) |
 | Nome / caminho | `stacktrack` em `/home/caetasousa/projectX` |
 
@@ -383,7 +383,7 @@ concorrência de verdade para proteger.
 
 **Entrega:** Swagger via Swaggo (+ tabela de rotas no README), Testcontainers nos testes de
 repositório, `compatibilidade_schema_test.go` (o guard de expand/contract), CI no GitHub Actions
-rodando `-race`, `docker-compose.prod.yml` atrás do nginx do VPS, e `docs/tecnologias.md` no formato de guia de
+rodando `-race`, `docker-compose.prod.yml` atrás do Caddy do VPS, e `docs/tecnologias.md` no formato de guia de
 estudo do agendaGo.
 
 **Atenção específica deste projeto:** proxy reverso e conexão longa não se dão bem por padrão —
@@ -391,9 +391,10 @@ timeout de leitura, buffering e keep-alive precisam de atenção, e é aqui que 
 prova seu valor.
 
 **Estudo:**
-- [nginx — proxy_pass e WebSocket](https://nginx.org/en/docs/http/websocket.html) — o `Upgrade`
-  e o `Connection` precisam ser repassados à mão, e o `proxy_read_timeout` padrão de 60s derruba
-  conexão longa em silêncio
+- [Caddy — reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) — ele faz
+  o upgrade do WebSocket sozinho e não impõe timeout de leitura à conexão, ao contrário do nginx,
+  onde o `Upgrade` e o `Connection` precisam ser repassados à mão e o `proxy_read_timeout` padrão
+  de 60s derruba conexão longa em silêncio
 - [Testcontainers for Go](https://golang.testcontainers.org/)
 - [GitHub Actions — workflow syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
 - [net/http — Server timeouts](https://pkg.go.dev/net/http#Server) — `ReadTimeout` mata WebSocket se

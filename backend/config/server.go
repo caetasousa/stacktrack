@@ -25,8 +25,8 @@ func Porta() string {
 
 // OrigemFrontend devolve a origem permitida no CORS (env FRONTEND_ORIGIN).
 // O padrão é o frontend de desenvolvimento; em produção aponte para o domínio
-// real. Na fase 5 esta mesma origem passa a valer para o handshake do
-// WebSocket — que NÃO obedece CORS e precisa checar o Origin por conta própria.
+// real. Esta mesma origem alimenta o OriginPatterns do handshake do WebSocket
+// — que NÃO obedece CORS e precisa checar o Origin por conta própria.
 func OrigemFrontend() string {
 	if o := os.Getenv("FRONTEND_ORIGIN"); o != "" {
 		return o
@@ -35,8 +35,9 @@ func OrigemFrontend() string {
 }
 
 // EhProducao informa se o processo roda em produção (env APP_ENV=production).
-// Decide o formato do log (JSON vs texto) e, a partir da fase 1, o atributo
-// Secure do cookie de sessão.
+// Decide o formato do log (JSON vs texto) e o atributo Secure do cookie de
+// sessão — que por sua vez decide o nome dele, já que o prefixo __Host- exige
+// Secure.
 func EhProducao() bool {
 	return os.Getenv("APP_ENV") == "production"
 }

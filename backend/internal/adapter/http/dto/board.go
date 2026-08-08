@@ -54,8 +54,8 @@ type ListaBoardsResponse struct {
 }
 
 // CardResponse é um card na tela do quadro. Version viaja para o cliente
-// porque a partir da fase 6 ela volta no update, como prova de qual versão a
-// pessoa estava vendo.
+// porque ela volta no update, como prova de qual versão a pessoa estava vendo
+// — é o que permite recusar com 409 quem gravaria por cima de outra pessoa.
 //
 // Etiquetas, Checklist e QtdAnexos são o RESUMO que o card mostra como selo —
 // vêm juntos com o quadro para a tela não precisar abrir card por card.

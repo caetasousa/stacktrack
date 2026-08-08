@@ -8,9 +8,12 @@
 .DS_Store
 Thumbs.db
 
-# Artefatos do Playwright quando rodado a partir da raiz do repositório
-/test-results/
-/playwright-report/
+# Artefatos do Playwright — rastros, capturas e vídeos das execuções que
+# falharam. São gerados a cada corrida e não descrevem o projeto.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
 
 # Variáveis de ambiente
 .env

@@ -36,6 +36,9 @@ export interface Card {
 	vencido: boolean;
 	// Cor opcional do card: vira uma tarja na lateral. Vazio é o visual padrão.
 	cor: Cor | '';
+	// Os responsáveis vêm com nome, e não só o id: o avatar precisa das
+	// iniciais, e resolvê-las aqui exigiria uma segunda requisição.
+	responsaveis: Responsavel[];
 	// Só os ids: os dados da etiqueta vêm uma vez em BoardDetalhado.etiquetas.
 	etiquetas: string[];
 	checklist: Progresso;
@@ -43,6 +46,12 @@ export interface Card {
 }
 
 export type Cor = 'cinza' | 'vermelho' | 'laranja' | 'amarelo' | 'verde' | 'azul' | 'roxo' | 'rosa';
+
+/** Quem responde por um card. Só o necessário para desenhar o avatar. */
+export interface Responsavel {
+	usuarioId: string;
+	nome: string;
+}
 
 export interface Etiqueta {
 	id: string;

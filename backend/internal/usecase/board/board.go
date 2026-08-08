@@ -34,10 +34,13 @@ type Progresso struct {
 // vêm juntos para a tela do quadro não precisar abrir card por card só para
 // desenhar os selos.
 type CardNoQuadro struct {
-	Card      card.Card
-	Etiquetas []string
-	Checklist Progresso
-	QtdAnexos int
+	Card card.Card
+	// Responsaveis vêm com nome, e não só o id: o avatar precisa das iniciais,
+	// e resolver nome por card no cliente exigiria uma segunda requisição.
+	Responsaveis []Responsavel
+	Etiquetas    []string
+	Checklist    Progresso
+	QtdAnexos    int
 }
 
 // ColunaComCards é uma coluna e os cards dela, já em ordem de posição.
@@ -56,11 +59,12 @@ type Detalhado struct {
 
 // CardDetalhado é o que o modal do card mostra: o card e tudo que pende dele.
 type CardDetalhado struct {
-	Card       card.Card
-	BoardID    string
-	Etiquetas  []etiqueta.Etiqueta
-	Checklists []ChecklistComItens
-	Anexos     []anexo.Anexo
+	Card         card.Card
+	BoardID      string
+	Responsaveis []Responsavel
+	Etiquetas    []etiqueta.Etiqueta
+	Checklists   []ChecklistComItens
+	Anexos       []anexo.Anexo
 }
 
 // ChecklistComItens é uma checklist e as linhas dela, em ordem.

@@ -5,6 +5,7 @@
 	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 	import { cliqueSemArraste } from '$lib/arrastar';
+	import { iniciais } from '$lib/iniciais';
 
 	let {
 		card,
@@ -90,6 +91,21 @@
 
 	<div class="flex items-start justify-between gap-2">
 		<b class="flex-1 text-sm font-medium text-body">{card.titulo}</b>
+		<!-- Os avatares ficam à direita do título, e não no rodapé com os selos:
+		     "de quem é isto" se lê junto com "o que é isto". -->
+		{#if card.responsaveis.length > 0}
+			<div class="flex shrink-0 -space-x-1.5">
+				{#each card.responsaveis as pessoa (pessoa.usuarioId)}
+					<span
+						data-responsavel={pessoa.usuarioId}
+						class="flex size-5 items-center justify-center rounded-full border border-surface bg-accent-suave text-[9px] font-semibold text-accent-texto"
+						title="Responsável: {pessoa.nome}"
+					>
+						{iniciais(pessoa.nome)}
+					</span>
+				{/each}
+			</div>
+		{/if}
 		{#if podeEditar}
 			<button
 				onclick={apagar}

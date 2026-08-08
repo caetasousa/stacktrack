@@ -12,7 +12,7 @@ import (
 // EtiquetaUseCase reúne as etiquetas do quadro e a aplicação delas nos cards.
 type EtiquetaUseCase struct {
 	eventos
-	membros   repositorioMembro
+	membros   RepositorioMembro
 	colunas   RepositorioColuna
 	cards     RepositorioCard
 	etiquetas repositorioEtiqueta
@@ -20,7 +20,7 @@ type EtiquetaUseCase struct {
 
 // NovoEtiquetaUseCase cria uma instância de EtiquetaUseCase com as dependências injetadas.
 func NovoEtiquetaUseCase(
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
 	etiquetas repositorioEtiqueta,

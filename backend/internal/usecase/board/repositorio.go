@@ -29,7 +29,7 @@ type RepositorioBoard interface {
 	ListarDoUsuario(ctx context.Context, usuarioID string) ([]Resumo, error)
 }
 
-type repositorioMembro interface {
+type RepositorioMembro interface {
 	Salvar(ctx context.Context, m *membro.Membro) error
 	Buscar(ctx context.Context, boardID, usuarioID string) (*membro.Membro, error)
 	Atualizar(ctx context.Context, m *membro.Membro) error
@@ -83,6 +83,31 @@ type repositorioChecklist interface {
 	// ProgressoDoBoard devolve, por card, quantos itens estão concluídos e
 	// quantos existem — é o "2/5" do card sem uma consulta por card.
 	ProgressoDoBoard(ctx context.Context, boardID string) (map[string]Progresso, error)
+}
+
+// Responsavel é quem responde por um card. Guarda o mínimo que a tela precisa
+// para desenhar um avatar — nada de email ou papel, que são da tela de membros.
+type Responsavel struct {
+	UsuarioID string
+	Nome      string
+}
+
+// RepositorioResponsavel liga pessoas a cards.
+//
+// É porta própria, e não um punhado de métodos no repositório de cards, porque
+// a pergunta que ela responde não é sobre o card: é sobre quem trabalha nele.
+type RepositorioResponsavel interface {
+	// Atribuir e Remover são idempotentes: repetir a operação não é erro,
+	// porque o resultado pretendido já vale.
+	Atribuir(ctx context.Context, cardID, usuarioID string) error
+	Remover(ctx context.Context, cardID, usuarioID string) error
+	// RemoverDoBoard apaga as atribuições da pessoa em todos os cards do
+	// quadro. É o que roda quando ela sai dele.
+	RemoverDoBoard(ctx context.Context, boardID, usuarioID string) error
+	DoCard(ctx context.Context, cardID string) ([]Responsavel, error)
+	// DoBoardPorCard devolve, para cada card do quadro, quem responde por ele —
+	// numa consulta só, pelo mesmo motivo das etiquetas.
+	DoBoardPorCard(ctx context.Context, boardID string) (map[string][]Responsavel, error)
 }
 
 type repositorioAnexo interface {

@@ -283,18 +283,37 @@ func paraCardResponse(c dcard.Card) dto.CardResponse {
 	return dto.CardResponse{
 		ID: c.ID, ColunaID: c.ColunaID, Titulo: c.Titulo, Descricao: c.Descricao,
 		Cor: string(c.Cor), Posicao: c.Posicao, Version: c.Version, Prazo: c.Prazo,
-		Vencido:   c.Vencido(time.Now()),
-		Etiquetas: []string{},
+		Vencido:      c.Vencido(time.Now()),
+		Responsaveis: []dto.ResponsavelResponse{},
+		Etiquetas:    []string{},
 	}
 }
 
 // paraCardNoQuadro converte o card com os selos que a tela do quadro mostra.
 func paraCardNoQuadro(c ucboard.CardNoQuadro) dto.CardResponse {
 	resposta := paraCardResponse(c.Card)
+	resposta.Responsaveis = paraResponsaveisResponse(c.Responsaveis)
 	resposta.Etiquetas = c.Etiquetas
 	resposta.Checklist = dto.ProgressoResponse{Concluidos: c.Checklist.Concluidos, Total: c.Checklist.Total}
 	resposta.QtdAnexos = c.QtdAnexos
 	return resposta
+}
+
+// comResponsaveis devolve o card com os responsáveis preenchidos.
+func comResponsaveis(c dto.CardResponse, lista []ucboard.Responsavel) dto.CardResponse {
+	c.Responsaveis = paraResponsaveisResponse(lista)
+	return c
+}
+
+// paraResponsaveisResponse converte a lista de responsáveis, sempre como slice
+// vazia em vez de nil: o JSON precisa sair como [] e não null, senão a tela
+// teria de tratar os dois casos.
+func paraResponsaveisResponse(lista []ucboard.Responsavel) []dto.ResponsavelResponse {
+	fora := make([]dto.ResponsavelResponse, 0, len(lista))
+	for _, r := range lista {
+		fora = append(fora, dto.ResponsavelResponse{UsuarioID: r.UsuarioID, Nome: r.Nome})
+	}
+	return fora
 }
 
 func paraEtiquetaResponse(e detiqueta.Etiqueta) dto.EtiquetaResponse {
@@ -328,6 +347,11 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, membro.ErrSemPermissao):
 		responderErro(w, http.StatusForbidden, err.Error())
+	// Atribuir alguém que não participa do quadro. É 422, e não 404: quem pediu
+	// enxerga o card e enxerga o quadro, então esconder o motivo não protege
+	// nada — e "não encontrado" mandaria procurar um card que está ali.
+	case errors.Is(err, membro.ErrNaoEMembro):
+		responderErro(w, http.StatusUnprocessableEntity, err.Error())
 	// 413 e não 400: o corpo em si é válido, o que não serve é o tamanho — e é
 	// o código que o navegador e os proxies entendem como "arquivo grande".
 	// 409: a entrada está correta, e o estado é que não comporta a escrita.
@@ -416,7 +440,7 @@ func (h *BoardHandler) DetalharCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	responderJSON(w, http.StatusOK, dto.CardDetalhadoResponse{
-		CardResponse:    paraCardResponse(detalhe.Card),
+		CardResponse:    comResponsaveis(paraCardResponse(detalhe.Card), detalhe.Responsaveis),
 		BoardID:         detalhe.BoardID,
 		EtiquetasDoCard: paraEtiquetasResponse(detalhe.Etiquetas),
 		Checklists:      checklists,

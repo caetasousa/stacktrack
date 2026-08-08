@@ -57,6 +57,20 @@ Revogar um convite invalida o link. O token é gerado com `crypto/rand`.
 
 ## O que pende de um card
 
+**Responsáveis** são quem responde pelo card — é o que faz o quadro responder
+"o que é meu?", e não só "o que existe". Um card aceita mais de um: trabalho em
+par é normal.
+
+Só dá para atribuir **quem já participa do quadro**, e a regra é do domínio, não
+do banco: a chave estrangeira aponta para `usuarios`, porque "quem pode ser
+responsável" muda com a regra, ao contrário da existência da conta. Tentar
+atribuir alguém de fora responde **422** — e não 404, porque quem pediu já
+enxerga o card, então esconder o motivo não protegeria nada.
+
+**Sair do quadro leva as atribuições junto.** Mantê-las deixaria a lista de
+responsáveis mentindo (nomes de quem não tem mais acesso) e faria o filtro
+"meus cards" mostrar à pessoa removida cards que ela não consegue mais abrir.
+
 **Etiquetas** pertencem ao quadro, não ao card: renomear ou trocar a cor muda em
 todos os cards de uma vez. O card guarda só os ids.
 

@@ -17,28 +17,31 @@ import (
 // nenhuma.
 type QuadroUseCase struct {
 	eventos
-	boards     RepositorioBoard
-	membros    repositorioMembro
-	colunas    RepositorioColuna
-	cards      RepositorioCard
-	etiquetas  repositorioEtiqueta
-	checklists repositorioChecklist
-	anexos     repositorioAnexo
+	boards       RepositorioBoard
+	membros      RepositorioMembro
+	colunas      RepositorioColuna
+	cards        RepositorioCard
+	etiquetas    repositorioEtiqueta
+	checklists   repositorioChecklist
+	anexos       repositorioAnexo
+	responsaveis RepositorioResponsavel
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
 func NovoQuadroUseCase(
 	boards RepositorioBoard,
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
 	etiquetas repositorioEtiqueta,
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
+	responsaveis RepositorioResponsavel,
 ) *QuadroUseCase {
 	return &QuadroUseCase{
 		boards: boards, membros: membros, colunas: colunas, cards: cards,
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
+		responsaveis: responsaveis,
 	}
 }
 
@@ -117,6 +120,10 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 	if err != nil {
 		return nil, err
 	}
+	responsaveisPorCard, err := uc.responsaveis.DoBoardPorCard(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
 	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -125,7 +132,7 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 	return &Detalhado{
 		Board:     *b,
 		Papel:     vinculo.Papel,
-		Colunas:   agrupar(listaColunas, listaCards, etiquetasPorCard, progressoPorCard, anexosPorCard),
+		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard),
 		Etiquetas: etiquetasDoBoard,
 	}, nil
 }
@@ -204,6 +211,7 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 func agrupar(
 	colunas []coluna.Coluna,
 	cards []card.Card,
+	responsaveisPorCard map[string][]Responsavel,
 	etiquetasPorCard map[string][]string,
 	progressoPorCard map[string]Progresso,
 	anexosPorCard map[string]int,
@@ -214,11 +222,16 @@ func agrupar(
 		if etiquetas == nil {
 			etiquetas = []string{}
 		}
+		responsaveis := responsaveisPorCard[c.ID]
+		if responsaveis == nil {
+			responsaveis = []Responsavel{}
+		}
 		porColuna[c.ColunaID] = append(porColuna[c.ColunaID], CardNoQuadro{
-			Card:      c,
-			Etiquetas: etiquetas,
-			Checklist: progressoPorCard[c.ID],
-			QtdAnexos: anexosPorCard[c.ID],
+			Card:         c,
+			Responsaveis: responsaveis,
+			Etiquetas:    etiquetas,
+			Checklist:    progressoPorCard[c.ID],
+			QtdAnexos:    anexosPorCard[c.ID],
 		})
 	}
 

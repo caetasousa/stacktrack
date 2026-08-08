@@ -32,6 +32,14 @@
 		type EventoDoQuadro,
 		type Presente
 	} from '$lib/realtime/conexao.svelte';
+	import { iniciais } from '$lib/iniciais';
+	import {
+		FILTRO_VAZIO,
+		filtrando as estaFiltrando,
+		passa,
+		pessoasDoQuadro,
+		type Filtro
+	} from '$lib/filtro';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
@@ -135,13 +143,32 @@
 	// Quem está com este quadro aberto agora, incluindo você.
 	let presentes = $state<Presente[]>([]);
 
-	// Iniciais para o avatar: duas letras cabem no círculo e bastam para
-	// distinguir quem está junto num quadro pequeno.
-	function iniciais(nome: string): string {
-		const partes = nome.trim().split(/\s+/).filter(Boolean);
-		if (partes.length === 0) return '?';
-		if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
-		return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+	// --- filtro ---------------------------------------------------------------
+	//
+	// Aplicado no cliente, sobre o quadro que já está carregado: ele veio inteiro
+	// numa requisição só, então filtrar no servidor custaria uma ida e volta para
+	// esconder o que a tela já tem na mão. A regra em si vive em $lib/filtro,
+	// onde dá para testá-la — um predicado errado não quebra nada, só some com
+	// cards, e quem olha conclui que foram apagados.
+	let filtro = $state<Filtro>({ ...FILTRO_VAZIO });
+
+	const filtrando = $derived(estaFiltrando(filtro));
+	const pessoasNoQuadro = $derived(pessoasDoQuadro(colunas));
+
+	// A lista filtrada é uma VISTA: `colunas` continua sendo o estado real, que é
+	// o que o arraste manipula. Enquanto o filtro está ligado o arraste fica
+	// travado, porque os vizinhos calculados a partir de uma lista incompleta
+	// colocariam o card entre cards que não são os vizinhos de verdade.
+	const colunasVisiveis = $derived(
+		filtrando
+			? colunas.map((c) => ({ ...c, cards: c.cards.filter((card) => passa(card, filtro)) }))
+			: colunas
+	);
+
+	const cardsVisiveis = $derived(colunasVisiveis.reduce((total, c) => total + c.cards.length, 0));
+
+	function limparFiltro() {
+		filtro = { ...FILTRO_VAZIO };
 	}
 
 	let erro = $state('');
@@ -462,7 +489,7 @@
 					aria-label="Nome da nova etiqueta"
 				/>
 				<select
-					class="campo w-auto py-1 text-xs font-semibold"
+					class="campo py-1 text-xs font-semibold"
 					style="color: var(--cor-{corDaEtiqueta})"
 					bind:value={corDaEtiqueta}
 					aria-label="Cor"
@@ -505,7 +532,59 @@
 	</section>
 {/if}
 
-<div class="painel-fundo fundo-{data.quadro.fundo} mt-6 rounded-lg p-4">
+<!-- Filtro. Fica fora do painel do quadro de propósito: ele age SOBRE o quadro,
+     e some junto com a barra quando não há nada para filtrar. -->
+{#if pessoasNoQuadro.length > 0 || data.quadro.etiquetas.length > 0}
+	<div class="mt-6 flex flex-wrap items-center gap-2 text-xs">
+		<span class="font-semibold tracking-widest text-mute uppercase">Filtrar</span>
+
+		{#if pessoasNoQuadro.length > 0}
+			<select
+				bind:value={filtro.responsavelId}
+				class="campo w-auto py-1 text-xs"
+				aria-label="Responsável"
+			>
+				<option value="">Qualquer responsável</option>
+				{#each pessoasNoQuadro as pessoa (pessoa.usuarioId)}
+					<option value={pessoa.usuarioId}>{pessoa.nome}</option>
+				{/each}
+			</select>
+		{/if}
+
+		{#if data.quadro.etiquetas.length > 0}
+			<select
+				bind:value={filtro.etiquetaId}
+				class="campo w-auto py-1 text-xs"
+				aria-label="Etiqueta"
+			>
+				<option value="">Qualquer etiqueta</option>
+				{#each data.quadro.etiquetas as etiqueta (etiqueta.id)}
+					<option value={etiqueta.id}>{etiqueta.nome}</option>
+				{/each}
+			</select>
+		{/if}
+
+		<label class="flex cursor-pointer items-center gap-1.5 text-mute">
+			<input type="checkbox" bind:checked={filtro.soVencidos} class="cursor-pointer" />
+			Só vencidos
+		</label>
+
+		{#if filtrando}
+			<span class="text-mute tabular-nums">
+				{cardsVisiveis}
+				{cardsVisiveis === 1 ? 'card' : 'cards'}
+			</span>
+			<button onclick={limparFiltro} class="cursor-pointer underline hover:text-body">
+				limpar
+			</button>
+			<!-- Dizer POR QUE o arraste parou: sem isto, a pessoa tenta mover um
+			     card, nada acontece, e ela conclui que a tela travou. -->
+			<span class="text-mute">· arraste desativado enquanto filtra</span>
+		{/if}
+	</div>
+{/if}
+
+<div class="painel-fundo fundo-{data.quadro.fundo} mt-3 rounded-lg p-4">
 	<div class="flex items-start gap-4 overflow-x-auto pb-4">
 		<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
 		     faz o arraste começar na zona certa: um card é filho do <ul> de
@@ -513,10 +592,10 @@
 		<div
 			class="flex items-start gap-4"
 			use:dndzone={{
-				items: colunas,
+				items: colunasVisiveis,
 				type: TIPO_COLUNA,
 				flipDurationMs: DURACAO_MS,
-				dragDisabled: !podeEditar,
+				dragDisabled: !podeEditar || filtrando,
 				dropTargetStyle: {},
 				dropTargetClasses: CLASSES_ALVO,
 				transformDraggedElement: enfeitarArrastado
@@ -525,12 +604,13 @@
 			onfinalize={(e: CustomEvent<DndEvent<Coluna>>) =>
 				soltarColuna(e.detail.items, e.detail.info.id)}
 		>
-			{#each colunas as coluna (coluna.id)}
+			{#each colunasVisiveis as coluna (coluna.id)}
 				<div animate:flip={{ duration: DURACAO_MS }}>
 					<ColunaDoQuadro
 						{coluna}
 						etiquetasDoQuadro={data.quadro.etiquetas}
 						{podeEditar}
+						arrasteTravado={filtrando}
 						aoAbrirCard={(id) => (cardAberto = id)}
 						aoMudar={recarregar}
 						aoFalhar={falhar}

@@ -11,10 +11,11 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 8 — endurecido.** Duas pessoas no mesmo quadro veem a mudança
-> uma da outra na hora, veem o avatar de quem está junto, e quem grava por
-> último num card em disputa é avisado em vez de sobrescrever. **Quem cai e
-> volta recebe o que perdeu**, pelo log de eventos do quadro.
+> **Fase atual: 10 — o quadro tem donos.** Duas pessoas no mesmo quadro veem a
+> mudança uma da outra na hora, veem o avatar de quem está junto, e quem grava
+> por último num card em disputa é avisado em vez de sobrescrever. Quem cai e
+> volta recebe o que perdeu, pelo log de eventos do quadro. **Agora cada card
+> tem responsável**, e o filtro responde "o que é meu?".
 
 ## Documentação
 
@@ -126,6 +127,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
+| `PUT`/`DELETE` | `/cards/{id}/responsaveis/{usuarioId}` | Marca e desmarca quem responde pelo card. **422** se a pessoa não participa do quadro. |
 | `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |
 | `PATCH`/`DELETE` | `/checklists/{id}` | Renomeia ou apaga (os itens vão junto). |
 | `POST` | `/checklists/{id}/itens` | Cria uma linha. |

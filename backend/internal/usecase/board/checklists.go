@@ -12,7 +12,7 @@ import (
 // ChecklistUseCase reúne as listas de verificação dos cards e os itens delas.
 type ChecklistUseCase struct {
 	eventos
-	membros    repositorioMembro
+	membros    RepositorioMembro
 	colunas    RepositorioColuna
 	cards      RepositorioCard
 	checklists repositorioChecklist
@@ -20,7 +20,7 @@ type ChecklistUseCase struct {
 
 // NovoChecklistUseCase cria uma instância de ChecklistUseCase com as dependências injetadas.
 func NovoChecklistUseCase(
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
 	checklists repositorioChecklist,

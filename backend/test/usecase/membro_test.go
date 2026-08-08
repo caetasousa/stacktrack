@@ -29,12 +29,13 @@ func novaColaboracao(t *testing.T) *colaboracao {
 	usuarios := memoria.NovosUsuarios()
 	convites := memoria.NovosConvites()
 	q.membros.LigarUsuarios(usuarios)
+	q.responsaveis.LigarUsuarios(usuarios)
 
 	return &colaboracao{
 		quadro:   q,
 		usuarios: usuarios,
 		convites: convites,
-		membroUC: ucboard.NovoMembroUseCase(q.membros, convites, usuarios, q.boards),
+		membroUC: ucboard.NovoMembroUseCase(q.membros, convites, usuarios, q.boards, q.responsaveis),
 		cadastro: ucauth.NovoCadastrarUseCase(usuarios, memoria.NovasSessoes(), &memoria.Hasher{}),
 	}
 }

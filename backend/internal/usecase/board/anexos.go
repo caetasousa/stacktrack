@@ -17,7 +17,7 @@ import (
 // AnexoUseCase reúne os arquivos e links pendurados nos cards.
 type AnexoUseCase struct {
 	eventos
-	membros repositorioMembro
+	membros RepositorioMembro
 	colunas RepositorioColuna
 	cards   RepositorioCard
 	anexos  repositorioAnexo
@@ -26,7 +26,7 @@ type AnexoUseCase struct {
 
 // NovoAnexoUseCase cria uma instância de AnexoUseCase com as dependências injetadas.
 func NovoAnexoUseCase(
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
 	anexos repositorioAnexo,

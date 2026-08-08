@@ -46,6 +46,8 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
+	responsaveis := memoria.NovosResponsaveis()
+	responsaveis.LigarQuadro(colunas, cards)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -59,13 +61,13 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		false, nil, identidade,
 	)
 	boardHandler := handler.NovoBoardHandler(
-		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos),
+		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
 		ucboard.NovoColunaUseCase(membros, colunas),
-		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos),
+		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
 		identidade,
 	)
 	membroHandler := handler.NovoMembroHandler(
-		ucboard.NovoMembroUseCase(membros, convites, usuarios, boards),
+		ucboard.NovoMembroUseCase(membros, convites, usuarios, boards, responsaveis),
 		"http://localhost:5173",
 		identidade,
 	)

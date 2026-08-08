@@ -17,16 +17,17 @@ import (
 )
 
 type quadro struct {
-	boards     *memoria.Boards
-	membros    *memoria.Membros
-	colunas    *memoria.Colunas
-	cards      *memoria.Cards
-	etiquetas  *memoria.Etiquetas
-	checklists *memoria.Checklists
-	anexos     *memoria.Anexos
-	quadros    *ucboard.QuadroUseCase
-	coluna     *ucboard.ColunaUseCase
-	card       *ucboard.CardUseCase
+	boards       *memoria.Boards
+	membros      *memoria.Membros
+	colunas      *memoria.Colunas
+	cards        *memoria.Cards
+	etiquetas    *memoria.Etiquetas
+	checklists   *memoria.Checklists
+	anexos       *memoria.Anexos
+	responsaveis *memoria.Responsaveis
+	quadros      *ucboard.QuadroUseCase
+	coluna       *ucboard.ColunaUseCase
+	card         *ucboard.CardUseCase
 }
 
 func novoQuadro() *quadro {
@@ -38,21 +39,24 @@ func novoQuadro() *quadro {
 	etiquetas := memoria.NovasEtiquetas()
 	checklists := memoria.NovasChecklists()
 	anexos := memoria.NovosAnexos()
+	responsaveis := memoria.NovosResponsaveis()
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
+	responsaveis.LigarQuadro(colunas, cards)
 
 	return &quadro{
-		boards:     boards,
-		membros:    membros,
-		colunas:    colunas,
-		cards:      cards,
-		etiquetas:  etiquetas,
-		checklists: checklists,
-		anexos:     anexos,
-		quadros:    ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos),
-		coluna:     ucboard.NovoColunaUseCase(membros, colunas),
-		card:       ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos),
+		boards:       boards,
+		membros:      membros,
+		colunas:      colunas,
+		cards:        cards,
+		etiquetas:    etiquetas,
+		checklists:   checklists,
+		anexos:       anexos,
+		responsaveis: responsaveis,
+		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
+		coluna:       ucboard.NovoColunaUseCase(membros, colunas),
+		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
 	}
 }
 

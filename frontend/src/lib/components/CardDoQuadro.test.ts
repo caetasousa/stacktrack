@@ -8,7 +8,7 @@
 import { mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import CardDoQuadro from './CardDoQuadro.svelte';
-import type { Card, Cor } from '$lib/api/boards';
+import type { Card, Cor, Etiqueta, Responsavel } from '$lib/api/boards';
 
 let desmontar: (() => void) | null = null;
 
@@ -18,7 +18,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-function cardFalso(cor: Cor | ''): Card {
+function cardFalso(ajustes: Partial<Card> = {}): Card {
 	return {
 		id: 'card-1',
 		colunaId: 'col-1',
@@ -28,22 +28,24 @@ function cardFalso(cor: Cor | ''): Card {
 		version: 1,
 		prazo: null,
 		vencido: false,
-		cor,
+		cor: '',
+		responsaveis: [],
 		etiquetas: [],
 		checklist: { concluidos: 0, total: 0 },
-		qtdAnexos: 0
+		qtdAnexos: 0,
+		...ajustes
 	};
 }
 
-function montar(cor: Cor | ''): HTMLElement {
+function montar(card: Card, etiquetasDoQuadro: Etiqueta[] = []): HTMLElement {
 	const alvo = document.createElement('div');
 	document.body.appendChild(alvo);
 
 	const componente = mount(CardDoQuadro, {
 		target: alvo,
 		props: {
-			card: cardFalso(cor),
-			etiquetasDoQuadro: [],
+			card,
+			etiquetasDoQuadro,
 			podeEditar: true,
 			aoAbrirCard: () => {},
 			aoMudar: async () => {},
@@ -55,9 +57,13 @@ function montar(cor: Cor | ''): HTMLElement {
 	return alvo.querySelector('[role="button"]') as HTMLElement;
 }
 
+function comCor(cor: Cor | ''): HTMLElement {
+	return montar(cardFalso({ cor }));
+}
+
 describe('CardDoQuadro', () => {
 	it('pinta o card com a cor escolhida', () => {
-		const elemento = montar('verde');
+		const elemento = comCor('verde');
 
 		expect(elemento.className).toContain('cor-verde');
 		// A cor entra misturada na superfície, e não sobreposta: o card precisa
@@ -67,10 +73,29 @@ describe('CardDoQuadro', () => {
 	});
 
 	it('não pinta nada quando o card está sem cor', () => {
-		const elemento = montar('');
+		const elemento = comCor('');
 
 		expect(elemento.className).not.toContain('cor-');
 		expect(elemento.className).toContain('bg-surface');
 		expect(elemento.getAttribute('style')).toBeFalsy();
+	});
+
+	it('desenha um avatar por responsável, com as iniciais', () => {
+		const responsaveis: Responsavel[] = [
+			{ usuarioId: 'u-1', nome: 'Ana Souza' },
+			{ usuarioId: 'u-2', nome: 'Bruno' }
+		];
+		const elemento = montar(cardFalso({ responsaveis }));
+
+		const avatares = elemento.querySelectorAll('[data-responsavel]');
+		expect(avatares).toHaveLength(2);
+		expect(avatares[0].textContent?.trim()).toBe('AS');
+		expect(avatares[1].textContent?.trim()).toBe('BR');
+	});
+
+	it('não desenha avatar nenhum quando o card não tem responsável', () => {
+		const elemento = montar(cardFalso());
+
+		expect(elemento.querySelectorAll('[data-responsavel]')).toHaveLength(0);
 	});
 });

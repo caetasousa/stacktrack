@@ -16,20 +16,25 @@ import (
 // MembroUseCase reúne quem participa do quadro: listar, convidar, trocar papel
 // e remover.
 type MembroUseCase struct {
-	membros  repositorioMembro
-	convites repositorioConvite
-	usuarios buscadorUsuario
-	boards   RepositorioBoard
+	membros      RepositorioMembro
+	convites     repositorioConvite
+	usuarios     buscadorUsuario
+	boards       RepositorioBoard
+	responsaveis RepositorioResponsavel
 }
 
 // NovoMembroUseCase cria uma instância de MembroUseCase com as dependências injetadas.
 func NovoMembroUseCase(
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	convites repositorioConvite,
 	usuarios buscadorUsuario,
 	boards RepositorioBoard,
+	responsaveis RepositorioResponsavel,
 ) *MembroUseCase {
-	return &MembroUseCase{membros: membros, convites: convites, usuarios: usuarios, boards: boards}
+	return &MembroUseCase{
+		membros: membros, convites: convites, usuarios: usuarios,
+		boards: boards, responsaveis: responsaveis,
+	}
 }
 
 // ResultadoConvite é o que sai de Convidar. Os dois caminhos são diferentes o
@@ -216,6 +221,15 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 		return err
 	}
 	if err := membro.ValidarRemocao(todos, alvoID); err != nil {
+		return err
+	}
+
+	// As atribuições saem ANTES do vínculo. A ordem é o que importa se algo
+	// falhar no meio: sobrar vínculo sem atribuição é um estado que a próxima
+	// remoção conserta, enquanto sobrar atribuição sem vínculo deixaria o nome
+	// de quem não tem mais acesso pendurado nos cards — e o filtro "meus cards"
+	// mostraria a essa pessoa cards que ela não consegue abrir.
+	if err := uc.responsaveis.RemoverDoBoard(ctx, boardID, alvoID); err != nil {
 		return err
 	}
 	return uc.membros.Remover(ctx, boardID, alvoID)

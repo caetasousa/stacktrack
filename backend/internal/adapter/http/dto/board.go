@@ -71,10 +71,13 @@ type CardResponse struct {
 	Prazo *time.Time `json:"prazo"`
 	// Vencido é calculado pelo servidor: o relógio do navegador pode estar
 	// errado, e um card vermelho por engano confunde mais do que ajuda.
-	Vencido   bool              `json:"vencido"`
-	Etiquetas []string          `json:"etiquetas"`
-	Checklist ProgressoResponse `json:"checklist"`
-	QtdAnexos int               `json:"qtdAnexos"`
+	Vencido bool `json:"vencido"`
+	// Responsaveis vêm com nome, e não só o id: o avatar do card precisa das
+	// iniciais, e resolvê-las no cliente exigiria uma segunda requisição.
+	Responsaveis []ResponsavelResponse `json:"responsaveis"`
+	Etiquetas    []string              `json:"etiquetas"`
+	Checklist    ProgressoResponse     `json:"checklist"`
+	QtdAnexos    int                   `json:"qtdAnexos"`
 }
 
 // ProgressoResponse é o "2/5" de checklist mostrado no card.
@@ -132,6 +135,13 @@ type CardDetalhadoResponse struct {
 	EtiquetasDoCard []EtiquetaResponse  `json:"etiquetasDoCard"`
 	Checklists      []ChecklistResponse `json:"checklists"`
 	Anexos          []AnexoResponse     `json:"anexos"`
+}
+
+// ResponsavelResponse é quem responde por um card. Só o necessário para o
+// avatar — email e papel são da tela de membros, não do card.
+type ResponsavelResponse struct {
+	UsuarioID string `json:"usuarioId"`
+	Nome      string `json:"nome"`
 }
 
 // PrazoRequest é o corpo de marcar ou limpar o prazo. Nulo limpa.

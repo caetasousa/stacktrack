@@ -439,7 +439,12 @@ As três formam um arco. As demais são independentes entre si.
 
 ---
 
-### Fase 10 — Responsável no card, e filtro
+### Fase 10 — Responsável no card, e filtro ✅
+
+> **Feita.** O filtro trava o arraste enquanto está ligado, e isso é decisão, não
+> limitação: os vizinhos calculados a partir de uma lista incompleta colocariam o
+> card entre cards que não são os vizinhos reais. A tela diz isso na barra, em
+> vez de deixar o arraste falhar em silêncio.
 
 **Conceito novo:** nenhum grande no backend — é um vínculo N:N reaproveitando a autorização que já
 existe. O que muda é a pergunta que o quadro passa a responder: hoje ele mostra *o que existe*, e

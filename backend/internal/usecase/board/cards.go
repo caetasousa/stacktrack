@@ -20,26 +20,28 @@ import (
 // CardUseCase reúne as operações sobre cards.
 type CardUseCase struct {
 	eventos
-	membros    repositorioMembro
-	colunas    RepositorioColuna
-	cards      RepositorioCard
-	etiquetas  repositorioEtiqueta
-	checklists repositorioChecklist
-	anexos     repositorioAnexo
+	membros      RepositorioMembro
+	colunas      RepositorioColuna
+	cards        RepositorioCard
+	etiquetas    repositorioEtiqueta
+	checklists   repositorioChecklist
+	anexos       repositorioAnexo
+	responsaveis RepositorioResponsavel
 }
 
 // NovoCardUseCase cria uma instância de CardUseCase com as dependências injetadas.
 func NovoCardUseCase(
-	membros repositorioMembro,
+	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
 	etiquetas repositorioEtiqueta,
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
+	responsaveis RepositorioResponsavel,
 ) *CardUseCase {
 	return &CardUseCase{
 		membros: membros, colunas: colunas, cards: cards,
-		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
+		etiquetas: etiquetas, checklists: checklists, anexos: anexos, responsaveis: responsaveis,
 	}
 }
 
@@ -64,6 +66,10 @@ func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (
 		return nil, traduzirParaCard(err)
 	}
 
+	responsaveis, err := uc.responsaveis.DoCard(ctx, cardID)
+	if err != nil {
+		return nil, err
+	}
 	etiquetas, err := uc.etiquetas.EtiquetasDoCard(ctx, cardID)
 	if err != nil {
 		return nil, err
@@ -87,7 +93,7 @@ func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (
 	}
 
 	return &CardDetalhado{
-		Card: *c, BoardID: col.BoardID,
+		Card: *c, BoardID: col.BoardID, Responsaveis: responsaveis,
 		Etiquetas: etiquetas, Checklists: comItens, Anexos: anexos,
 	}, nil
 }

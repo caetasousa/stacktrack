@@ -21,6 +21,7 @@ type ExtrasHandler struct {
 	etiquetas            *ucboard.EtiquetaUseCase
 	checklists           *ucboard.ChecklistUseCase
 	anexos               *ucboard.AnexoUseCase
+	responsaveis         *ucboard.ResponsavelUseCase
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool)
 }
 
@@ -29,10 +30,12 @@ func NovoExtrasHandler(
 	etiquetas *ucboard.EtiquetaUseCase,
 	checklists *ucboard.ChecklistUseCase,
 	anexos *ucboard.AnexoUseCase,
+	responsaveis *ucboard.ResponsavelUseCase,
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool),
 ) *ExtrasHandler {
 	return &ExtrasHandler{
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
+		responsaveis:         responsaveis,
 		identidadeDoContexto: identidadeDoContexto,
 	}
 }
@@ -140,6 +143,41 @@ func (h *ExtrasHandler) RemoverEtiqueta(w http.ResponseWriter, r *http.Request) 
 	err := h.etiquetas.Remover(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "etiquetaID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao remover etiqueta", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- responsáveis ---------------------------------------------------------
+
+// Atribuir marca alguém como responsável pelo card.
+//
+// PUT, e não POST: atribuir a mesma pessoa duas vezes leva ao mesmo estado, e
+// é isso que o PUT promete. A tela pode repetir a chamada sem consultar antes.
+func (h *ExtrasHandler) Atribuir(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	err := h.responsaveis.Atribuir(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "usuarioID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao atribuir responsável", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Desatribuir tira a pessoa da responsabilidade do card, sem tirá-la do quadro.
+func (h *ExtrasHandler) Desatribuir(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	err := h.responsaveis.Desatribuir(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "usuarioID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao remover responsável", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

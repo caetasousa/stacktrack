@@ -8,6 +8,8 @@
 		anexarArquivo,
 		anexarLink,
 		aplicarEtiqueta,
+		atribuir,
+		desatribuir,
 		apagarAnexo,
 		apagarChecklist,
 		apagarItem,
@@ -20,6 +22,8 @@
 		urlDoAnexo,
 		type CardDetalhado
 	} from '$lib/api/extras';
+	import { listarParticipacao, type Membro } from '$lib/api/membros';
+	import { iniciais } from '$lib/iniciais';
 	import { renderizarMarkdown } from '$lib/markdown';
 
 	let {
@@ -53,9 +57,41 @@
 
 	const idsAplicados = $derived(new Set(card?.etiquetasDoCard.map((e) => e.id) ?? []));
 
+	// Quem participa do quadro — é a lista de quem PODE ser responsável, e a
+	// mesma regra vale no servidor. Buscada aqui, e não junto com o quadro,
+	// porque só o modal precisa dela: a tela do quadro desenha os avatares a
+	// partir do que já vem em cada card.
+	let membros = $state<Membro[]>([]);
+	const responsaveisAtuais = $derived(new Set(card?.responsaveis.map((r) => r.usuarioId) ?? []));
+
+	async function carregarMembros() {
+		if (!card) return;
+		try {
+			membros = (await listarParticipacao(card.boardId)).membros;
+		} catch {
+			// Falhar aqui não estraga o modal: sem a lista, o card continua
+			// mostrando quem já é responsável — só não dá para mudar.
+			membros = [];
+		}
+	}
+
+	async function alternarResponsavel(usuarioId: string) {
+		try {
+			if (responsaveisAtuais.has(usuarioId)) {
+				await desatribuir(cardId, usuarioId);
+			} else {
+				await atribuir(cardId, usuarioId);
+			}
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível mudar o responsável');
+		}
+	}
+
 	async function carregar() {
 		try {
 			card = await detalharCard(cardId);
+			await carregarMembros();
 			erro = '';
 		} catch (e) {
 			erro = e instanceof ApiError ? e.message : 'não foi possível carregar o card';
@@ -345,6 +381,39 @@
 			{/if}
 
 			<div class="space-y-6 p-5">
+				<!-- responsáveis: quem responde por este card.
+				     A lista oferecida é a de MEMBROS do quadro, e não a de contas
+				     do sistema — a mesma regra que o servidor aplica. -->
+				{#if membros.length > 0}
+					<section>
+						<h3 class="text-xs font-semibold tracking-widest text-mute uppercase">Responsáveis</h3>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each membros as pessoa (pessoa.usuarioId)}
+								<button
+									class="flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-xs {responsaveisAtuais.has(
+										pessoa.usuarioId
+									)
+										? 'border-accent bg-accent-suave text-accent-texto'
+										: 'border-hairline text-mute'} {podeEditar
+										? 'cursor-pointer'
+										: 'cursor-default'}"
+									disabled={!podeEditar}
+									onclick={() => alternarResponsavel(pessoa.usuarioId)}
+									aria-pressed={responsaveisAtuais.has(pessoa.usuarioId)}
+									title={pessoa.email}
+								>
+									<span
+										class="flex size-5 items-center justify-center rounded-full bg-accent-suave text-[9px] font-semibold text-accent-texto"
+									>
+										{iniciais(pessoa.nome)}
+									</span>
+									{pessoa.nome}
+								</button>
+							{/each}
+						</div>
+					</section>
+				{/if}
+
 				<!-- etiquetas -->
 				{#if etiquetasDoQuadro.length > 0}
 					<section>

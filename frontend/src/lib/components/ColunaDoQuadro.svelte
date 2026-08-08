@@ -27,6 +27,7 @@
 		coluna,
 		etiquetasDoQuadro,
 		podeEditar,
+		arrasteTravado = false,
 		aoAbrirCard,
 		aoMudar,
 		aoFalhar,
@@ -36,6 +37,10 @@
 		coluna: Coluna;
 		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
+		// Trava o arraste sem tirar a permissão de editar. É o que o filtro usa:
+		// com a lista filtrada, os vizinhos que a página calcularia não seriam os
+		// vizinhos reais, e o card pousaria no lugar errado.
+		arrasteTravado?: boolean;
 		aoAbrirCard: (cardId: string) => void;
 		aoMudar: () => Promise<void>;
 		aoFalhar: (mensagem: string) => void;
@@ -183,7 +188,7 @@
 			items: coluna.cards,
 			type: TIPO_CARD,
 			flipDurationMs: DURACAO_MS,
-			dragDisabled: !podeEditar,
+			dragDisabled: !podeEditar || arrasteTravado,
 			// Sem estilo inline: a classe usa os tokens do tema, e o amarelo
 			// padrão da biblioteca não pertence a esta paleta.
 			dropTargetStyle: {},

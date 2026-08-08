@@ -88,6 +88,24 @@ export function removerEtiqueta(cardId: string, etiquetaId: string): Promise<voi
 	return apiDelete(`/cards/${cardId}/etiquetas/${etiquetaId}`);
 }
 
+// --- responsáveis ---------------------------------------------------------
+
+// atribuir usa PUT pelo mesmo motivo de aplicarEtiqueta: atribuir duas vezes
+// deixa o card no mesmo estado, e a API responde 204 nas duas.
+export async function atribuir(cardId: string, usuarioId: string): Promise<void> {
+	const resposta = await fetch(`${BASE_URL}/cards/${cardId}/responsaveis/${usuarioId}`, {
+		method: 'PUT',
+		credentials: 'include'
+	});
+	if (!resposta.ok) {
+		throw await erroDaResposta(resposta);
+	}
+}
+
+export function desatribuir(cardId: string, usuarioId: string): Promise<void> {
+	return apiDelete(`/cards/${cardId}/responsaveis/${usuarioId}`);
+}
+
 // --- checklists -----------------------------------------------------------
 
 export function criarChecklist(cardId: string, titulo: string): Promise<Checklist> {

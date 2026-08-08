@@ -12,12 +12,12 @@ import (
 // ColunaUseCase reúne as operações sobre colunas.
 type ColunaUseCase struct {
 	eventos
-	membros repositorioMembro
+	membros RepositorioMembro
 	colunas RepositorioColuna
 }
 
 // NovoColunaUseCase cria uma instância de ColunaUseCase com as dependências injetadas.
-func NovoColunaUseCase(membros repositorioMembro, colunas RepositorioColuna) *ColunaUseCase {
+func NovoColunaUseCase(membros RepositorioMembro, colunas RepositorioColuna) *ColunaUseCase {
 	return &ColunaUseCase{membros: membros, colunas: colunas}
 }
 

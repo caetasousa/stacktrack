@@ -27,7 +27,11 @@
 		TIPO_COLUNA,
 		vizinhosDe
 	} from '$lib/arrastar';
-	import { conectarAoQuadro, type EventoDoQuadro } from '$lib/realtime/conexao.svelte';
+	import {
+		conectarAoQuadro,
+		type EventoDoQuadro,
+		type Presente
+	} from '$lib/realtime/conexao.svelte';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
@@ -65,6 +69,7 @@
 		return () => {
 			c.fechar();
 			conexao = null;
+			presentes = [];
 		};
 	});
 
@@ -79,8 +84,27 @@
 	//
 	// O eco do próprio autor já foi filtrado pelo servidor: tudo que chega aqui
 	// foi feito por outra pessoa.
-	function aoReceberEvento(_e: EventoDoQuadro) {
+	function aoReceberEvento(e: EventoDoQuadro) {
+		// Presença é estado efêmero: aplica direto, sem ir ao banco. Recarregar o
+		// quadro só porque alguém abriu a aba seria uma requisição por entrada e
+		// saída de cada pessoa.
+		if (e.tipo === 'presenca.alterada') {
+			presentes = (e.dados as Presente[]) ?? [];
+			return;
+		}
 		recarregar();
+	}
+
+	// Quem está com este quadro aberto agora, incluindo você.
+	let presentes = $state<Presente[]>([]);
+
+	// Iniciais para o avatar: duas letras cabem no círculo e bastam para
+	// distinguir quem está junto num quadro pequeno.
+	function iniciais(nome: string): string {
+		const partes = nome.trim().split(/\s+/).filter(Boolean);
+		if (partes.length === 0) return '?';
+		if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+		return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
 	}
 
 	let erro = $state('');
@@ -269,6 +293,21 @@
 			</p>
 		</div>
 		<div class="flex shrink-0 flex-wrap items-center gap-3 text-xs text-mute">
+			<!-- Quem está no quadro agora. A lista vem do mapa de conexões do
+			     hub, não do banco: é estado que só existe enquanto a aba está
+			     aberta. -->
+			{#if presentes.length > 0}
+				<div class="flex items-center -space-x-1.5" aria-label="Quem está neste quadro agora">
+					{#each presentes as pessoa (pessoa.id)}
+						<span
+							class="flex size-6 items-center justify-center rounded-full border border-surface bg-accent-suave text-[10px] font-semibold text-accent-texto"
+							title={pessoa.nome}
+						>
+							{iniciais(pessoa.nome)}
+						</span>
+					{/each}
+				</div>
+			{/if}
 			<span class="chip" class:chip-neutro={data.quadro.papel !== 'dono'}>
 				<i class="size-1.5 rounded-full bg-current"></i>{data.quadro.papel}
 			</span>

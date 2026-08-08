@@ -16,7 +16,14 @@ export type TipoDeEvento =
 	| 'card.alterado'
 	| 'card.apagado'
 	| 'card.movido'
-	| 'quadro.alterado';
+	| 'quadro.alterado'
+	| 'presenca.alterada';
+
+/** Quem está com o quadro aberto agora. Estado efêmero: não existe no banco. */
+export interface Presente {
+	id: string;
+	nome: string;
+}
 
 export interface EventoDoQuadro {
 	tipo: TipoDeEvento;

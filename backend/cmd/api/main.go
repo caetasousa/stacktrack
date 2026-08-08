@@ -128,6 +128,18 @@ func main() {
 			id, ok := middleware.IdentidadeDoContexto(ctx)
 			return id.UsuarioID, ok
 		},
+		// O nome é resolvido uma vez por conexão, no handshake — e não a cada
+		// evento. Se a consulta falhar, a presença mostra um rótulo genérico em
+		// vez de derrubar a conexão: ver quem está no quadro é acessório, e
+		// perder o tempo real por causa disso seria trocar o essencial pelo
+		// secundário.
+		func(usuarioID string) string {
+			u, err := perfilUC.Executar(usuarioID)
+			if err != nil || u == nil {
+				return "alguém"
+			}
+			return u.Nome
+		},
 		[]string{origemSemEsquema(config.OrigemFrontend())},
 		slog.Default(),
 	)

@@ -45,11 +45,16 @@ type Autorizador interface {
 // de sessão.
 type Identificador func(ctx context.Context) (string, bool)
 
+// Nomeador resolve o nome de exibição de quem conectou. É o que a presença
+// mostra: um avatar com id cru não diz nada a ninguém.
+type Nomeador func(usuarioID string) string
+
 // Handler serve o endpoint de tempo real.
 type Handler struct {
 	hub            *hub.Hub
 	autorizador    Autorizador
 	identidade     Identificador
+	nome           Nomeador
 	origensAceitas []string
 	log            *slog.Logger
 }
@@ -61,8 +66,15 @@ type Handler struct {
 // que a vítima visite abre uma conexão autenticada com o cookie dela e passa a
 // ler o quadro inteiro em tempo real — o Cross-Site WebSocket Hijacking. O
 // SameSite=Lax do cookie é a segunda camada, não a primeira.
-func NovoHandler(h *hub.Hub, a Autorizador, id Identificador, origensAceitas []string, log *slog.Logger) *Handler {
-	return &Handler{hub: h, autorizador: a, identidade: id, origensAceitas: origensAceitas, log: log}
+func NovoHandler(
+	h *hub.Hub,
+	a Autorizador,
+	id Identificador,
+	nome Nomeador,
+	origensAceitas []string,
+	log *slog.Logger,
+) *Handler {
+	return &Handler{hub: h, autorizador: a, identidade: id, nome: nome, origensAceitas: origensAceitas, log: log}
 }
 
 // mensagem é o formato que viaja no fio. É separado de evento.Evento de
@@ -106,7 +118,7 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conexao.CloseNow()
 
-	assinante := h.hub.Assinar(boardID)
+	assinante := h.hub.Assinar(boardID, hub.Pessoa{ID: usuarioID, Nome: h.nome(usuarioID)})
 	if assinante == nil {
 		// O hub está desligando.
 		_ = conexao.Close(websocket.StatusGoingAway, "servidor encerrando")

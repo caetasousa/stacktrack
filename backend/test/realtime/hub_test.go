@@ -16,19 +16,41 @@ func evt(boardID, autorID string) evento.Evento {
 	return evento.Novo(evento.CardMovido, boardID, autorID, nil)
 }
 
+func alguem(t *testing.T) hub.Pessoa {
+	t.Helper()
+	return hub.Pessoa{ID: "u-" + t.Name(), Nome: "alguém"}
+}
+
+// esperar lê até achar um evento do tipo pedido.
+//
+// Existe porque assinar uma sala JÁ entrega um evento: a lista de presentes.
+// Sem filtrar, todo teste leria a presença achando que era o evento dele.
+func esperar(t *testing.T, a *hub.Assinante, tipo evento.Tipo) evento.Evento {
+	t.Helper()
+	prazo := time.After(time.Second)
+	for {
+		select {
+		case e, aberto := <-a.Eventos:
+			if !aberto {
+				t.Fatalf("o canal fechou antes de chegar %s", tipo)
+			}
+			if e.Tipo == tipo {
+				return e
+			}
+		case <-prazo:
+			t.Fatalf("o evento %s não chegou", tipo)
+		}
+	}
+}
+
 func TestQuemAssinaRecebeOEventoDoSeuQuadro(t *testing.T) {
 	h := hub.Novo()
-	a := h.Assinar("quadro-1")
+	a := h.Assinar("quadro-1", alguem(t))
 
 	h.Publicar(evt("quadro-1", "ana"))
 
-	select {
-	case e := <-a.Eventos:
-		if e.BoardID != "quadro-1" {
-			t.Errorf("recebeu evento de %q", e.BoardID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("o evento não chegou")
+	if e := esperar(t, a, evento.CardMovido); e.BoardID != "quadro-1" {
+		t.Errorf("recebeu evento de %q", e.BoardID)
 	}
 }
 
@@ -36,20 +58,22 @@ func TestQuemAssinaRecebeOEventoDoSeuQuadro(t *testing.T) {
 // do quadro B, nem por engano de roteamento.
 func TestEventoNaoVazaEntreQuadros(t *testing.T) {
 	h := hub.Novo()
-	a := h.Assinar("quadro-1")
-	b := h.Assinar("quadro-2")
+	a := h.Assinar("quadro-1", alguem(t))
+	b := h.Assinar("quadro-2", alguem(t))
 
 	h.Publicar(evt("quadro-1", "ana"))
+	esperar(t, a, evento.CardMovido)
 
-	select {
-	case <-a.Eventos:
-	case <-time.After(time.Second):
-		t.Fatal("quem devia receber não recebeu")
-	}
-	select {
-	case e := <-b.Eventos:
-		t.Fatalf("vazou para outro quadro: %+v", e)
-	case <-time.After(50 * time.Millisecond):
+	// b só pode ter recebido a própria presença, nunca o card do outro quadro.
+	for {
+		select {
+		case e := <-b.Eventos:
+			if e.Tipo != evento.PresencaAlterada {
+				t.Fatalf("vazou para outro quadro: %+v", e)
+			}
+		case <-time.After(100 * time.Millisecond):
+			return
+		}
 	}
 }
 
@@ -57,17 +81,13 @@ func TestTodosDaSalaRecebem(t *testing.T) {
 	h := hub.Novo()
 	assinantes := make([]*hub.Assinante, 5)
 	for i := range assinantes {
-		assinantes[i] = h.Assinar("quadro-1")
+		assinantes[i] = h.Assinar("quadro-1", alguem(t))
 	}
 
 	h.Publicar(evt("quadro-1", "ana"))
 
-	for i, a := range assinantes {
-		select {
-		case <-a.Eventos:
-		case <-time.After(time.Second):
-			t.Fatalf("assinante %d não recebeu", i)
-		}
+	for _, a := range assinantes {
+		esperar(t, a, evento.CardMovido)
 	}
 }
 
@@ -78,8 +98,8 @@ func TestTodosDaSalaRecebem(t *testing.T) {
 // o cliente lento voltar, que pode ser nunca.
 func TestAssinanteQueNaoLeEDesconectado(t *testing.T) {
 	h := hub.Novo()
-	lento := h.Assinar("quadro-1")
-	atento := h.Assinar("quadro-1")
+	lento := h.Assinar("quadro-1", alguem(t))
+	atento := h.Assinar("quadro-1", alguem(t))
 
 	// Uma a mais que o buffer: a que estoura é a que derruba.
 	const demais = 200
@@ -122,7 +142,7 @@ conferirAtento:
 
 func TestCancelarDuasVezesNaoEntraEmPanico(t *testing.T) {
 	h := hub.Novo()
-	a := h.Assinar("quadro-1")
+	a := h.Assinar("quadro-1", alguem(t))
 
 	h.Cancelar(a)
 	h.Cancelar(a) // o handler tem dois caminhos de saída; os dois chamam isto
@@ -137,7 +157,7 @@ func TestCancelarDuasVezesNaoEntraEmPanico(t *testing.T) {
 // guardando uma entrada por quadro que alguém abriu uma vez.
 func TestSalaVaziaSaiDoMapa(t *testing.T) {
 	h := hub.Novo()
-	a := h.Assinar("quadro-1")
+	a := h.Assinar("quadro-1", alguem(t))
 	if h.Inscritos("quadro-1") != 1 {
 		t.Fatal("não assinou")
 	}
@@ -149,23 +169,28 @@ func TestSalaVaziaSaiDoMapa(t *testing.T) {
 
 func TestFecharDerrubaTodosEImpedeNovasAssinaturas(t *testing.T) {
 	h := hub.Novo()
-	a := h.Assinar("quadro-1")
-	b := h.Assinar("quadro-2")
+	a := h.Assinar("quadro-1", alguem(t))
+	b := h.Assinar("quadro-2", alguem(t))
 
 	h.Fechar()
 
+	// Drena o que já estava na fila (a própria presença) e confirma que o canal
+	// FECHA — é o fechamento que avisa a goroutine de escrita para encerrar.
 	for nome, canal := range map[string]chan evento.Evento{"a": a.Eventos, "b": b.Eventos} {
-		select {
-		case _, aberto := <-canal:
-			if aberto {
-				t.Errorf("%s recebeu evento depois do Fechar", nome)
+		prazo := time.After(time.Second)
+		fechou := false
+		for !fechou {
+			select {
+			case _, aberto := <-canal:
+				fechou = !aberto
+			case <-prazo:
+				t.Errorf("o canal de %s não foi fechado", nome)
+				fechou = true
 			}
-		case <-time.After(time.Second):
-			t.Errorf("o canal de %s não foi fechado", nome)
 		}
 	}
 
-	if h.Assinar("quadro-3") != nil {
+	if h.Assinar("quadro-3", alguem(t)) != nil {
 		t.Error("aceitou assinatura durante o desligamento")
 	}
 }
@@ -196,7 +221,7 @@ func TestUsoConcorrenteNaoTemCorrida(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				a := h.Assinar("quadro-1")
+				a := h.Assinar("quadro-1", alguem(t))
 				if a == nil {
 					return
 				}
@@ -220,4 +245,68 @@ func TestUsoConcorrenteNaoTemCorrida(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+// --- presença ---------------------------------------------------------------
+
+func TestQuemEntraRecebeAListaDePresentes(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+
+	e := esperar(t, ana, evento.PresencaAlterada)
+	presentes, ok := e.Dados.([]hub.Pessoa)
+	if !ok || len(presentes) != 1 || presentes[0].ID != "ana" {
+		t.Fatalf("presentes = %#v", e.Dados)
+	}
+
+	// E quem já estava é avisado quando alguém chega.
+	h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+	e = esperar(t, ana, evento.PresencaAlterada)
+	if presentes, _ := e.Dados.([]hub.Pessoa); len(presentes) != 2 {
+		t.Errorf("depois da entrada do bob, presentes = %#v", e.Dados)
+	}
+}
+
+// Duas abas da mesma conta são duas conexões e UM avatar. Sem deduplicar, quem
+// abrisse o quadro em dois monitores apareceria como duas pessoas — e "quem
+// está aqui" deixaria de significar algo.
+func TestDuasAbasDaMesmaPessoaContamComoUma(t *testing.T) {
+	h := hub.Novo()
+	h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+
+	if presentes := h.Presentes("quadro-1"); len(presentes) != 1 {
+		t.Errorf("presentes = %#v, esperado só a ana", presentes)
+	}
+	if h.Inscritos("quadro-1") != 2 {
+		t.Errorf("conexões = %d, esperado 2", h.Inscritos("quadro-1"))
+	}
+}
+
+func TestSairAvisaQuemFicou(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	bob := h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+
+	esperar(t, ana, evento.PresencaAlterada) // a própria entrada
+	esperar(t, ana, evento.PresencaAlterada) // a entrada do bob
+
+	h.Cancelar(bob)
+
+	e := esperar(t, ana, evento.PresencaAlterada)
+	presentes, _ := e.Dados.([]hub.Pessoa)
+	if len(presentes) != 1 || presentes[0].ID != "ana" {
+		t.Errorf("depois da saída do bob, presentes = %#v", e.Dados)
+	}
+}
+
+// A presença não vaza entre quadros pelo mesmo motivo que os eventos não vazam:
+// a sala é a fronteira.
+func TestPresencaNaoVazaEntreQuadros(t *testing.T) {
+	h := hub.Novo()
+	h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+
+	if presentes := h.Presentes("quadro-2"); len(presentes) != 0 {
+		t.Errorf("quadro-2 = %#v, esperado vazio", presentes)
+	}
 }

@@ -13,6 +13,7 @@
 package hub
 
 import (
+	"sort"
 	"sync"
 
 	"stacktrack/internal/domain/evento"
@@ -27,12 +28,20 @@ import (
 // com folga.
 const tamanhoDaFila = 32
 
+// Pessoa é quem está com o quadro aberto. O hub guarda o mínimo para a tela
+// desenhar um avatar — nada de sessão, email ou papel.
+type Pessoa struct {
+	ID   string `json:"id"`
+	Nome string `json:"nome"`
+}
+
 // Assinante é uma conexão interessada num quadro.
 type Assinante struct {
 	// Eventos é por onde o hub entrega. Quem assina lê deste canal até ele
 	// fechar — o fechamento é o sinal de que o hub desistiu desta conexão.
 	Eventos chan evento.Evento
 	boardID string
+	pessoa  Pessoa
 }
 
 // Hub distribui eventos por sala. A sala é o quadro: quem não participa dele
@@ -52,20 +61,66 @@ func Novo() *Hub {
 //
 // Devolve nil se o hub já estiver desligando: quem chega durante o shutdown não
 // entra numa sala que ninguém mais vai esvaziar.
-func (h *Hub) Assinar(boardID string) *Assinante {
+func (h *Hub) Assinar(boardID string, quem Pessoa) *Assinante {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	if h.fechado {
+		h.mu.Unlock()
 		return nil
 	}
 
-	a := &Assinante{Eventos: make(chan evento.Evento, tamanhoDaFila), boardID: boardID}
+	a := &Assinante{Eventos: make(chan evento.Evento, tamanhoDaFila), boardID: boardID, pessoa: quem}
 	if h.salas[boardID] == nil {
 		h.salas[boardID] = make(map[*Assinante]struct{})
 	}
 	h.salas[boardID][a] = struct{}{}
+	presentes := h.presentesBloqueado(boardID)
+	h.mu.Unlock()
+
+	// O anúncio sai FORA do lock: Publicar também o pega, e chamá-lo com o
+	// mutex na mão travaria o processo em si mesmo.
+	h.anunciarPresenca(boardID, presentes)
 	return a
+}
+
+// presentesBloqueado monta a lista de quem está na sala. Exige o mutex.
+//
+// Deduplica por pessoa: duas abas da mesma conta são duas conexões e UM avatar.
+// Sem isso, quem abrisse o quadro em dois monitores apareceria como duas
+// pessoas — e a contagem de "quem está aqui" deixaria de significar algo.
+func (h *Hub) presentesBloqueado(boardID string) []Pessoa {
+	vistos := make(map[string]struct{})
+	lista := make([]Pessoa, 0, len(h.salas[boardID]))
+	for a := range h.salas[boardID] {
+		if a.pessoa.ID == "" {
+			continue
+		}
+		if _, repetido := vistos[a.pessoa.ID]; repetido {
+			continue
+		}
+		vistos[a.pessoa.ID] = struct{}{}
+		lista = append(lista, a.pessoa)
+	}
+	// Ordem estável: sem ela a lista chega embaralhada a cada evento, e a tela
+	// reordenaria os avatares sozinha a cada entrada e saída.
+	sort.Slice(lista, func(i, j int) bool { return lista[i].ID < lista[j].ID })
+	return lista
+}
+
+// Presentes informa quem está com o quadro aberto.
+func (h *Hub) Presentes(boardID string) []Pessoa {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.presentesBloqueado(boardID)
+}
+
+// anunciarPresenca avisa a sala de quem está nela.
+//
+// AutorID vazio de propósito: presença não tem autor, e o filtro de eco do
+// adaptador ignora quem agiu. Com um autor, justamente quem entrou não receberia
+// a lista — e ficaria sem saber quem já estava lá.
+func (h *Hub) anunciarPresenca(boardID string, presentes []Pessoa) {
+	h.Publicar(evento.Novo(evento.PresencaAlterada, boardID, "", presentes))
 }
 
 // Cancelar tira o assinante da sala e fecha o canal dele.
@@ -78,18 +133,24 @@ func (h *Hub) Cancelar(a *Assinante) {
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.removerBloqueado(a)
+	saiu := h.removerBloqueado(a)
+	presentes := h.presentesBloqueado(a.boardID)
+	h.mu.Unlock()
+
+	if saiu {
+		h.anunciarPresenca(a.boardID, presentes)
+	}
 }
 
-// removerBloqueado exige que o chamador já tenha o mutex de escrita.
-func (h *Hub) removerBloqueado(a *Assinante) {
+// removerBloqueado exige que o chamador já tenha o mutex de escrita. Devolve
+// se realmente removeu — chamar duas vezes é normal, e só a primeira anuncia.
+func (h *Hub) removerBloqueado(a *Assinante) bool {
 	sala, existe := h.salas[a.boardID]
 	if !existe {
-		return
+		return false
 	}
 	if _, inscrito := sala[a]; !inscrito {
-		return
+		return false
 	}
 	delete(sala, a)
 	close(a.Eventos)
@@ -98,6 +159,7 @@ func (h *Hub) removerBloqueado(a *Assinante) {
 	if len(sala) == 0 {
 		delete(h.salas, a.boardID)
 	}
+	return true
 }
 
 // Publicar entrega o evento a todo mundo na sala do quadro, SEM bloquear.

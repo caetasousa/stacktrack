@@ -29,6 +29,11 @@ const (
 	// caminhos de aplicação não se paga.
 	QuadroAlterado   Tipo = "quadro.alterado"
 	MembrosAlterados Tipo = "membros.alterados"
+
+	// Presença: quem está com o quadro aberto AGORA. É estado efêmero — não
+	// existe no banco, vive só no mapa de conexões do hub e morre com o
+	// processo. Justamente por isso não há migration para ele.
+	PresencaAlterada Tipo = "presenca.alterada"
 )
 
 // Evento é uma coisa que aconteceu num quadro.

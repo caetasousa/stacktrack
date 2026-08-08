@@ -1,6 +1,11 @@
-# Imagem de PRODUÇÃO do frontend. Em desenvolvimento o SvelteKit roda pelo
-# Vite dentro do serviço `web` do compose; aqui ele é compilado pelo
-# adapter-node e servido por um processo Node enxuto.
+# Imagem de PRODUÇÃO do frontend: compila com o adapter-node e roda o servidor
+# Node autônomo gerado em build/. Em desenvolvimento o compose continua usando
+# o `npm run dev` pelo Vite.
+#
+# Node 24 porque é o LTS ativo: imagem de produção não roda em versão fora do
+# LTS, que deixa de receber correção de segurança e vira CVE sem conserto na
+# varredura do Trivy. Os dois estágios usam a MESMA versão de propósito —
+# compilar numa e rodar em outra esconde incompatibilidade até a hora errada.
 
 FROM node:24-alpine AS build
 
@@ -13,26 +18,40 @@ RUN npm ci
 
 COPY . .
 
-# A URL da API é lida pelo Vite em tempo de BUILD e vai embutida no bundle que
-# o navegador baixa — por isso é ARG, e não variável de runtime. O padrão é
-# relativo de propósito: front e API atrás do mesmo domínio, que é o que mantém
-# a CSP em `connect-src 'self'` e o cookie com prefixo __Host-.
+# A URL da API é resolvida em tempo de BUILD (import.meta.env do Vite) e vai
+# embutida no bundle que o navegador baixa — por isso é ARG, e não variável de
+# runtime. O padrão é relativo para a imagem não ficar amarrada a um domínio:
+# como o Caddy serve frontend e API na mesma origem, o navegador resolve `/api`
+# para o domínio corrente. Funciona porque toda página que chama a API declara
+# `ssr = false`, ou seja, o fetch nunca roda no servidor Node — onde um caminho
+# relativo não teria base.
 ARG PUBLIC_API_URL=/api
-ENV PUBLIC_API_URL=$PUBLIC_API_URL
+ENV PUBLIC_API_URL=${PUBLIC_API_URL}
 
-RUN npm run build \
-	&& npm prune --omit=dev
+RUN npm run build
 
 FROM node:24-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Só o que o servidor precisa: a saída do adapter-node, as dependências de
-# produção e o package.json (que declara "type": "module" para o node).
+# O servidor do adapter-node roda com `node build`: npm, npx, yarn e corepack
+# não são usados em runtime, mas vêm na imagem base e carregam as próprias
+# dependências — é de dentro do npm que sai o `tar` que o Trivy acusa como
+# CRITICAL. Aqui a correção é REMOVER, não atualizar: não existe versão
+# corrigida de uma dependência que não deveria estar na imagem.
+#
+# De quebra, o container fica sem gerenciador de pacotes nenhum, que é o que se
+# quer em produção.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+	/usr/local/lib/node_modules/corepack \
+	/usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+	/opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+# Só a saída do adapter-node. Ela é autocontida: o Rollup embute as
+# dependências no bundle, então não há node_modules a copiar — o que também
+# tira da imagem tudo o que o Trivy varreria ali.
 COPY --from=build /app/build ./build
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./
 
 # A imagem node já traz o usuário `node`, sem privilégio.
 USER node

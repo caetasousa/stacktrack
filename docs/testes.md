@@ -115,10 +115,16 @@ armazenamento independentes, então duas contas convivem no mesmo navegador:
 | ana cria um card, bruno vê | propagação sem nenhum reload chamado pelo teste |
 | bruno cria uma coluna, ana vê | o caminho inverso |
 | a queda aparece e volta sozinha | a tela não mente sobre ter parado de se atualizar |
+| o avatar aparece e some | presença entrando e saindo, sem recarregar |
+| quem grava por último é avisado | o 409 do bloqueio otimista, com o texto preservado |
 
 Contas, quadro e convite são semeados **pela API**, não pela tela: um teste de
 tempo real que quebra porque o botão de cadastro mudou de rótulo aponta para o
 lugar errado.
+
+> Todas as contas nascem numa rajada só, no `beforeAll`. Criar uma no meio da
+> suíte esbarrava no teto por IP e deixava um teste **intermitente** — que é pior
+> que um teste vermelho, porque ensina a ignorar a suíte.
 
 > A queda é simulada com `routeWebSocket`, que deixa o teste interceptar a
 > conexão e fechá-la. `context.setOffline()` **não** serve: ele não derruba um

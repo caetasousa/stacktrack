@@ -11,10 +11,10 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 5 — tempo real.** Dá para criar conta, montar um quadro e
-> dividi-lo com outras pessoas; cards e colunas se arrastam. E **duas pessoas no
-> mesmo quadro veem a mudança uma da outra na hora**, sem recarregar: um
-> WebSocket por quadro, com o servidor avisando primeiro.
+> **Fase atual: 6 — presença e edição concorrente.** Duas pessoas no mesmo
+> quadro veem a mudança uma da outra na hora, **veem o avatar de quem está
+> junto**, e quem grava por último num card em disputa recebe um aviso em vez de
+> apagar o trabalho do outro.
 
 ## Documentação
 
@@ -113,7 +113,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, **pelos vizinhos**. |
 | `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
 | `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
-| `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. |
+| `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
 | `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a posição. 409 sem espaço. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
 | `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida por email. |

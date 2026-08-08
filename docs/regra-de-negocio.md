@@ -121,6 +121,42 @@ float por chave textual — é a fase 9 do [PLANO.md](../PLANO.md).
 
 ---
 
+## Duas pessoas no mesmo card
+
+Editar não é primeiro-a-chegar nem último-a-vencer: é **quem gravou primeiro
+ganha, e o segundo é avisado**.
+
+Cada card tem uma `version`, que sobe a cada escrita. A tela manda a versão que
+estava mostrando; se o banco já foi além, a API responde **409** e a tela diz
+"alguém alterou este card enquanto você escrevia" — mantendo o texto digitado
+para ser copiado antes de trazer a versão nova.
+
+Sobrescrever seria pior do que parece: o trabalho da outra pessoa sumiria **sem
+ninguém ficar sabendo**. É o *lost update* clássico, e o isolamento padrão do
+Postgres (`READ COMMITTED`) não protege contra ele — os dois UPDATEs são
+válidos isoladamente.
+
+São duas redes, com alcances diferentes:
+
+- a **conferência no usecase** pega o conflito lento: abriu o card, foi tomar
+  café, salvou meia hora depois;
+- o **`WHERE version` do SQL** pega o simultâneo: duas requisições que leram a
+  mesma linha e escrevem no mesmo instante, quando nenhuma das versões
+  informadas está errada.
+
+**Arrastar não confere versão.** Mover é posicional, a última pessoa a soltar
+decide, e não há texto de ninguém para perder.
+
+## Quem está no quadro agora
+
+Os avatares no cabeçalho vêm do **mapa de conexões do hub**, não do banco. É
+estado efêmero: não tem tabela, não tem migration, e morre com o processo — o
+que é correto, porque "quem está olhando agora" não é fato histórico.
+
+Duas abas da mesma conta são duas conexões e **um** avatar. Sem deduplicar, quem
+abrisse o quadro em dois monitores apareceria como duas pessoas, e a contagem
+deixaria de significar algo.
+
 ## Sessão
 
 Token opaco, gerado com `crypto/rand`. O banco guarda **só o SHA-256** dele: um

@@ -1,0 +1,132 @@
+# 📋 Regra de negócio
+
+O que o produto faz, e as decisões de comportamento que não se leem no código
+sem contexto.
+
+---
+
+## Quadro, coluna, card
+
+Um **quadro** pertence a quem o criou e tem **colunas** em ordem; cada coluna tem
+**cards** em ordem. Colunas e cards podem ter cor própria — verde no começo,
+amarelo no meio, azul no fim é o uso típico, e é o que dá significado à etapa de
+relance.
+
+Apagar em cascata: quadro leva colunas, colunas levam cards, cards levam
+etiquetas aplicadas, checklists e anexos.
+
+## Papéis
+
+| Papel | Ver | Editar | Administrar |
+|---|---|---|---|
+| dono | ✅ | ✅ | ✅ |
+| editor | ✅ | ✅ | — |
+| leitor | ✅ | — | — |
+
+**Administrar** é convidar, trocar papel, remover membro, renomear e apagar o
+quadro, e trocar o fundo. **Editar** é mexer em colunas, cards e no que pende
+deles.
+
+Papel desconhecido — dado estragado no banco, ou papel novo que alguém esqueceu
+de tratar — **não pode nada**. É o padrão seguro, e há teste para isso.
+
+## O 404 que não é engano
+
+Quem não participa de um quadro recebe **404**, nunca 403. Não é imprecisão: um
+403 confirmaria que o quadro existe, e a existência já é informação sobre dado
+que aquela pessoa não pode ver. O 403 fica reservado para quem **é** membro e
+esbarra no limite do próprio papel — aí não há o que esconder.
+
+A mesma tradução vale em cadeia: pedir uma coluna de um quadro alheio devolve
+"coluna não encontrada", e um anexo devolve "anexo não encontrado", em vez de
+revelar em que etapa da cadeia a busca parou.
+
+## Convites
+
+O dono convida **por email**. Duas situações:
+
+- **já existe conta com aquele email** → a pessoa entra no quadro na hora;
+- **não existe** → nasce um convite com token, e o dono copia o link e envia por
+  onde quiser.
+
+Não há envio de email no projeto, então o link é o produto do convite, não um
+efeito colateral dele. Quando o envio existir, ele só passa a mandar o mesmo
+link.
+
+Revogar um convite invalida o link. O token é gerado com `crypto/rand`.
+
+## O que pende de um card
+
+**Etiquetas** pertencem ao quadro, não ao card: renomear ou trocar a cor muda em
+todos os cards de uma vez. O card guarda só os ids.
+
+**Prazo** é opcional. O campo `vencido` vem calculado **pelo servidor** — o
+relógio do navegador pode estar errado, e um card vermelho por engano confunde
+mais do que ajuda.
+
+**Checklists** têm itens marcáveis; o card mostra o progresso (`3/7`).
+
+**Anexos** são link ou arquivo. Três decisões que valem saber antes de mexer:
+
+- **lista de permissão de tipos**, não de bloqueio. `text/html` e
+  `image/svg+xml` ficam de fora de propósito: servidos da nossa origem,
+  executariam script na nossa origem;
+- **o nome no disco é sorteado**, nunca derivado do que veio de quem enviou —
+  nome de arquivo é entrada do usuário, e entrada do usuário não vira caminho. O
+  nome original sobrevive só como rótulo;
+- **o download passa pela API** (`GET /anexos/{id}`), e não por um caminho
+  estático: é lá que se confere se quem pede participa do quadro. A resposta sai
+  como `attachment` com `nosniff`.
+
+O arquivo vai para um volume próprio (`ANEXOS_DIR`), não para o banco — que
+incharia backup e restore de um schema que guarda texto curto no resto todo. Por
+isso o backup tem [dois artefatos](producao.md#backup).
+
+A **descrição** aceita um subconjunto de Markdown, renderizado por
+[`lib/markdown.ts`](../frontend/src/lib/markdown.ts) — escrito à mão, sem
+biblioteca: o texto é escapado inteiro **antes** de as marcas virarem tags, então
+nada que alguém escreveu chega ao HTML como marcação.
+
+---
+
+## Ordenação: por que fracionária
+
+A posição de cards e colunas é um **float**, não um inteiro sequencial. Com
+`1, 2, 3, 4`, arrastar um item para o meio obrigaria a reescrever a numeração de
+todos abaixo dele — muitas linhas alteradas e corrida garantida com duas pessoas
+no mesmo quadro. Com fração, inserir entre `2048` e `3072` é gravar `2560`:
+
+```
+antes:   A(2048)   B(3072)            C(4096)
+                       ▲ solta aqui
+depois:  A(2048)   C(2560)   B(3072)          ← só C foi escrito
+```
+
+**A API recebe os vizinhos, não a posição.** O cliente manda `anteriorId` e
+`proximoId`; quem calcula o número é o servidor. Três razões:
+
+1. a cópia do quadro na tela pode estar velha, e a média entre posições que já
+   mudaram põe o item no lugar errado;
+2. o esgotamento da precisão só é detectável onde os valores reais estão;
+3. posição vinda do cliente é entrada do usuário — embaralharia a ordem de um
+   quadro inteiro.
+
+O card continua se movendo na tela na hora. Ele só não decide o número.
+
+**O limite do `double precision` é real e está medido.** Dividir sempre o mesmo
+intervalo esgota a mantissa de 53 bits em **52 inserções seguidas no mesmo
+ponto**, e há teste que mede isso. Quando acontece, o movimento responde `409`
+em vez de gravar em silêncio duas posições iguais. A saída definitiva é trocar o
+float por chave textual — é a fase 9 do [PLANO.md](../PLANO.md).
+
+---
+
+## Sessão
+
+Token opaco, gerado com `crypto/rand`. O banco guarda **só o SHA-256** dele: um
+vazamento do dump não devolve sessão utilizável.
+
+O cookie é `HttpOnly` + `SameSite=Lax`, e em produção ganha `Secure` e o prefixo
+`__Host-` — que exige `Path=/` e **nenhum** `Domain`, amarrando o cookie a um
+host exato. É por isso que o stacktrack vive num subdomínio próprio, e não num
+caminho do domínio do vizinho: o navegador enviaria o token para ele também.

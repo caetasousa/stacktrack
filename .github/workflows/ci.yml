@@ -83,6 +83,19 @@ jobs:
         working-directory: backend
         run: go test -race ./...
 
+      # Testes de repositório contra um Postgres DE VERDADE, subido pelo
+      # Testcontainers. É a camada que os fakes não alcançam: eles copiam a
+      # struct inteira, então um campo que o SQL não grava passa por eles sem
+      # reclamar — foi assim que cards.prazo e boards.fundo existiram em todas
+      # as camadas sem nunca serem gravados.
+      #
+      # Junto vai o guard de expand/contract, que reprova coluna nova
+      # obrigatória, coluna removida e coluna apertada na última migration.
+      # O runner do GitHub já tem Docker, então não há nada a instalar.
+      - name: testes de integração (Testcontainers)
+        working-directory: backend
+        run: go test -tags integracao ./test/repository/
+
       # A regra do CLAUDE.md que o CI faz cumprir: migration não escreve dado.
       # Todo backfill é decisão do domínio, e em SQL ele vira uma segunda fonte
       # da verdade, sem teste e sem conserto — migration aplicada não se corrige.

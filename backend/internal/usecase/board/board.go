@@ -37,10 +37,11 @@ type CardNoQuadro struct {
 	Card card.Card
 	// Responsaveis vêm com nome, e não só o id: o avatar precisa das iniciais,
 	// e resolver nome por card no cliente exigiria uma segunda requisição.
-	Responsaveis []Responsavel
-	Etiquetas    []string
-	Checklist    Progresso
-	QtdAnexos    int
+	Responsaveis   []Responsavel
+	Etiquetas      []string
+	Checklist      Progresso
+	QtdAnexos      int
+	QtdComentarios int
 }
 
 // ColunaComCards é uma coluna e os cards dela, já em ordem de posição.
@@ -65,6 +66,7 @@ type CardDetalhado struct {
 	Etiquetas    []etiqueta.Etiqueta
 	Checklists   []ChecklistComItens
 	Anexos       []anexo.Anexo
+	Comentarios  []ComentarioComAutor
 }
 
 // ChecklistComItens é uma checklist e as linhas dela, em ordem.

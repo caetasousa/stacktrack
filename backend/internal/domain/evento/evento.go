@@ -27,8 +27,11 @@ const (
 	// O que pende de um card ou do quadro. A tela recarrega em vez de aplicar
 	// diferença: são mudanças menos frequentes, e o custo de manter trinta
 	// caminhos de aplicação não se paga.
-	QuadroAlterado   Tipo = "quadro.alterado"
-	MembrosAlterados Tipo = "membros.alterados"
+	QuadroAlterado Tipo = "quadro.alterado"
+	// ComentarioAlterado cobre criar, editar e apagar comentário: para a tela o
+	// efeito é o mesmo — a conversa daquele card mudou e precisa ser relida.
+	ComentarioAlterado Tipo = "comentario.alterado"
+	MembrosAlterados   Tipo = "membros.alterados"
 
 	// Presença: quem está com o quadro aberto AGORA. É estado efêmero — não
 	// existe no banco, vive só no mapa de conexões do hub e morre com o

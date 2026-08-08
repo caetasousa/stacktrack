@@ -479,7 +479,26 @@ outro navegador sem F5. O filtro "meus cards" esconde o resto e sobrevive ao rec
 
 ---
 
-### Fase 11 — Comentários e histórico de atividade
+### Fase 11 — Comentários e histórico de atividade ⏳
+
+> **Comentários: feitos.** Conversa em markdown no card, com autor, data e marca
+> de edição; selo 💬 no card; evento `comentario.alterado` no tempo real. As três
+> permissões saíram como planejado — escrever exige só participação (o leitor
+> comenta), editar é **só do autor**, e apagar o autor no próprio ou quem
+> administra em qualquer um.
+>
+> **O histórico de atividade NÃO foi feito**, e a razão é a armadilha descrita
+> abaixo: ela se confirmou ao olhar o código. O payload de `card.movido` guarda
+> o card **já movido**, então a coluna de origem se perde e o feed não consegue
+> dizer "moveu de A para B". Enriquecer o payload é decisão que muda o formato do
+> que já está gravado, e merece ser tomada de propósito — não no fim de outra
+> entrega.
+>
+> Três defeitos apareceram só ao exercitar a API de verdade, todos da mesma
+> família (a borda HTTP): um erro de domínio sem tradução virando **500**, e dois
+> campos que o DTO declarava mas o conversor não copiava — um deles chegando
+> como `null` e quebrando a tela em tempo de execução. Os três estão trancados
+> por teste de handler.
 
 **Conceito novo:** o primeiro fluxo **append-only** do projeto, e o primeiro em que recarregar o
 quadro inteiro por um evento fica evidentemente errado — um comentário chegando não deveria

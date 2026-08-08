@@ -12,6 +12,9 @@
 		desatribuir,
 		apagarAnexo,
 		apagarChecklist,
+		apagarComentario,
+		comentar,
+		editarComentario,
 		apagarItem,
 		criarChecklist,
 		criarItem,
@@ -25,17 +28,21 @@
 	import { listarParticipacao, type Membro } from '$lib/api/membros';
 	import { iniciais } from '$lib/iniciais';
 	import { renderizarMarkdown } from '$lib/markdown';
+	import { sessao } from '$lib/stores/session.svelte';
 
 	let {
 		cardId,
 		etiquetasDoQuadro,
 		podeEditar,
+		podeAdministrar = false,
 		aoFechar,
 		aoMudar
 	}: {
 		cardId: string;
 		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
+		// Só o dono apaga comentário alheio — a mesma regra do servidor.
+		podeAdministrar?: boolean;
 		aoFechar: () => void;
 		aoMudar: () => Promise<void>;
 	} = $props();
@@ -58,6 +65,68 @@
 	let urlDoLink = $state('');
 	let nomeDoLink = $state('');
 	let enviandoArquivo = $state(false);
+
+	// --- conversa -------------------------------------------------------------
+	let textoDoComentario = $state('');
+	// Qual comentário está aberto para edição — null é nenhum.
+	let comentarioEmEdicao = $state<string | null>(null);
+	let textoEmEdicao = $state('');
+
+	async function enviarComentario(evento: SubmitEvent) {
+		evento.preventDefault();
+		const texto = textoDoComentario.trim();
+		if (!texto) return;
+		try {
+			await comentar(cardId, texto);
+			textoDoComentario = '';
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível comentar');
+		}
+	}
+
+	function abrirEdicaoDeComentario(id: string, texto: string) {
+		comentarioEmEdicao = id;
+		textoEmEdicao = texto;
+	}
+
+	async function salvarComentario(evento: SubmitEvent, id: string) {
+		evento.preventDefault();
+		try {
+			await editarComentario(id, textoEmEdicao);
+			comentarioEmEdicao = null;
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível editar o comentário');
+		}
+	}
+
+	async function removerComentario(id: string) {
+		if (!confirm('Apagar este comentário?')) return;
+		try {
+			await apagarComentario(id);
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível apagar o comentário');
+		}
+	}
+
+	// Quem pode mexer em cada comentário. As duas regras são diferentes, e o
+	// servidor aplica as mesmas: EDITAR é só do autor — ninguém põe palavras na
+	// boca de outra pessoa —, e APAGAR o autor pode no próprio e quem administra
+	// o quadro pode em qualquer um.
+	const souAutor = (autorId: string) => sessao.usuario?.id === autorId;
+	const podeApagarComentario = (autorId: string) => souAutor(autorId) || podeAdministrar;
+
+	// Data curta: numa conversa o que importa é "quando", não a precisão.
+	function quando(iso: string): string {
+		return new Date(iso).toLocaleString('pt-BR', {
+			day: '2-digit',
+			month: 'short',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+	}
 
 	const idsAplicados = $derived(new Set(card?.etiquetasDoCard.map((e) => e.id) ?? []));
 
@@ -539,6 +608,95 @@
 					{:else}
 						<p class="mt-2 text-sm text-mute">Sem descrição.</p>
 					{/if}
+				</section>
+
+				<!-- conversa: o primeiro fluxo append-only do quadro. Não tem
+				     posição nem ordenação — um comentário acontece e fica, e a
+				     ordem é a do tempo. -->
+				<section>
+					<h3 class="text-xs font-semibold tracking-widest text-mute uppercase">
+						Comentários{#if card.comentarios.length > 0}
+							<span class="ml-1 tabular-nums normal-case">({card.comentarios.length})</span>
+						{/if}
+					</h3>
+
+					<div class="mt-2 space-y-3">
+						{#each card.comentarios as comentario (comentario.id)}
+							<div class="flex gap-2">
+								<span
+									class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-suave text-[10px] font-semibold text-accent-texto"
+									title={comentario.autorNome}
+								>
+									{iniciais(comentario.autorNome)}
+								</span>
+								<div class="min-w-0 flex-1">
+									<p class="text-xs text-mute">
+										<b class="font-semibold text-body">{comentario.autorNome}</b>
+										· {quando(comentario.criadoEm)}
+										{#if comentario.editadoEm}
+											· <span title={quando(comentario.editadoEm)}>editado</span>
+										{/if}
+									</p>
+
+									{#if comentarioEmEdicao === comentario.id}
+										<form
+											onsubmit={(e) => salvarComentario(e, comentario.id)}
+											class="mt-1 space-y-2"
+										>
+											<textarea
+												class="campo text-sm"
+												bind:value={textoEmEdicao}
+												rows="3"
+												maxlength="2000"
+												aria-label="Editar comentário"></textarea>
+											<div class="flex gap-2">
+												<button type="submit" class="botao w-auto px-3 py-1 text-xs">Salvar</button>
+												<button
+													type="button"
+													class="cursor-pointer px-2 text-xs text-mute hover:text-ink"
+													onclick={() => (comentarioEmEdicao = null)}>Cancelar</button
+												>
+											</div>
+										</form>
+									{:else}
+										<div class="markdown mt-0.5 text-sm">
+											{@html renderizarMarkdown(comentario.texto)}
+										</div>
+										<div class="mt-0.5 flex gap-3 text-xs text-mute">
+											{#if souAutor(comentario.autorId)}
+												<button
+													class="cursor-pointer hover:text-ink"
+													onclick={() => abrirEdicaoDeComentario(comentario.id, comentario.texto)}
+													>editar</button
+												>
+											{/if}
+											{#if podeApagarComentario(comentario.autorId)}
+												<button
+													class="cursor-pointer hover:text-negativo"
+													onclick={() => removerComentario(comentario.id)}>apagar</button
+												>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+
+					<!-- Comentar exige só PARTICIPAÇÃO, não papel de edição: acompanhar
+					     e responder é ver, não mexer. Por isso não há podeEditar aqui. -->
+					<form onsubmit={enviarComentario} class="mt-3 space-y-2">
+						<textarea
+							class="campo text-sm"
+							bind:value={textoDoComentario}
+							rows="2"
+							maxlength="2000"
+							placeholder="Escrever um comentário — aceita markdown"
+							aria-label="Novo comentário"></textarea>
+						{#if textoDoComentario.trim()}
+							<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Comentar</button>
+						{/if}
+					</form>
 				</section>
 
 				<!-- checklists -->

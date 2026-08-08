@@ -48,6 +48,9 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	anexos.LigarQuadro(colunas, cards)
 	responsaveis := memoria.NovosResponsaveis()
 	responsaveis.LigarQuadro(colunas, cards)
+	comentarios := memoria.NovosComentarios()
+	comentarios.LigarQuadro(colunas, cards)
+	comentarios.LigarUsuarios(usuarios)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -61,9 +64,17 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		false, nil, identidade,
 	)
 	boardHandler := handler.NovoBoardHandler(
-		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
+		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
 		ucboard.NovoColunaUseCase(membros, colunas),
-		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
+		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
+		identidade,
+	)
+	extrasHandler := handler.NovoExtrasHandler(
+		ucboard.NovoEtiquetaUseCase(membros, colunas, cards, etiquetas),
+		ucboard.NovoChecklistUseCase(membros, colunas, cards, checklists),
+		ucboard.NovoAnexoUseCase(membros, colunas, cards, anexos, nil),
+		ucboard.NovoResponsavelUseCase(membros, colunas, cards, responsaveis),
+		ucboard.NovoComentarioUseCase(membros, colunas, cards, comentarios),
 		identidade,
 	)
 	membroHandler := handler.NovoMembroHandler(
@@ -100,6 +111,13 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		r.Route("/cards/{cardID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.EditarCard)
 			r.Delete("/", boardHandler.ApagarCard)
+			r.Get("/", boardHandler.DetalharCard)
+			r.Get("/comentarios", extrasHandler.ListarComentarios)
+			r.Post("/comentarios", extrasHandler.Comentar)
+		})
+		r.Route("/comentarios/{comentarioID}", func(r chi.Router) {
+			r.Patch("/", extrasHandler.EditarComentario)
+			r.Delete("/", extrasHandler.ApagarComentario)
 		})
 	})
 

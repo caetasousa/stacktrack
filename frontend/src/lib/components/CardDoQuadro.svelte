@@ -118,7 +118,7 @@
 		{/if}
 	</div>
 
-	{#if card.prazo || temChecklist || card.qtdAnexos > 0 || card.descricao}
+	{#if card.prazo || temChecklist || card.qtdAnexos > 0 || card.qtdComentarios > 0 || card.descricao}
 		<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
 			{#if card.prazo}
 				<!-- Vencido vem do servidor: o relógio do navegador pode estar
@@ -139,6 +139,11 @@
 			{/if}
 			{#if card.qtdAnexos > 0}
 				<span class="tabular-nums">📎 {card.qtdAnexos}</span>
+			{/if}
+			{#if card.qtdComentarios > 0}
+				<span class="tabular-nums" title="{card.qtdComentarios} comentário(s)">
+					💬 {card.qtdComentarios}
+				</span>
 			{/if}
 			{#if card.descricao}
 				<span title="Tem descrição">≡</span>

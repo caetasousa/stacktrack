@@ -25,6 +25,7 @@ type quadro struct {
 	checklists   *memoria.Checklists
 	anexos       *memoria.Anexos
 	responsaveis *memoria.Responsaveis
+	comentarios  *memoria.Comentarios
 	quadros      *ucboard.QuadroUseCase
 	coluna       *ucboard.ColunaUseCase
 	card         *ucboard.CardUseCase
@@ -40,10 +41,12 @@ func novoQuadro() *quadro {
 	checklists := memoria.NovasChecklists()
 	anexos := memoria.NovosAnexos()
 	responsaveis := memoria.NovosResponsaveis()
+	comentarios := memoria.NovosComentarios()
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
 	responsaveis.LigarQuadro(colunas, cards)
+	comentarios.LigarQuadro(colunas, cards)
 
 	return &quadro{
 		boards:       boards,
@@ -54,9 +57,10 @@ func novoQuadro() *quadro {
 		checklists:   checklists,
 		anexos:       anexos,
 		responsaveis: responsaveis,
-		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
+		comentarios:  comentarios,
+		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
 		coluna:       ucboard.NovoColunaUseCase(membros, colunas),
-		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis),
+		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
 	}
 }
 

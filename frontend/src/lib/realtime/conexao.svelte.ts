@@ -17,6 +17,7 @@ export type TipoDeEvento =
 	| 'card.apagado'
 	| 'card.movido'
 	| 'quadro.alterado'
+	| 'comentario.alterado'
 	| 'presenca.alterada'
 	// Controle da reconexão: não descrevem mudança no quadro, dizem em que
 	// ponto da história o cliente está.

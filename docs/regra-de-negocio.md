@@ -76,6 +76,26 @@ todos os cards de uma vez. O card guarda só os ids. No card elas aparecem com
 **cor e nome**: a cor sozinha só significa algo para quem decorou a convenção do
 quadro, e não significa nada para quem não a distingue.
 
+**Comentários** são a conversa do card, em markdown. É o primeiro fluxo
+**append-only** do projeto: um comentário acontece e fica — não tem posição, não
+se reordena, e a ordem é a do tempo.
+
+Quem pode o quê são três regras diferentes, e confundi-las seria deixar alguém
+falar pela boca de outra pessoa:
+
+| | quem pode |
+|---|---|
+| **escrever** | qualquer participante, inclusive o leitor — acompanhar e responder é ver, não mexer |
+| **editar** | **só o autor**, nem o dono do quadro |
+| **apagar** | o autor no próprio; quem administra o quadro, em qualquer um |
+
+A assimetria entre editar e apagar é deliberada: tirar do quadro o que não serve
+é responsabilidade de quem administra, mas reescrever é pôr palavras na boca de
+outra pessoa.
+
+Um comentário editado carrega a marca disso (`editadoEm`), e o card mostra
+quantos tem — a contagem vem junto com o quadro, numa consulta só.
+
 **Prazo** é opcional. O campo `vencido` vem calculado **pelo servidor** — o
 relógio do navegador pode estar errado, e um card vermelho por engano confunde
 mais do que ajuda.

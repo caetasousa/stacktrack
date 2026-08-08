@@ -11,6 +11,7 @@ import (
 	dcard "stacktrack/internal/domain/card"
 	dchecklist "stacktrack/internal/domain/checklist"
 	dcoluna "stacktrack/internal/domain/coluna"
+	dcomentario "stacktrack/internal/domain/comentario"
 	dcor "stacktrack/internal/domain/cor"
 	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/membro"
@@ -296,6 +297,7 @@ func paraCardNoQuadro(c ucboard.CardNoQuadro) dto.CardResponse {
 	resposta.Etiquetas = c.Etiquetas
 	resposta.Checklist = dto.ProgressoResponse{Concluidos: c.Checklist.Concluidos, Total: c.Checklist.Total}
 	resposta.QtdAnexos = c.QtdAnexos
+	resposta.QtdComentarios = c.QtdComentarios
 	return resposta
 }
 
@@ -312,6 +314,22 @@ func paraResponsaveisResponse(lista []ucboard.Responsavel) []dto.ResponsavelResp
 	fora := make([]dto.ResponsavelResponse, 0, len(lista))
 	for _, r := range lista {
 		fora = append(fora, dto.ResponsavelResponse{UsuarioID: r.UsuarioID, Nome: r.Nome})
+	}
+	return fora
+}
+
+func paraComentarioResponse(c ucboard.ComentarioComAutor) dto.ComentarioResponse {
+	return dto.ComentarioResponse{
+		ID: c.Comentario.ID, CardID: c.Comentario.CardID, AutorID: c.Comentario.AutorID,
+		AutorNome: c.AutorNome, Texto: c.Comentario.Texto,
+		CriadoEm: c.Comentario.CriadoEm, EditadoEm: c.Comentario.EditadoEm,
+	}
+}
+
+func paraComentariosResponse(lista []ucboard.ComentarioComAutor) []dto.ComentarioResponse {
+	fora := make([]dto.ComentarioResponse, 0, len(lista))
+	for _, c := range lista {
+		fora = append(fora, paraComentarioResponse(c))
 	}
 	return fora
 }
@@ -343,9 +361,13 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		errors.Is(err, detiqueta.ErrNaoEncontrada),
 		errors.Is(err, dchecklist.ErrNaoEncontrada),
 		errors.Is(err, dchecklist.ErrItemNaoEncontrado),
-		errors.Is(err, danexo.ErrNaoEncontrado):
+		errors.Is(err, danexo.ErrNaoEncontrado),
+		errors.Is(err, dcomentario.ErrNaoEncontrado):
 		responderErro(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, membro.ErrSemPermissao):
+	case errors.Is(err, membro.ErrSemPermissao),
+		// Só o autor edita o próprio comentário. É 403, e não 404: quem pediu
+		// enxerga o comentário — o que falta é direito sobre ele, não acesso.
+		errors.Is(err, dcomentario.ErrNaoEhAutor):
 		responderErro(w, http.StatusForbidden, err.Error())
 	// Atribuir alguém que não participa do quadro. É 422, e não 404: quem pediu
 	// enxerga o card e enxerga o quadro, então esconder o motivo não protege
@@ -387,7 +409,9 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		errors.Is(err, danexo.ErrNomeObrigatorio),
 		errors.Is(err, danexo.ErrNomeLongo),
 		errors.Is(err, danexo.ErrURLInvalida),
-		errors.Is(err, danexo.ErrArquivoVazio):
+		errors.Is(err, danexo.ErrArquivoVazio),
+		errors.Is(err, dcomentario.ErrTextoObrigatorio),
+		errors.Is(err, dcomentario.ErrTextoLongo):
 		responderErro(w, http.StatusBadRequest, err.Error())
 	default:
 		responderErroInterno(w, r, contexto, err)
@@ -445,6 +469,7 @@ func (h *BoardHandler) DetalharCard(w http.ResponseWriter, r *http.Request) {
 		EtiquetasDoCard: paraEtiquetasResponse(detalhe.Etiquetas),
 		Checklists:      checklists,
 		Anexos:          paraAnexosResponse(detalhe.Anexos),
+		Comentarios:     paraComentariosResponse(detalhe.Comentarios),
 	})
 }
 

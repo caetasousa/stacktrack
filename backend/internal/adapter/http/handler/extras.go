@@ -22,6 +22,7 @@ type ExtrasHandler struct {
 	checklists           *ucboard.ChecklistUseCase
 	anexos               *ucboard.AnexoUseCase
 	responsaveis         *ucboard.ResponsavelUseCase
+	comentarios          *ucboard.ComentarioUseCase
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool)
 }
 
@@ -31,11 +32,13 @@ func NovoExtrasHandler(
 	checklists *ucboard.ChecklistUseCase,
 	anexos *ucboard.AnexoUseCase,
 	responsaveis *ucboard.ResponsavelUseCase,
+	comentarios *ucboard.ComentarioUseCase,
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool),
 ) *ExtrasHandler {
 	return &ExtrasHandler{
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
 		responsaveis:         responsaveis,
+		comentarios:          comentarios,
 		identidadeDoContexto: identidadeDoContexto,
 	}
 }
@@ -178,6 +181,76 @@ func (h *ExtrasHandler) Desatribuir(w http.ResponseWriter, r *http.Request) {
 	err := h.responsaveis.Desatribuir(r.Context(), chi.URLParam(r, "cardID"), chi.URLParam(r, "usuarioID"), usuarioID)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao remover responsável", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- comentários ----------------------------------------------------------
+
+// ListarComentarios devolve a conversa do card, do mais antigo para o mais novo.
+func (h *ExtrasHandler) ListarComentarios(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	lista, err := h.comentarios.Listar(r.Context(), chi.URLParam(r, "cardID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao listar comentários", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.ListaComentariosResponse{Comentarios: paraComentariosResponse(lista)})
+}
+
+// Comentar acrescenta uma mensagem ao card.
+func (h *ExtrasHandler) Comentar(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.ComentarioRequest](w, r)
+	if !ok {
+		return
+	}
+
+	c, err := h.comentarios.Criar(r.Context(), chi.URLParam(r, "cardID"), usuarioID, req.Texto)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao comentar", err)
+		return
+	}
+	responderJSON(w, http.StatusCreated, paraComentarioResponse(ucboard.ComentarioComAutor{Comentario: *c}))
+}
+
+// EditarComentario troca o texto. Só o autor.
+func (h *ExtrasHandler) EditarComentario(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.ComentarioRequest](w, r)
+	if !ok {
+		return
+	}
+
+	c, err := h.comentarios.Editar(r.Context(), chi.URLParam(r, "comentarioID"), usuarioID, req.Texto)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao editar comentário", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraComentarioResponse(ucboard.ComentarioComAutor{Comentario: *c}))
+}
+
+// ApagarComentario remove a mensagem. O autor apaga a própria; quem administra
+// o quadro apaga a de qualquer um.
+func (h *ExtrasHandler) ApagarComentario(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.comentarios.Apagar(r.Context(), chi.URLParam(r, "comentarioID"), usuarioID); err != nil {
+		responderErroDeQuadro(w, r, "erro ao apagar comentário", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -66,6 +66,7 @@ func main() {
 	checklistRepo := repository.NovoChecklistPostgres(pool)
 	anexoRepo := repository.NovoAnexoPostgres(pool)
 	responsavelRepo := repository.NovoResponsavelPostgres(pool)
+	comentarioRepo := repository.NovoComentarioPostgres(pool)
 
 	// armazém de anexos: disco, num volume próprio. O binário não vai para o
 	// banco — incharia backup e restore de um schema que guarda texto curto no
@@ -85,14 +86,15 @@ func main() {
 	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
 	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
 	perfilUC := ucauth.NovoPerfilUseCase(usuarioRepo)
-	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo, responsavelRepo)
+	quadroUC := ucboard.NovoQuadroUseCase(boardRepo, membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo, responsavelRepo, comentarioRepo)
 	colunaUC := ucboard.NovoColunaUseCase(membroRepo, colunaRepo)
-	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo, responsavelRepo)
+	cardUC := ucboard.NovoCardUseCase(membroRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo, anexoRepo, responsavelRepo, comentarioRepo)
 	etiquetaUC := ucboard.NovoEtiquetaUseCase(membroRepo, colunaRepo, cardRepo, etiquetaRepo)
 	checklistUC := ucboard.NovoChecklistUseCase(membroRepo, colunaRepo, cardRepo, checklistRepo)
 	anexoUC := ucboard.NovoAnexoUseCase(membroRepo, colunaRepo, cardRepo, anexoRepo, armazemAnexos)
 	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo, responsavelRepo)
 	responsavelUC := ucboard.NovoResponsavelUseCase(membroRepo, colunaRepo, cardRepo, responsavelRepo)
+	comentarioUC := ucboard.NovoComentarioUseCase(membroRepo, colunaRepo, cardRepo, comentarioRepo)
 
 	// O hub é o adaptador que implementa a porta Publicador. Ligá-lo aqui, e
 	// não no construtor de cada usecase, é o que mantém os testes construindo
@@ -109,7 +111,7 @@ func main() {
 		ComRegistro(ucboard.RegistroDeEventos)
 		ComEscritaAtomica(ucboard.EscritaAtomica)
 	}{
-		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC, responsavelUC,
+		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC,
 	} {
 		uc.ComPublicador(salaDeEventos)
 		uc.ComRegistro(logDeEventos)
@@ -129,7 +131,7 @@ func main() {
 	)
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
-	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, identidadeDoContexto)
+	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, identidadeDoContexto)
 
 	// OriginPatterns com a origem do frontend, e nada além: WebSocket NÃO
 	// obedece CORS, então sem esta lista qualquer site que a vítima visitar
@@ -243,6 +245,11 @@ func main() {
 			r.Post("/itens", extrasHandler.CriarItem)
 		})
 
+		r.Route("/comentarios/{comentarioID}", func(r chi.Router) {
+			r.Patch("/", extrasHandler.EditarComentario)
+			r.Delete("/", extrasHandler.ApagarComentario)
+		})
+
 		r.Route("/itens/{itemID}", func(r chi.Router) {
 			r.Patch("/", extrasHandler.EditarItem)
 			r.Delete("/", extrasHandler.ApagarItem)
@@ -276,6 +283,8 @@ func main() {
 			r.Delete("/etiquetas/{etiquetaID}", extrasHandler.RemoverEtiqueta)
 			r.Put("/responsaveis/{usuarioID}", extrasHandler.Atribuir)
 			r.Delete("/responsaveis/{usuarioID}", extrasHandler.Desatribuir)
+			r.Get("/comentarios", extrasHandler.ListarComentarios)
+			r.Post("/comentarios", extrasHandler.Comentar)
 			r.Post("/checklists", extrasHandler.CriarChecklist)
 			r.Post("/anexos/link", extrasHandler.AnexarLink)
 			r.Post("/anexos/arquivo", extrasHandler.AnexarArquivo)

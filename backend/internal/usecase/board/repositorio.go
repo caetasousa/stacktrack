@@ -9,6 +9,7 @@ import (
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/checklist"
 	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/comentario"
 	"stacktrack/internal/domain/convite"
 	"stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/membro"
@@ -108,6 +109,27 @@ type RepositorioResponsavel interface {
 	// DoBoardPorCard devolve, para cada card do quadro, quem responde por ele —
 	// numa consulta só, pelo mesmo motivo das etiquetas.
 	DoBoardPorCard(ctx context.Context, boardID string) (map[string][]Responsavel, error)
+}
+
+// ComentarioComAutor é um comentário já com o nome de quem escreveu — o JOIN
+// resolvido, para a tela não precisar de uma consulta por autor.
+type ComentarioComAutor struct {
+	Comentario comentario.Comentario
+	AutorNome  string
+}
+
+// RepositorioComentario guarda a conversa dos cards.
+type RepositorioComentario interface {
+	Salvar(ctx context.Context, c *comentario.Comentario) error
+	Atualizar(ctx context.Context, c *comentario.Comentario) error
+	BuscarPorID(ctx context.Context, id string) (*comentario.Comentario, error)
+	Apagar(ctx context.Context, id string) error
+	// ListarDoCard devolve a conversa em ordem de tempo, do mais antigo para o
+	// mais novo — é como se lê uma conversa.
+	ListarDoCard(ctx context.Context, cardID string) ([]ComentarioComAutor, error)
+	// ContarPorCardDoBoard devolve quantos comentários cada card do quadro tem,
+	// para o selo do card, numa consulta só.
+	ContarPorCardDoBoard(ctx context.Context, boardID string) (map[string]int, error)
 }
 
 type repositorioAnexo interface {

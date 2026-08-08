@@ -636,6 +636,7 @@
 		cardId={cardAberto}
 		etiquetasDoQuadro={data.quadro.etiquetas}
 		{podeEditar}
+		{podeAdministrar}
 		aoFechar={() => (cardAberto = null)}
 		aoMudar={recarregar}
 	/>

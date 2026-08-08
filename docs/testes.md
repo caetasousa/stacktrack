@@ -49,6 +49,16 @@ Nos dois casos a API respondia `200` e o dado sumia.
 
 ## 3. Handlers (Go)
 
+> **A camada que pegou três defeitos que nenhuma outra pegou.** Na fase 11, o
+> domínio, o usecase e os testes de unidade estavam todos corretos, e mesmo
+> assim a API respondia errado: um erro de domínio sem tradução virava **500**
+> (dizendo "erro interno" para uma recusa que é regra de negócio), e dois campos
+> que o DTO declarava não eram copiados pelo conversor — um deles saindo como
+> `null` e quebrando a tela em tempo de execução.
+>
+> É o argumento a favor desta camada: a borda HTTP tem lógica própria — tradução
+> de erro e montagem de DTO — e ela não é exercitada por nenhum teste de dentro.
+
 `backend/test/handler/` — o contorno HTTP: códigos de status, formato do corpo,
 atributos do cookie de sessão.
 

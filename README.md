@@ -11,11 +11,12 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 10 — o quadro tem donos.** Duas pessoas no mesmo quadro veem a
+> **Fase atual: 11 — o quadro conversa.** Duas pessoas no mesmo quadro veem a
 > mudança uma da outra na hora, veem o avatar de quem está junto, e quem grava
 > por último num card em disputa é avisado em vez de sobrescrever. Quem cai e
-> volta recebe o que perdeu, pelo log de eventos do quadro. **Agora cada card
-> tem responsável**, e o filtro responde "o que é meu?".
+> volta recebe o que perdeu, pelo log de eventos do quadro. Cada card tem
+> responsável, o filtro responde "o que é meu?", e **agora cada card tem
+> conversa** — em markdown, com quem escreveu e quando.
 
 ## Documentação
 
@@ -128,6 +129,8 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
 | `PUT`/`DELETE` | `/cards/{id}/responsaveis/{usuarioId}` | Marca e desmarca quem responde pelo card. **422** se a pessoa não participa do quadro. |
+| `GET`/`POST` | `/cards/{id}/comentarios` | A conversa do card, do mais antigo para o mais novo, e escrever nela. Basta participar — comentar não exige papel de edição. |
+| `PATCH`/`DELETE` | `/comentarios/{id}` | Edita ou apaga. **403** ao editar o de outra pessoa: só o autor edita. Apagar, o autor no próprio e o dono em qualquer um. |
 | `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |
 | `PATCH`/`DELETE` | `/checklists/{id}` | Renomeia ou apaga (os itens vão junto). |
 | `POST` | `/checklists/{id}/itens` | Cria uma linha. |

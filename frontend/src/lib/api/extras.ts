@@ -35,8 +35,22 @@ export interface Anexo {
 
 // CardDetalhado é o que o modal mostra: o card e tudo que pende dele, numa
 // requisição só.
+/** Uma mensagem na conversa de um card. */
+export interface Comentario {
+	id: string;
+	cardId: string;
+	autorId: string;
+	autorNome: string;
+	texto: string;
+	criadoEm: string;
+	// null enquanto nunca foi editado — é o que deixa a tela dizer "editado"
+	// sem comparar datas que sempre diferem.
+	editadoEm: string | null;
+}
+
 export interface CardDetalhado extends Card {
 	boardId: string;
+	comentarios: Comentario[];
 	etiquetasDoCard: Etiqueta[];
 	checklists: Checklist[];
 	anexos: Anexo[];
@@ -104,6 +118,20 @@ export async function atribuir(cardId: string, usuarioId: string): Promise<void>
 
 export function desatribuir(cardId: string, usuarioId: string): Promise<void> {
 	return apiDelete(`/cards/${cardId}/responsaveis/${usuarioId}`);
+}
+
+// --- comentários ----------------------------------------------------------
+
+export function comentar(cardId: string, texto: string): Promise<Comentario> {
+	return apiPost<{ texto: string }, Comentario>(`/cards/${cardId}/comentarios`, { texto });
+}
+
+export function editarComentario(comentarioId: string, texto: string): Promise<Comentario> {
+	return apiPatch<{ texto: string }, Comentario>(`/comentarios/${comentarioId}`, { texto });
+}
+
+export function apagarComentario(comentarioId: string): Promise<void> {
+	return apiDelete(`/comentarios/${comentarioId}`);
 }
 
 // --- checklists -----------------------------------------------------------

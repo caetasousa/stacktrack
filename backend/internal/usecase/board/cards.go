@@ -27,6 +27,7 @@ type CardUseCase struct {
 	checklists   repositorioChecklist
 	anexos       repositorioAnexo
 	responsaveis RepositorioResponsavel
+	comentarios  RepositorioComentario
 }
 
 // NovoCardUseCase cria uma instância de CardUseCase com as dependências injetadas.
@@ -38,10 +39,11 @@ func NovoCardUseCase(
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
 	responsaveis RepositorioResponsavel,
+	comentarios RepositorioComentario,
 ) *CardUseCase {
 	return &CardUseCase{
 		membros: membros, colunas: colunas, cards: cards,
-		etiquetas: etiquetas, checklists: checklists, anexos: anexos, responsaveis: responsaveis,
+		etiquetas: etiquetas, checklists: checklists, anexos: anexos, responsaveis: responsaveis, comentarios: comentarios,
 	}
 }
 
@@ -70,6 +72,10 @@ func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (
 	if err != nil {
 		return nil, err
 	}
+	comentarios, err := uc.comentarios.ListarDoCard(ctx, cardID)
+	if err != nil {
+		return nil, err
+	}
 	etiquetas, err := uc.etiquetas.EtiquetasDoCard(ctx, cardID)
 	if err != nil {
 		return nil, err
@@ -95,6 +101,7 @@ func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (
 	return &CardDetalhado{
 		Card: *c, BoardID: col.BoardID, Responsaveis: responsaveis,
 		Etiquetas: etiquetas, Checklists: comItens, Anexos: anexos,
+		Comentarios: comentarios,
 	}, nil
 }
 

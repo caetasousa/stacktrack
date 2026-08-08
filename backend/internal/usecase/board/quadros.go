@@ -25,6 +25,7 @@ type QuadroUseCase struct {
 	checklists   repositorioChecklist
 	anexos       repositorioAnexo
 	responsaveis RepositorioResponsavel
+	comentarios  RepositorioComentario
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
@@ -37,11 +38,12 @@ func NovoQuadroUseCase(
 	checklists repositorioChecklist,
 	anexos repositorioAnexo,
 	responsaveis RepositorioResponsavel,
+	comentarios RepositorioComentario,
 ) *QuadroUseCase {
 	return &QuadroUseCase{
 		boards: boards, membros: membros, colunas: colunas, cards: cards,
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
-		responsaveis: responsaveis,
+		responsaveis: responsaveis, comentarios: comentarios,
 	}
 }
 
@@ -124,6 +126,10 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 	if err != nil {
 		return nil, err
 	}
+	comentariosPorCard, err := uc.comentarios.ContarPorCardDoBoard(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
 	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -132,7 +138,7 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 	return &Detalhado{
 		Board:     *b,
 		Papel:     vinculo.Papel,
-		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard),
+		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard, comentariosPorCard),
 		Etiquetas: etiquetasDoBoard,
 	}, nil
 }
@@ -215,6 +221,7 @@ func agrupar(
 	etiquetasPorCard map[string][]string,
 	progressoPorCard map[string]Progresso,
 	anexosPorCard map[string]int,
+	comentariosPorCard map[string]int,
 ) []ColunaComCards {
 	porColuna := make(map[string][]CardNoQuadro, len(colunas))
 	for _, c := range cards {
@@ -227,11 +234,12 @@ func agrupar(
 			responsaveis = []Responsavel{}
 		}
 		porColuna[c.ColunaID] = append(porColuna[c.ColunaID], CardNoQuadro{
-			Card:         c,
-			Responsaveis: responsaveis,
-			Etiquetas:    etiquetas,
-			Checklist:    progressoPorCard[c.ID],
-			QtdAnexos:    anexosPorCard[c.ID],
+			Card:           c,
+			Responsaveis:   responsaveis,
+			Etiquetas:      etiquetas,
+			Checklist:      progressoPorCard[c.ID],
+			QtdAnexos:      anexosPorCard[c.ID],
+			QtdComentarios: comentariosPorCard[c.ID],
 		})
 	}
 

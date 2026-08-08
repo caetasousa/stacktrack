@@ -43,6 +43,7 @@ export interface Card {
 	etiquetas: string[];
 	checklist: Progresso;
 	qtdAnexos: number;
+	qtdComentarios: number;
 }
 
 export type Cor = 'cinza' | 'vermelho' | 'laranja' | 'amarelo' | 'verde' | 'azul' | 'roxo' | 'rosa';

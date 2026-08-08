@@ -78,6 +78,9 @@ type CardResponse struct {
 	Etiquetas    []string              `json:"etiquetas"`
 	Checklist    ProgressoResponse     `json:"checklist"`
 	QtdAnexos    int                   `json:"qtdAnexos"`
+	// QtdComentarios alimenta o selo 💬 do card. Vem contado pelo servidor,
+	// numa consulta só para o quadro inteiro.
+	QtdComentarios int `json:"qtdComentarios"`
 }
 
 // ProgressoResponse é o "2/5" de checklist mostrado no card.
@@ -131,10 +134,11 @@ type AnexoResponse struct {
 // CardDetalhadoResponse é o que o modal do card mostra.
 type CardDetalhadoResponse struct {
 	CardResponse
-	BoardID         string              `json:"boardId"`
-	EtiquetasDoCard []EtiquetaResponse  `json:"etiquetasDoCard"`
-	Checklists      []ChecklistResponse `json:"checklists"`
-	Anexos          []AnexoResponse     `json:"anexos"`
+	BoardID         string               `json:"boardId"`
+	EtiquetasDoCard []EtiquetaResponse   `json:"etiquetasDoCard"`
+	Checklists      []ChecklistResponse  `json:"checklists"`
+	Anexos          []AnexoResponse      `json:"anexos"`
+	Comentarios     []ComentarioResponse `json:"comentarios"`
 }
 
 // ResponsavelResponse é quem responde por um card. Só o necessário para o
@@ -143,6 +147,33 @@ type ResponsavelResponse struct {
 	UsuarioID string `json:"usuarioId"`
 	Nome      string `json:"nome"`
 }
+
+// ComentarioResponse é uma mensagem na conversa do card.
+type ComentarioResponse struct {
+	ID        string    `json:"id"`
+	CardID    string    `json:"cardId"`
+	AutorID   string    `json:"autorId"`
+	AutorNome string    `json:"autorNome"`
+	Texto     string    `json:"texto"`
+	CriadoEm  time.Time `json:"criadoEm"`
+	// EditadoEm é nulo enquanto o comentário nunca foi editado — é o que deixa
+	// a tela dizer "editado" sem comparar datas.
+	EditadoEm *time.Time `json:"editadoEm"`
+}
+
+// ListaComentariosResponse envelopa a conversa num objeto, e não devolve array
+// na raiz: assim cabe acrescentar paginação depois sem quebrar quem consome.
+type ListaComentariosResponse struct {
+	Comentarios []ComentarioResponse `json:"comentarios"`
+}
+
+// ComentarioRequest é o corpo de escrever e editar comentário.
+type ComentarioRequest struct {
+	Texto string `json:"texto" validate:"required,max=2000"`
+}
+
+// Validar checa o formato dos campos informados.
+func (r ComentarioRequest) Validar() error { return validate.Struct(r) }
 
 // PrazoRequest é o corpo de marcar ou limpar o prazo. Nulo limpa.
 type PrazoRequest struct {

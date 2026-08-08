@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -173,6 +174,56 @@ func abrirSocket(t *testing.T, ctx context.Context, cookie, boardID, origem stri
 	})
 }
 
+// deControle diz se o evento é preâmbulo, e não mudança do quadro.
+//
+// Toda conexão começa com `sincronizado` (a posição na história) e com a
+// presença de quem entrou. Um teste que lê a primeira mensagem achando que é o
+// evento dele passa a falhar por motivo errado.
+func deControle(tipo string) bool {
+	return tipo == "sincronizado" || tipo == "presenca.alterada" || tipo == "recarregue.tudo"
+}
+
+// lerEvento lê até chegar algo que não seja preâmbulo.
+func lerEvento(t *testing.T, ctx context.Context, c *websocket.Conn) []byte {
+	t.Helper()
+	for {
+		_, dados, err := c.Read(ctx)
+		if err != nil {
+			t.Fatalf("nada chegou: %v", err)
+		}
+		var m struct {
+			Tipo string `json:"tipo"`
+		}
+		if err := json.Unmarshal(dados, &m); err != nil {
+			t.Fatalf("evento ilegível: %v — %s", err, dados)
+		}
+		if !deControle(m.Tipo) {
+			return dados
+		}
+	}
+}
+
+// semEvento confirma que NADA além de preâmbulo chega dentro do prazo.
+func semEvento(t *testing.T, ctx context.Context, c *websocket.Conn, prazo time.Duration) {
+	t.Helper()
+	limite, cancelar := context.WithTimeout(ctx, prazo)
+	defer cancelar()
+	for {
+		_, dados, err := c.Read(limite)
+		if err != nil {
+			return // o prazo esgotou sem evento: é o que se quer
+		}
+		var m struct {
+			Tipo string `json:"tipo"`
+		}
+		_ = json.Unmarshal(dados, &m)
+		if !deControle(m.Tipo) {
+			t.Errorf("chegou evento que não devia: %s", dados)
+			return
+		}
+	}
+}
+
 func wsURL(boardID string) string {
 	base := baseAPI()
 	if len(base) > 4 && base[:5] == "https" {
@@ -205,10 +256,7 @@ func TestUmAgeEOOutroVe(t *testing.T) {
 		t.Fatalf("ana não criou a coluna: %v (status %d)", err, status)
 	}
 
-	_, dados, err := conexao.Read(ctx)
-	if err != nil {
-		t.Fatalf("bruno não recebeu nada: %v", err)
-	}
+	dados := lerEvento(t, ctx, conexao)
 
 	var m struct {
 		Tipo    string `json:"tipo"`
@@ -251,11 +299,7 @@ func TestOAutorNaoRecebeOProprioEco(t *testing.T) {
 		t.Fatalf("ana não criou: %v", err)
 	}
 
-	curto, cancelarCurto := context.WithTimeout(ctx, 2*time.Second)
-	defer cancelarCurto()
-	if _, dados, err := conexao.Read(curto); err == nil {
-		t.Errorf("ana recebeu o próprio eco: %s", dados)
-	}
+	semEvento(t, ctx, conexao, 2*time.Second)
 }
 
 // A sala é fronteira de acesso: quem não participa do quadro nem chega a
@@ -308,4 +352,129 @@ func TestSemSessaoNaoConecta(t *testing.T) {
 	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %v, esperado 401", resp)
 	}
+}
+
+// --- fase 7: reconexão e replay --------------------------------------------
+
+// O caso que a fase 7 existe para resolver.
+//
+// Bruno cai. Enquanto está fora, ana mexe no quadro. Ao voltar, bruno pergunta
+// "o que houve desde o 41?" e recebe o intervalo — em vez de fingir que nada
+// aconteceu, que é o que uma reconexão ingênua faz.
+func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
+	ana, bruno, boardID := quadroCompartilhado(t)
+
+	ctx, cancelar := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancelar()
+
+	// Primeira conexão: o servidor responde em que ponto da história ele está.
+	primeira, _, err := abrirSocket(t, ctx, bruno.cookie, boardID, origemAceita())
+	if err != nil {
+		t.Fatalf("bruno não conectou: %v", err)
+	}
+	_, dados, err := primeira.Read(ctx)
+	if err != nil {
+		t.Fatalf("bruno não recebeu a sincronização: %v", err)
+	}
+	var sinc struct {
+		Tipo string `json:"tipo"`
+		Seq  int64  `json:"seq"`
+	}
+	if err := json.Unmarshal(dados, &sinc); err != nil || sinc.Tipo != "sincronizado" {
+		t.Fatalf("primeira mensagem = %s (esperado sincronizado)", dados)
+	}
+
+	// Bruno cai.
+	primeira.CloseNow()
+
+	// Ana mexe no quadro enquanto ele está fora.
+	if _, _, err := pedir(t, "POST", "/boards/"+boardID+"/colunas", ana.cookie,
+		`{"titulo":"Feita enquanto bruno estava fora"}`); err != nil {
+		t.Fatalf("ana não criou: %v", err)
+	}
+
+	// Bruno volta, dizendo até onde tinha aplicado.
+	segunda, _, err := websocket.Dial(ctx,
+		wsURL(boardID)+"&desde="+strconv.FormatInt(sinc.Seq, 10),
+		&websocket.DialOptions{HTTPHeader: http.Header{
+			"Cookie": {bruno.cookie}, "Origin": {origemAceita()},
+		}})
+	if err != nil {
+		t.Fatalf("bruno não reconectou: %v", err)
+	}
+	defer segunda.CloseNow()
+
+	_, dados, err = segunda.Read(ctx)
+	if err != nil {
+		t.Fatalf("o histórico não veio: %v", err)
+	}
+	var reposto struct {
+		Tipo  string `json:"tipo"`
+		Seq   int64  `json:"seq"`
+		Dados struct {
+			Titulo string
+		} `json:"dados"`
+	}
+	if err := json.Unmarshal(dados, &reposto); err != nil {
+		t.Fatalf("evento ilegível: %v — %s", err, dados)
+	}
+	if reposto.Tipo != "coluna.criada" {
+		t.Errorf("tipo = %q, esperado coluna.criada reposta", reposto.Tipo)
+	}
+	if reposto.Seq <= sinc.Seq {
+		t.Errorf("seq = %d, devia ser maior que o último aplicado (%d)", reposto.Seq, sinc.Seq)
+	}
+	if reposto.Dados.Titulo != "Feita enquanto bruno estava fora" {
+		t.Errorf("o payload não sobreviveu ao log: %+v", reposto.Dados)
+	}
+}
+
+// Quem já está em dia não recebe história nenhuma — só a posição atual. Sem
+// isso, toda reconexão traria de volta tudo o que já foi aplicado.
+func TestQuemEstaEmDiaNaoRecebeHistorico(t *testing.T) {
+	ana, bruno, boardID := quadroCompartilhado(t)
+
+	ctx, cancelar := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancelar()
+
+	// Gera um evento para a história não estar vazia.
+	if _, _, err := pedir(t, "POST", "/boards/"+boardID+"/colunas", ana.cookie,
+		`{"titulo":"Qualquer uma"}`); err != nil {
+		t.Fatalf("ana não criou: %v", err)
+	}
+
+	conexao, _, err := abrirSocket(t, ctx, bruno.cookie, boardID, origemAceita())
+	if err != nil {
+		t.Fatalf("bruno não conectou: %v", err)
+	}
+	defer conexao.CloseNow()
+
+	_, dados, err := conexao.Read(ctx)
+	if err != nil {
+		t.Fatalf("nada chegou: %v", err)
+	}
+	var m struct {
+		Tipo string `json:"tipo"`
+		Seq  int64  `json:"seq"`
+	}
+	_ = json.Unmarshal(dados, &m)
+	if m.Tipo != "sincronizado" {
+		t.Errorf("tipo = %q, esperado sincronizado", m.Tipo)
+	}
+	if m.Seq == 0 {
+		t.Error("a posição atual veio zerada; o cliente não teria de onde partir")
+	}
+
+	// E reconectando a partir dela, nada é reposto.
+	segunda, _, err := websocket.Dial(ctx,
+		wsURL(boardID)+"&desde="+strconv.FormatInt(m.Seq, 10),
+		&websocket.DialOptions{HTTPHeader: http.Header{
+			"Cookie": {bruno.cookie}, "Origin": {origemAceita()},
+		}})
+	if err != nil {
+		t.Fatalf("bruno não reconectou: %v", err)
+	}
+	defer segunda.CloseNow()
+
+	semEvento(t, ctx, segunda, 2*time.Second)
 }

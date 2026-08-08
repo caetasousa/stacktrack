@@ -29,7 +29,8 @@ recarregar a página.
 | Decisão | Escolha |
 |---|---|
 | Autenticação | Completa, como no agendaGo (confirmação por email, recuperação de senha, rate limiting, convites) |
-| Infra inicial | Postgres + Docker Compose + Flyway. Swagger, Testcontainers e CI entram na fase 8 |
+| Infra inicial | Postgres + Docker Compose + Flyway. Testcontainers e CI entram na fase 8 |
+| Documentação da API | A tabela de rotas do `README.md`, e só ela. **Swagger ficou de fora em definitivo** — ver a fase 8 |
 | Proxy e TLS | **Caddy** — o que já atende o agendaGo no mesmo VPS, roteando por domínio. O plano original dizia nginx; na fase 8 ficou claro que o VPS já rodava Caddy, e enfiar um segundo proxy em série só somaria timeouts para depurar. O stacktrack deposita um bloco de site em `deploy/caddy/` e o Caddy do vizinho o importa |
 | WebSocket | `github.com/coder/websocket` (API sobre `context`, casa com o shutdown gracioso) |
 | Nome / caminho | `stacktrack` em `/home/caetasousa/projectX` |
@@ -381,10 +382,15 @@ telas idênticas — sem F5.
 **Conceito novo:** nenhum — é trazer o rigor do agendaGo para um projeto que agora tem
 concorrência de verdade para proteger.
 
-**Entrega:** Swagger via Swaggo (+ tabela de rotas no README), Testcontainers nos testes de
+**Entrega:** tabela de rotas no README, Testcontainers nos testes de
 repositório, `compatibilidade_schema_test.go` (o guard de expand/contract), CI no GitHub Actions
 rodando `-race`, `docker-compose.prod.yml` atrás do Caddy do VPS, e `docs/tecnologias.md` no formato de guia de
 estudo do agendaGo.
+
+**O Swagger saiu do plano.** Era entrega desta fase e não será feito: a tabela do README já
+responde à mesma pergunta, e uma segunda descrição das rotas — gerada de anotações no código —
+seria mais uma fonte da verdade para manter alinhada, ao custo de blocos `@Summary`/`@Router` em
+cada handler. A conta só muda se a API passar a ser consumida por terceiros.
 
 **Atenção específica deste projeto:** proxy reverso e conexão longa não se dão bem por padrão —
 timeout de leitura, buffering e keep-alive precisam de atenção, e é aqui que o ping/pong da fase 5

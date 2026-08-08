@@ -71,7 +71,9 @@ coluna nova obrigatória, coluna removida e coluna apertada.
 
 ## README
 
-Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas no `README.md`. A partir da fase 8 (quando o Swagger entra) a rota vira um link clicável apontando para a operação correspondente no Swagger UI: `http://localhost:8080/swagger/index.html#/{tag}/{método}_{caminho-com-underscore}` (ex.: `POST /auth/me` com tag `auth` → `#/auth/get_auth_me`). Para descobrir o id exato de uma operação nova, inspecionar os elementos `[id^="operations-"]` na página do Swagger renderizada.
+Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas no `README.md`, com a descrição do que ela faz — inclusive os códigos de erro que importam para quem chama (o 409 do card em disputa, o 404 de quem não participa).
+
+**Não há Swagger, e isso é decisão tomada, não pendência.** O plano original previa Swaggo na fase 8; ficou de fora porque a tabela do README já responde à mesma pergunta, e uma segunda descrição das rotas — gerada de anotações no código — seria uma fonte da verdade a mais para manter alinhada, com o custo de poluir cada handler com blocos `@Summary`/`@Router`. Se a API um dia passar a ser consumida por terceiros, aí a conta muda e vale reabrir.
 
 ### Estrutura de documentação
 

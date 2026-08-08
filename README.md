@@ -11,10 +11,10 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 6 — presença e edição concorrente.** Duas pessoas no mesmo
-> quadro veem a mudança uma da outra na hora, **veem o avatar de quem está
-> junto**, e quem grava por último num card em disputa recebe um aviso em vez de
-> apagar o trabalho do outro.
+> **Fase atual: 8 — endurecido.** Duas pessoas no mesmo quadro veem a mudança
+> uma da outra na hora, veem o avatar de quem está junto, e quem grava por
+> último num card em disputa é avisado em vez de sobrescrever. **Quem cai e
+> volta recebe o que perdeu**, pelo log de eventos do quadro.
 
 ## Documentação
 
@@ -78,6 +78,9 @@ make test-frontend   # vitest run
 
 make test-e2e        # Playwright sobre a stack (exige `make run` no ar)
 
+cd backend && make test-integracao   # repositórios contra Postgres real (Docker)
+cd backend && make test-tempo-real   # protocolo do WebSocket (exige a stack no ar)
+
 cd backend && make test        # com -race, o detector de corrida
 cd frontend && npm run check   # tipos (svelte-check)
 ```
@@ -130,7 +133,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. |
 | `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). |
 | `GET`/`DELETE` | `/anexos/{id}` | Baixa ou apaga o anexo. |
-| `GET` | `/ws?board={id}` | Abre o WebSocket do quadro. Fora do teto por sessão: é uma requisição só que dura horas. |
+| `GET` | `/ws?board={id}&desde={seq}` | Abre o WebSocket do quadro. Com `desde`, repõe o que se perdeu antes de voltar ao vivo. Fora do teto por sessão: é uma requisição só que dura horas. |
 
 **A rota nunca informa o quadro.** Card, coluna e etiqueta são identificados por
 si, e o servidor descobre sozinho a que quadro pertencem (card → coluna →

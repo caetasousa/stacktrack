@@ -157,6 +157,27 @@ Duas abas da mesma conta são duas conexões e **um** avatar. Sem deduplicar, qu
 abrisse o quadro em dois monitores apareceria como duas pessoas, e a contagem
 deixaria de significar algo.
 
+## Quem cai e volta
+
+Uma conexão de horas cai — é o estado normal, não a exceção. O que não pode é
+voltar fingindo que nada aconteceu.
+
+Cada mudança no quadro entra num log com um `seq` crescente. O cliente guarda o
+último que aplicou; ao reconectar, pergunta `?desde=41` e recebe o intervalo
+**antes** de voltar ao vivo. A ordem importa: entregar o passado depois do
+presente faria a tela aplicar o velho por cima do novo.
+
+A assinatura da sala acontece **antes** da reposição, de propósito. Isso faz os
+eventos que chegam durante a reposição ficarem na fila e serem entregues em
+seguida — sem buraco entre o fim da história e o começo do ao vivo. O preço é
+que alguns chegam duas vezes, e é por isso que o cliente descarta tudo com `seq`
+menor ou igual ao último aplicado. **Preferimos repetir a arriscar buraco**: o
+`seq` torna a repetição inofensiva, e nada torna um buraco perceptível.
+
+Intervalo grande demais (mais de 200 eventos) não é reproduzido: o servidor
+manda recarregar o quadro inteiro. Uma requisição resolve, e o resultado é o
+mesmo — com a vantagem de ser sempre correto.
+
 ## Sessão
 
 Token opaco, gerado com `crypto/rand`. O banco guarda **só o SHA-256** dele: um

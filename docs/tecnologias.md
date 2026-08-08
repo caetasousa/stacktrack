@@ -17,7 +17,9 @@ vulnerabilidades que o `govulncheck` acusou antes do primeiro deploy eram da
 biblioteca padrão, e a correção foi subir essa linha. Ver
 [entrega-continua.md](entrega-continua.md), em "Casos reais deste projeto".
 
-📚 [How to Write Go Code](https://go.dev/doc/code) · [Effective Go](https://go.dev/doc/effective_go)
+📚 [How to Write Go Code](https://go.dev/doc/code) — módulos e layout
+📝 [Effective Go](https://go.dev/doc/effective_go) — o guia de estilo com exemplo em cada seção
+📝 [Go by Example](https://gobyexample.com/) — cada conceito num programa curto que roda
 
 ### Arquitetura hexagonal
 
@@ -32,7 +34,9 @@ testes rodarem contra fakes em memória sem subir banco — e é a mesma costura
 vai receber a porta `Publicador` do WebSocket na fase 5, sem que nenhum usecase
 saiba que WebSocket existe.
 
-📚 [Ports & Adapters, de Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/)
+📚 [Ports & Adapters, de Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/) — o texto original
+📝 [Hexagonal architecture in Go, de Matthias Noback](https://matthiasnoback.nl/2017/08/hexagonal-architecture/) — com o passo a passo de como as portas nascem
+📝 [Standard Package Layout, de Ben Johnson](https://www.gobeyond.dev/standard-package-layout/) — por que a interface mora no pacote que a consome, com código
 
 ### chi
 
@@ -51,7 +55,9 @@ também os 500 que ele produz.
 registrado, porque o `init()` de `net/http/pprof` entra no binário como
 dependência transitiva do chi.
 
-📚 [chi](https://github.com/go-chi/chi)
+📚 [chi](https://github.com/go-chi/chi) — o roteador
+📝 [Middleware em Go, de Alex Edwards](https://www.alexedwards.net/blog/making-and-using-middleware) — a anatomia de `func(http.Handler) http.Handler`, com exemplos que compilam
+📝 [net/http timeouts, de Filippo Valsorda](https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/) — o diagrama que explica por que WriteTimeout mata WebSocket
 
 ### pgx
 
@@ -68,14 +74,17 @@ duas vezes — `cards.prazo` e `boards.fundo` existiam em todas as camadas e nã
 eram gravados. O guard que restou está em
 [`test/repository/sql_cobre_as_colunas_test.go`](../backend/test/repository/sql_cobre_as_colunas_test.go).
 
-📚 [pgx](https://github.com/jackc/pgx)
+📚 [pgx](https://github.com/jackc/pgx) — driver e pool
+📝 [Organising database access, de Alex Edwards](https://www.alexedwards.net/blog/organising-database-access) — as quatro formas de injetar o banco, com o código de cada uma
+📝 [Optimistic Offline Lock, de Martin Fowler](https://martinfowler.com/eaaCatalog/optimisticOfflineLock.html) — o padrão do `WHERE version` que este projeto usa
 
 ### log/slog
 
 Log estruturado da biblioteca padrão. Cada requisição sai com `request_id`, que
 é o que permite seguir uma chamada pelos logs em produção.
 
-📚 [log/slog](https://pkg.go.dev/log/slog)
+📚 [log/slog](https://pkg.go.dev/log/slog) — a referência
+📝 [Structured logging with slog, de Jonathan Amsterdam](https://go.dev/blog/slog) — do autor do pacote, com exemplos de handler próprio
 
 ### Argon2id
 
@@ -83,7 +92,8 @@ Hash de senha, via [alexedwards/argon2id](https://github.com/alexedwards/argon2i
 Usa ~19 MiB por hash simultâneo — é essa conta que define o `mem_limit: 384m` da
 API no compose de produção.
 
-📚 [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+📚 [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) — os parâmetros recomendados
+📝 [How to Hash and Verify Passwords with Argon2, de Alex Edwards](https://www.alexedwards.net/blog/how-to-hash-and-verify-passwords-with-argon2-in-go) — o código exato que este projeto usa
 
 ---
 
@@ -111,7 +121,9 @@ Em produção os `.sql` viajam **dentro de uma imagem**
 ([`Dockerfile.migrations`](../backend/Dockerfile.migrations)), para o host não
 precisar do código-fonte.
 
-📚 [Flyway — naming](https://documentation.red-gate.com/fd/migrations-271585107.html) · [PostgreSQL — constraints](https://www.postgresql.org/docs/current/ddl-constraints.html)
+📚 [Flyway — naming de migrations](https://documentation.red-gate.com/fd/migrations-271585107.html)
+📝 [Expand/contract, de Danilo Sato (martinfowler.com)](https://martinfowler.com/bliki/ParallelChange.html) — o padrão dos dois deploys, com o exemplo passo a passo
+📝 [Zero-downtime Postgres migrations, do time do GoCardless](https://gocardless.com/blog/zero-downtime-postgres-migrations-the-hard-parts/) — quais DDLs travam a tabela e por quanto tempo
 
 ---
 
@@ -128,6 +140,7 @@ navegador. É isso que permite `PUBLIC_API_URL=/api` — relativo — funcionar,
 que um caminho relativo não teria base num fetch rodando no servidor Node.
 
 📚 [Runes](https://svelte.dev/docs/svelte/what-are-runes) · [SvelteKit](https://svelte.dev/docs/kit/introduction)
+📝 [Svelte 5 tutorial oficial](https://svelte.dev/tutorial/svelte/welcome-to-svelte) — interativo, cada rune num exercício que roda no navegador
 
 ### adapter-node
 
@@ -140,7 +153,8 @@ saiu a única CVE CRITICAL que a esteira barrou.
 Atrás do proxy ele precisa de `ORIGIN`, `PROTOCOL_HEADER` e `HOST_HEADER` — sem
 isso só enxerga o IP do container e recusa requisições por origem inválida.
 
-📚 [adapter-node](https://svelte.dev/docs/kit/adapter-node)
+📚 [adapter-node](https://svelte.dev/docs/kit/adapter-node) — as variáveis de ambiente atrás de proxy
+📝 [Deploying SvelteKit with Docker](https://kit.svelte.dev/docs/adapter-node#deploying) — o Dockerfile mínimo, que é a base do nosso
 
 ### Tailwind 4 e o design system
 
@@ -167,6 +181,7 @@ classes de componente do projeto ficam dentro de `@layer components` por causa
 disso — soltas, o `width: 100%` do `.botao` ganhava do `w-auto`.
 
 📚 [Tailwind 4](https://tailwindcss.com/docs) · [MDN — @layer](https://developer.mozilla.org/en-US/docs/Web/CSS/@layer)
+📝 [A Complete Guide to CSS Cascade Layers (CSS-Tricks)](https://css-tricks.com/css-cascade-layers/) — com os exemplos que mostram regra sem layer vencendo regra com layer
 
 ### svelte-dnd-action
 
@@ -179,7 +194,8 @@ que faz pegar num card mover só o card.
 existe no gesto seguinte. Foi assim que uma "alça" de arrastar coluna nunca
 funcionou, sem nenhum teste reclamar.
 
-📚 [svelte-dnd-action](https://github.com/isaacHagoel/svelte-dnd-action)
+📚 [svelte-dnd-action](https://github.com/isaacHagoel/svelte-dnd-action) — a API
+📝 [Exemplos ao vivo da própria biblioteca](https://svelte-dnd-action-examples.vercel.app/) — inclusive as zonas aninhadas, que é o caso deste projeto
 
 ---
 
@@ -211,7 +227,45 @@ conexão inteira, não por requisição. Os 15s que existiam derrubavam o quadro
 sempre no mesmo tempo, sem erro no cliente e sem nada no log. Hoje é zero, e o
 que protege está descrito em [`config/server.go`](../backend/config/server.go).
 
-📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) · [OWASP — WebSockets](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets)
+📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — seções 1 e 4; o resto é referência
+📝 [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat) — `hub.go` e `client.go` são a referência canônica do padrão hub em Go, e o desenho daqui vem deles
+📝 [Go Concurrency Patterns, de Rob Pike](https://go.dev/talks/2012/concurrency.slide) — o modelo mental de canais que o hub usa
+📝 [OWASP — WebSockets](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets) — a seção do Cross-Site WebSocket Hijacking
+
+### Log de eventos (o outbox)
+
+A tabela `board_events` guarda o que aconteceu em cada quadro, com um `seq`
+crescente. É o que permite a quem reconecta perguntar "o que houve desde o 41?"
+em vez de fingir que nada aconteceu.
+
+`BIGSERIAL`, e não UUID: o cliente precisa comparar "já apliquei até aqui", e
+isso exige **ordem total**. Identificador aleatório não ordena, e timestamp
+empata — dois eventos no mesmo microssegundo ficariam sem sucessor definido.
+
+⚠️ **A garantia hoje é mais fraca que o padrão outbox.** O evento é gravado logo
+depois da mudança, e não dentro da mesma transação: um processo que morra entre
+as duas escritas deixa um buraco no log. O que segura isso é o cliente cair na
+recarga completa quando o intervalo não fecha — sempre correta, só mais cara.
+Fechar a transação exige levar o `pgx.Tx` até os repositórios, e está anotado
+como o próximo passo em [testes.md](testes.md).
+
+📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
+📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real
+📝 [Exponential backoff and jitter (AWS Builders' Library)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — por que o jitter importa quando cinquenta clientes reconectam juntos
+
+### Testcontainers
+
+Sobe um PostgreSQL de verdade para os testes de repositório e o derruba no fim.
+É a camada que os fakes não alcançam — eles copiam a struct inteira, então um
+campo que o SQL não grava passa por eles sem reclamar.
+
+⚠️ A espera é por **duas** ocorrências de "ready to accept connections": o
+entrypoint do Postgres sobe o servidor uma primeira vez para rodar os scripts de
+inicialização e o derruba. Esperar a primeira dá um banco que fecha na cara do
+teste.
+
+📚 [Testcontainers for Go](https://golang.testcontainers.org/)
+📝 [Módulo de Postgres, com exemplo completo](https://golang.testcontainers.org/modules/postgres/) — inclusive as estratégias de espera
 
 ### Caddy
 
@@ -221,6 +275,7 @@ site em `/home/deploy/caddy/sites`. Ver
 [producao.md](producao.md), seção "Arquitetura no ar".
 
 📚 [Caddy — reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+📝 [Caddy — tutorial de proxy reverso](https://caddyserver.com/docs/quick-starts/reverse-proxy) — do zero ao HTTPS automático em cinco minutos
 
 ---
 
@@ -232,6 +287,7 @@ dependências na ordem certa, e o `make run` já os orquestra — duplicar isso
 criaria uma segunda forma de subir o projeto, que divergiria da primeira.
 
 📚 [Playwright](https://playwright.dev/docs/intro) · [browser contexts](https://playwright.dev/docs/browser-contexts) · [routeWebSocket](https://playwright.dev/docs/mock#mock-websockets)
+📝 [Best practices do Playwright](https://playwright.dev/docs/best-practices) — por que seletor por papel e rótulo, e não por classe CSS
 
 ---
 

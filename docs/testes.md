@@ -1,6 +1,6 @@
 # 🧪 Testes
 
-Sete camadas hoje, e uma que falta. Este documento diz o que cada uma cobre,
+Oito camadas hoje, e uma que falta. Este documento diz o que cada uma cobre,
 o que ela **não** cobre, e onde isso já custou caro.
 
 ```bash
@@ -134,7 +134,45 @@ lugar errado.
 Sem paralelismo (`workers: 1`), pelo mesmo motivo do teste em Go: cadastro e
 login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 
-## 7. Guard de schema (Go, sem banco)
+## 7. Integração contra Postgres real (Testcontainers)
+
+`backend/test/repository/`, atrás da build tag `integracao` porque exige Docker:
+
+```bash
+make -C backend test-integracao
+```
+
+É a camada que os fakes nunca puderam cobrir. `TestTodoCampoDoCardSobreviveAoBanco`
+escreve um card com todos os campos preenchidos e **lê de volta do banco** — se
+um faltar no INSERT, no UPDATE ou em qualquer SELECT, ele volta zerado. É
+exatamente assim que `cards.prazo` e `boards.fundo` sobreviveram meses.
+
+Cobre também o `WHERE version` do bloqueio otimista contra o SQL de verdade (o
+fake repete a regra, mas quem escreve o SQL errado não é o fake) e o log de
+eventos da fase 7: ordem do `seq`, o intervalo do `Desde`, o payload
+sobrevivendo ao JSONB, e o `ON DELETE CASCADE` levando a história junto com o
+quadro.
+
+### O guard de expand/contract
+
+`compatibilidade_schema_test.go` aplica as migrations até a **penúltima**,
+fotografa o schema, aplica a última e compara. Reprova três coisas, cada uma
+com a instrução de como partir em dois deploys:
+
+| O que a migration fez | Por que quebra |
+|---|---|
+| criou coluna já obrigatória | a versão anterior não a preenche, e o INSERT dela falha durante o deploy |
+| removeu coluna | a versão anterior ainda a escreve, e é para onde o rollback volta |
+| apertou para NOT NULL | idem: a versão anterior insere linhas sem ela |
+
+Tabela **nova** com colunas obrigatórias passa, e não é descuido: a versão
+anterior não a conhece e nunca insere nela. Foi o primeiro falso positivo do
+guard, e o conserto está no código.
+
+> Verifiquei que ele reprova de verdade acrescentando uma migration que aperta o
+> schema — um guard que nunca falhou é decoração.
+
+## 8. Guard de schema (Go, sem banco)
 
 `backend/test/repository/sql_cobre_as_colunas_test.go` — lê as migrations,
 extrai toda coluna criada e falha se ela não aparecer em nenhum SQL do pacote de
@@ -171,15 +209,15 @@ cliente.
 
 ## O que ainda não existe
 
-### Testes de repositório contra Postgres de verdade
+### A transação do outbox
 
-**Fase 8, com Testcontainers.** É a camada que exercita o SQL real — a única que
-teria pego `prazo` e `fundo` no ato, em vez de meses depois. O guard estático
-acima é um paliativo consciente.
+O evento é gravado logo **depois** da mudança, e não dentro da mesma transação.
+Um processo que morra entre as duas escritas deixa um buraco no log — e o
+cliente que reconectar pedindo "desde o 41" receberia o 43 sem saber que o 42
+existiu.
 
-Junto vem o `compatibilidade_schema_test.go`, que compara o schema antes e
-depois de uma migration e reprova coluna nova obrigatória, coluna removida e
-coluna apertada — transformando a regra dos dois deploys em falha de build.
+O que segura isso hoje é o caminho de recarga completa, sempre correto. Fechar a
+transação exige levar o `pgx.Tx` até os repositórios, e é o próximo passo aqui.
 
 ### Arrastar e soltar sob o Playwright
 

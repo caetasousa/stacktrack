@@ -18,6 +18,15 @@ const (
 	TamanhoMaximoDescricao = 5000
 )
 
+// ErrConflito é devolvido quando o card mudou entre a leitura e a escrita —
+// outra pessoa gravou primeiro. Não é erro de quem escreveu: é a informação de
+// que a base em que ele decidiu já não vale.
+//
+// Existe no domínio, e não no repositório, porque a REGRA é do domínio: "não
+// sobrescreva o trabalho de outra pessoa em silêncio". O SQL é só onde ela é
+// aplicada.
+var ErrConflito = errors.New("o card foi alterado por outra pessoa")
+
 var (
 	// ErrTituloObrigatorio é retornado quando o título está vazio ou só com espaços.
 	ErrTituloObrigatorio = errors.New("título do card é obrigatório")

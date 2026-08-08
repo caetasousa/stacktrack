@@ -137,10 +137,23 @@ func (uc *CardUseCase) Criar(colunaID, usuarioID, titulo, descricao string, core
 
 // Editar troca título, descrição e cor do card, incrementando a versão. Exige
 // papel de edição.
-func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores dcor.Cor) (*dcard.Card, error) {
+//
+// Devolve ErrConflito (409) quando versaoVista não é a versão atual — alguém
+// gravou entre a leitura e esta escrita. Recusar é a decisão: sobrescrever
+// apagaria o trabalho da outra pessoa sem ninguém ficar sabendo.
+func (uc *CardUseCase) Editar(cardID, usuarioID, titulo, descricao string, cores dcor.Cor, versaoVista int) (*dcard.Card, error) {
 	c, boardID, err := uc.carregarComAcessoDeEdicao(cardID, usuarioID)
 	if err != nil {
 		return nil, err
+	}
+	// A conferência aqui pega o caso que o WHERE do SQL não pega: quem abriu o
+	// card há cinco minutos e só agora salvou. O banco, sozinho, só percebe
+	// duas escritas simultâneas — e o conflito que incomoda de verdade é o
+	// lento.
+	//
+	// Zero significa "não confira", e é o que o arraste manda.
+	if versaoVista != 0 && c.Version != versaoVista {
+		return nil, dcard.ErrConflito
 	}
 	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err

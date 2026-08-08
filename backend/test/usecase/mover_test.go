@@ -225,11 +225,18 @@ func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
 	segundo := q.criarCard(t, col, "ana", "Segundo")
 	movel := q.criarCard(t, col, "ana", "Móvel")
 
-	// empurra o "Segundo" para o mais perto possível do "Primeiro"
+	// Empurra o "Segundo" para o mais perto possível do "Primeiro".
+	//
+	// Salvar, e não Atualizar: esta é preparação de cenário, gravando um estado
+	// que o domínio não produziria. Atualizar exige a versão anterior — é o
+	// bloqueio otimista —, e passar por ele aqui faria a preparação falhar em
+	// silêncio, deixando o teste verde por não ter montado o caso que queria.
 	posInicial, _ := q.cards.BuscarPorID(primeiro)
 	alvo, _ := q.cards.BuscarPorID(segundo)
 	alvo.Posicao = posInicial.Posicao
-	q.cards.Atualizar(alvo)
+	if err := q.cards.Salvar(alvo); err != nil {
+		t.Fatalf("preparação do cenário: %v", err)
+	}
 
 	_, err := q.card.Mover(movel, "ana", col, ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
 

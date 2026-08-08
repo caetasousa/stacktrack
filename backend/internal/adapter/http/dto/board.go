@@ -21,6 +21,13 @@ type CardRequest struct {
 	Titulo    string `json:"titulo" validate:"required,max=200"`
 	Descricao string `json:"descricao" validate:"max=5000"`
 	Cor       string `json:"cor" validate:"omitempty,oneof=cinza vermelho laranja amarelo verde azul roxo rosa"`
+	// Version é a versão que o cliente estava vendo quando editou. Zero (ou
+	// ausente) significa "não confira" — é o que o arraste manda, onde a última
+	// escrita vencer é o comportamento certo.
+	//
+	// Com valor, ela transforma "outra pessoa editou enquanto eu escrevia" num
+	// 409 em vez de um texto sobrescrito em silêncio.
+	Version int `json:"version"`
 }
 
 // Validar checa o formato dos campos informados.

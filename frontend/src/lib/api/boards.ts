@@ -141,17 +141,24 @@ export function criarCard(
 	);
 }
 
+/**
+ * editarCard grava título, descrição e cor.
+ *
+ * `version` é a versão que a tela estava mostrando. O servidor a compara com a
+ * atual e responde **409** se outra pessoa gravou nesse meio-tempo — em vez de
+ * apagar o trabalho dela em silêncio. Zero desliga a conferência.
+ */
 export function editarCard(
 	id: string,
 	titulo: string,
 	descricao: string,
-	cor: Cor | '' = ''
+	cor: Cor | '' = '',
+	version = 0
 ): Promise<Card> {
-	return apiPatch<{ titulo: string; descricao: string; cor: string }, Card>(`/cards/${id}`, {
-		titulo,
-		descricao,
-		cor
-	});
+	return apiPatch<{ titulo: string; descricao: string; cor: string; version: number }, Card>(
+		`/cards/${id}`,
+		{ titulo, descricao, cor, version }
+	);
 }
 
 export function apagarCard(id: string): Promise<void> {

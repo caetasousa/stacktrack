@@ -269,7 +269,7 @@ func TestNaoDaParaMexerEmCardDeQuadroAlheio(t *testing.T) {
 	colunaDaAna := q.criarColuna(t, daAna, "ana", "A fazer")
 	cardDaAna := q.criarCard(t, colunaDaAna, "ana", "Segredo")
 
-	if _, err := q.card.Editar(cardDaAna, "bob", "Invadido", "", ""); !errors.Is(err, dcard.ErrNaoEncontrado) {
+	if _, err := q.card.Editar(cardDaAna, "bob", "Invadido", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
 		t.Errorf("erro = %v, esperado ErrNaoEncontrado", err)
 	}
 	if err := q.card.Apagar(cardDaAna, "bob"); !errors.Is(err, dcard.ErrNaoEncontrado) {
@@ -351,7 +351,7 @@ func TestEditarCardTrocaOTextoESobeAVersao(t *testing.T) {
 	colunaID := q.criarColuna(t, boardID, "ana", "A fazer")
 	cardID := q.criarCard(t, colunaID, "ana", "Rascunho")
 
-	editado, err := q.card.Editar(cardID, "ana", "Definitivo", "com descrição", "")
+	editado, err := q.card.Editar(cardID, "ana", "Definitivo", "com descrição", "", 0)
 	if err != nil {
 		t.Fatalf("erro ao editar: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestOperacoesEmRecursoInexistenteRespondemNaoEncontrado(t *testing.T) {
 	if _, err := q.coluna.Renomear("coluna-que-nao-existe", "ana", "x", ""); !errors.Is(err, dcoluna.ErrNaoEncontrada) {
 		t.Errorf("coluna: erro = %v", err)
 	}
-	if _, err := q.card.Editar("card-que-nao-existe", "ana", "x", "", ""); !errors.Is(err, dcard.ErrNaoEncontrado) {
+	if _, err := q.card.Editar("card-que-nao-existe", "ana", "x", "", "", 0); !errors.Is(err, dcard.ErrNaoEncontrado) {
 		t.Errorf("card: erro = %v", err)
 	}
 }

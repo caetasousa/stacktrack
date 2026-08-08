@@ -38,6 +38,8 @@
 
 	let card = $state<CardDetalhado | null>(null);
 	let erro = $state('');
+	// conflito é o 409 do bloqueio otimista: outra pessoa gravou primeiro.
+	let conflito = $state(false);
 	let carregando = $state(true);
 
 	let editandoTexto = $state(false);
@@ -90,18 +92,39 @@
 		try {
 			// A cor vai junto porque o PATCH grava o card inteiro: omiti-la aqui
 			// apagaria a cor do card a cada edição de texto.
-			await editarCard(cardId, titulo, descricao, card?.cor ?? '');
+			//
+			// A versão é a que estava na tela quando o campo foi aberto. Se outra
+			// pessoa gravou nesse meio-tempo, o servidor recusa com 409 em vez de
+			// deixar este texto apagar o dela.
+			await editarCard(cardId, titulo, descricao, card?.cor ?? '', card?.version ?? 0);
 			editandoTexto = false;
+			conflito = false;
 			await recarregar();
 		} catch (e) {
+			if (e instanceof ApiError && e.status === 409) {
+				// Não fecha o formulário: o texto digitado continua na tela para
+				// ser copiado. Fechar aqui perderia o trabalho de quem escreveu —
+				// exatamente o que o bloqueio existe para impedir.
+				conflito = true;
+				return;
+			}
 			falhar(e, 'não foi possível salvar o card');
 		}
+	}
+
+	// recarregarDoServidor traz a versão de quem gravou primeiro e desarma o
+	// aviso. Chamado pelo botão do conflito.
+	async function trazerVersaoNova() {
+		conflito = false;
+		editandoTexto = false;
+		await carregar();
+		await recarregar();
 	}
 
 	async function mudarCor(nova: Cor | '') {
 		if (!card) return;
 		try {
-			await editarCard(cardId, card.titulo, card.descricao, nova);
+			await editarCard(cardId, card.titulo, card.descricao, nova, card.version);
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível mudar a cor do card');
@@ -299,6 +322,24 @@
 				>
 			</header>
 
+			{#if conflito}
+				<!-- O 409 do bloqueio otimista. O texto digitado continua na tela
+				     de propósito: fechar o formulário aqui perderia o trabalho de
+				     quem escreveu, que é justamente o que o bloqueio impede. -->
+				<div class="erro-form m-5">
+					<p><strong>Alguém alterou este card enquanto você escrevia.</strong></p>
+					<p class="mt-1 text-xs">
+						Seu texto continua aí — copie o que precisar antes de trazer a versão nova.
+					</p>
+					<button
+						type="button"
+						class="botao-secundario mt-3 w-auto px-3 py-1 text-xs"
+						onclick={trazerVersaoNova}
+					>
+						Trazer a versão atual
+					</button>
+				</div>
+			{/if}
 			{#if erro}
 				<p class="erro-form m-5">{erro}</p>
 			{/if}

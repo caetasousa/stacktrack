@@ -277,7 +277,18 @@ func (r *Cards) Salvar(c *card.Card) error {
 	return nil
 }
 
+// Atualizar repete o bloqueio otimista do Postgres.
+//
+// Se o fake apenas sobrescrevesse, todo teste de usecase passaria por um
+// caminho que não existe em produção — e o 409 só apareceria com gente usando.
 func (r *Cards) Atualizar(c *card.Card) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	atual, existe := r.porID[c.ID]
+	if !existe || atual.Version != c.Version-1 {
+		return card.ErrConflito
+	}
 	return r.Salvar(c)
 }
 

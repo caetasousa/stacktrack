@@ -37,15 +37,37 @@ func (r *CardPostgres) Salvar(c *card.Card) error {
 // O UPDATE ainda não filtra por version — a versão é gravada, não conferida.
 // O `WHERE ... AND version = $x` com 409 na volta é o bloqueio otimista da
 // fase 6; até lá, a última escrita vence.
+// Atualizar grava as alterações de um card existente, com BLOQUEIO OTIMISTA.
+//
+// O `AND version = $7 - 1` é o coração disto: o domínio já incrementou a versão
+// em memória, então $7 é a nova e $7-1 é a que estava valendo quando o card foi
+// lido. Se outra pessoa gravou nesse meio-tempo, a linha no banco já está numa
+// versão diferente, a condição não casa e NENHUMA linha é afetada.
+//
+// Sem esta cláusula, duas pessoas editando o mesmo card ao mesmo tempo
+// terminam com o texto de quem gravou por último, e o trabalho da outra some
+// sem aviso — o "lost update" clássico. READ COMMITTED, que é o isolamento
+// padrão do Postgres, não protege disso: os dois UPDATEs são válidos
+// isoladamente.
+//
+// Zero linhas também acontece se o card foi APAGADO no meio do caminho. Os dois
+// casos viram o mesmo erro de propósito: para quem escreveu, a diferença não
+// muda o que fazer — recarregar e decidir de novo.
 func (r *CardPostgres) Atualizar(c *card.Card) error {
-	_, err := r.pool.Exec(context.Background(),
+	tag, err := r.pool.Exec(context.Background(),
 		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, cor = $5, posicao = $6,
 		        version = $7, prazo = $8, atualizado_em = $9
-		 WHERE id = $1`,
+		 WHERE id = $1 AND version = $7 - 1`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
 		c.Posicao, c.Version, c.Prazo, c.AtualizadoEm,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return card.ErrConflito
+	}
+	return nil
 }
 
 // BuscarPorID retorna (card, nil) quando encontra e (nil, nil) quando não existe.

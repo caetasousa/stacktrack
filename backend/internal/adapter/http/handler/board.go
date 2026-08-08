@@ -243,7 +243,7 @@ func (h *BoardHandler) EditarCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := h.cards.Editar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor))
+	c, err := h.cards.Editar(chi.URLParam(r, "cardID"), usuarioID, req.Titulo, req.Descricao, dcor.Cor(req.Cor), req.Version)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao editar card", err)
 		return
@@ -330,8 +330,14 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusForbidden, err.Error())
 	// 413 e não 400: o corpo em si é válido, o que não serve é o tamanho — e é
 	// o código que o navegador e os proxies entendem como "arquivo grande".
-	// 409: a entrada está correta, o estado do quadro é que não comporta o
-	// movimento. Ver ordem.ErrSemEspaco — a fase 9 remove essa possibilidade.
+	// 409: a entrada está correta, e o estado é que não comporta a escrita.
+	//
+	// ErrConflito é o bloqueio otimista: outra pessoa gravou entre a leitura e
+	// esta chamada. A tela recarrega o card em vez de insistir.
+	case errors.Is(err, dcard.ErrConflito):
+		responderErro(w, http.StatusConflict, err.Error())
+	// ErrSemEspaco é o esgotamento da precisão do float — a fase 9 remove essa
+	// possibilidade.
 	case errors.Is(err, ordem.ErrSemEspaco):
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):

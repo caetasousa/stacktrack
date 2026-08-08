@@ -72,7 +72,9 @@ responsáveis mentindo (nomes de quem não tem mais acesso) e faria o filtro
 "meus cards" mostrar à pessoa removida cards que ela não consegue mais abrir.
 
 **Etiquetas** pertencem ao quadro, não ao card: renomear ou trocar a cor muda em
-todos os cards de uma vez. O card guarda só os ids.
+todos os cards de uma vez. O card guarda só os ids. No card elas aparecem com
+**cor e nome**: a cor sozinha só significa algo para quem decorou a convenção do
+quadro, e não significa nada para quem não a distingue.
 
 **Prazo** é opcional. O campo `vencido` vem calculado **pelo servidor** — o
 relógio do navegador pode estar errado, e um card vermelho por engano confunde

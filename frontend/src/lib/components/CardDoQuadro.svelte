@@ -77,14 +77,15 @@
 	onkeydown={(e) =>
 		(e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), aoAbrirCard(card.id))}
 >
+	<!-- A etiqueta mostra a COR e o NOME. Só a cor exigia decorar a convenção
+	     do quadro para significar alguma coisa — e não significava nada para
+	     quem não distingue as cores. -->
 	{#if etiquetas.length > 0}
 		<div class="mb-2 flex flex-wrap gap-1">
 			{#each etiquetas as etiqueta (etiqueta.id)}
-				<span
-					class="etiqueta-barra cor-{etiqueta.cor}"
-					title={etiqueta.nome}
-					aria-label="Etiqueta {etiqueta.nome}"
-				></span>
+				<span class="etiqueta-selo cor-{etiqueta.cor}" title={etiqueta.nome}>
+					{etiqueta.nome}
+				</span>
 			{/each}
 		</div>
 	{/if}

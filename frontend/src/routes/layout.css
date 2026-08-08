@@ -272,14 +272,40 @@ html {
 		white-space: nowrap;
 	}
 
-	/* Barra fina do card: a cor sozinha, sem o nome, para o card não virar
-	   uma parede de texto quando tiver muitas etiquetas. */
+	/* Barra fina: a cor sozinha, sem nome. Sobrou para onde o nome não cabe
+	   nem faz falta — o seletor de cor, em que a cor É a informação. */
 	.etiqueta-barra {
 		display: block;
 		height: 0.375rem;
 		width: 1.75rem;
 		border-radius: 9999px;
 		background-color: var(--etq-texto);
+	}
+
+	/* Selo do card: a cor E o nome.
+
+	   A cor sozinha só significa alguma coisa para quem já decorou a
+	   convenção do quadro; para todo mundo mais — e para quem usa leitor de
+	   tela ou não distingue as cores — ela não diz nada. O nome é o que
+	   carrega o sentido, e a cor passa a ser o reforço.
+
+	   O que evita a parede de texto é o teto de largura com reticências: o
+	   selo encolhe em vez de empurrar o card. O título completo continua no
+	   `title`, para quem precisar do nome inteiro. */
+	.etiqueta-selo {
+		display: inline-block;
+		max-width: 7.5rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 0.0625rem 0.4375rem;
+		border-radius: 9999px;
+		font-size: 0.625rem;
+		font-weight: 600;
+		line-height: 1.25rem;
+		background-color: var(--etq-fundo);
+		color: var(--etq-texto);
+		border: 1px solid var(--etq-borda);
 	}
 }
 

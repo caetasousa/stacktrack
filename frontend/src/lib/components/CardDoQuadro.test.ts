@@ -61,6 +61,8 @@ function comCor(cor: Cor | ''): HTMLElement {
 	return montar(cardFalso({ cor }));
 }
 
+const urgente: Etiqueta = { id: 'e-1', nome: 'Urgente', cor: 'vermelho', posicao: 1024 };
+
 describe('CardDoQuadro', () => {
 	it('pinta o card com a cor escolhida', () => {
 		const elemento = comCor('verde');
@@ -78,6 +80,18 @@ describe('CardDoQuadro', () => {
 		expect(elemento.className).not.toContain('cor-');
 		expect(elemento.className).toContain('bg-surface');
 		expect(elemento.getAttribute('style')).toBeFalsy();
+	});
+
+	// A etiqueta mostra o NOME, e não só a cor. A cor sozinha exigia decorar a
+	// convenção do quadro, e não dizia nada para quem não a distingue.
+	it('mostra o nome da etiqueta, e não só a cor', () => {
+		const elemento = montar(cardFalso({ etiquetas: [urgente.id] }), [urgente]);
+
+		const selo = elemento.querySelector('.etiqueta-selo');
+		expect(selo).not.toBeNull();
+		expect(selo?.textContent?.trim()).toBe('Urgente');
+		// A cor continua ali, agora como reforço do nome.
+		expect(selo?.className).toContain('cor-vermelho');
 	});
 
 	it('desenha um avatar por responsável, com as iniciais', () => {

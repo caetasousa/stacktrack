@@ -6,6 +6,7 @@ import (
 
 	dboard "stacktrack/internal/domain/board"
 	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 	dusuario "stacktrack/internal/domain/usuario"
 	"stacktrack/internal/pkg/token"
@@ -16,6 +17,7 @@ import (
 // MembroUseCase reúne quem participa do quadro: listar, convidar, trocar papel
 // e remover.
 type MembroUseCase struct {
+	eventos
 	membros      RepositorioMembro
 	convites     repositorioConvite
 	usuarios     buscadorUsuario
@@ -140,6 +142,9 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 // adicionarDireto cria o vínculo de quem já tem conta, sem passar por convite:
 // não há o que confirmar quando a pessoa já provou ser dona daquele email ao
 // se cadastrar.
+//
+// Publica MembrosAlterados: quem já estava no quadro vê o novo participante na
+// lista de membros e no seletor de responsáveis sem recarregar.
 func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID string, u *dusuario.Usuario, papel membro.Papel) (*ResultadoConvite, error) {
 	existente, err := uc.membros.Buscar(ctx, boardID, u.ID)
 	if err != nil {
@@ -156,6 +161,7 @@ func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID string, u 
 	if err := uc.membros.Salvar(ctx, vinculo); err != nil {
 		return nil, err
 	}
+	uc.publicar(ctx, evento.MembrosAlterados, boardID, "", nil)
 
 	return &ResultadoConvite{
 		Adicionado: true,
@@ -206,6 +212,10 @@ func (uc *MembroUseCase) AlterarPapel(ctx context.Context, boardID, usuarioID, a
 	if u != nil {
 		p.Nome, p.Email = u.Nome, u.Email
 	}
+	// Trocar o papel de alguém muda o que ELA pode fazer, e a tela dela precisa
+	// saber na hora: sem este aviso, quem foi rebaixado a leitor continuava
+	// vendo os botões de edição até dar F5 — e levava 403 ao usar qualquer um.
+	uc.publicar(ctx, evento.MembrosAlterados, boardID, usuarioID, nil)
 	return p, nil
 }
 
@@ -232,7 +242,11 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 	if err := uc.responsaveis.RemoverDoBoard(ctx, boardID, alvoID); err != nil {
 		return err
 	}
-	return uc.membros.Remover(ctx, boardID, alvoID)
+	if err := uc.membros.Remover(ctx, boardID, alvoID); err != nil {
+		return err
+	}
+	uc.publicar(ctx, evento.MembrosAlterados, boardID, usuarioID, nil)
+	return nil
 }
 
 // RevogarConvite apaga um convite pendente, invalidando o link já entregue.
@@ -283,6 +297,8 @@ func (uc *MembroUseCase) DetalharConvite(ctx context.Context, tokenPuro string) 
 // que a pessoa entrou. Exige que a conta autenticada tenha o email para o qual
 // o convite foi feito: sem isso, o link vazado colocaria qualquer pessoa dentro
 // do quadro.
+// Aceitar publica MembrosAlterados pelo mesmo motivo de adicionarDireto: quem
+// já está no quadro vê o recém-chegado sem recarregar.
 func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID string) (*dboard.Board, membro.Papel, error) {
 	c, err := uc.convitePendente(ctx, tokenPuro)
 	if err != nil {
@@ -330,6 +346,7 @@ func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID strin
 	if err := uc.convites.Atualizar(ctx, c); err != nil {
 		return nil, "", err
 	}
+	uc.publicar(ctx, evento.MembrosAlterados, c.BoardID, usuarioID, nil)
 	return b, c.Papel, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 	"stacktrack/internal/domain/usuario"
 	ucauth "stacktrack/internal/usecase/auth"
@@ -442,5 +443,50 @@ func TestEmailDoConviteSegueAMesmaReguaDaConta(t *testing.T) {
 	novo := c.conta(t, "Novo", "novo@EXEMPLO.com")
 	if _, _, err := c.membroUC.Aceitar(context.Background(), resultado.Token, novo); err != nil {
 		t.Errorf("o convite devia ser aceito: %v", err)
+	}
+}
+
+// A pendência que a auditoria encontrou: o tipo de evento `membros.alterados`
+// existia declarado e NINGUÉM o publicava. Na prática, trocar o papel de
+// alguém não chegava à tela dessa pessoa — ela continuava vendo os botões de
+// edição até dar F5, e levava 403 ao usar qualquer um deles.
+func TestMudancaDeMembroAvisaOQuadro(t *testing.T) {
+	c := novaColaboracao(t)
+	espiao := &publicadorEspiao{}
+	c.membroUC.ComPublicador(espiao)
+
+	ana := c.conta(t, "Ana", "ana@exemplo.com")
+	boardID := c.criarQuadro(t, ana, "Estudos")
+	bruno := c.conta(t, "Bruno", "bruno@exemplo.com")
+
+	casos := []struct {
+		nome string
+		agir func() error
+	}{
+		{"entrar no quadro", func() error {
+			_, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bruno@exemplo.com", membro.PapelEditor)
+			return err
+		}},
+		{"trocar de papel", func() error {
+			_, err := c.membroUC.AlterarPapel(context.Background(), boardID, ana, bruno, membro.PapelLeitor)
+			return err
+		}},
+		{"sair do quadro", func() error {
+			return c.membroUC.Remover(context.Background(), boardID, ana, bruno)
+		}},
+	}
+
+	for _, caso := range casos {
+		antes := len(espiao.entregues)
+		if err := caso.agir(); err != nil {
+			t.Fatalf("%s: %v", caso.nome, err)
+		}
+		if len(espiao.entregues) == antes {
+			t.Errorf("%s não avisou o quadro", caso.nome)
+			continue
+		}
+		if tipo := espiao.entregues[len(espiao.entregues)-1].Tipo; tipo != evento.MembrosAlterados {
+			t.Errorf("%s publicou %s, esperado membros.alterados", caso.nome, tipo)
+		}
 	}
 }

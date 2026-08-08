@@ -115,6 +115,7 @@ func main() {
 		ComEscritaAtomica(ucboard.EscritaAtomica)
 	}{
 		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC,
+		membroUC,
 	} {
 		uc.ComPublicador(salaDeEventos)
 		uc.ComRegistro(logDeEventos)

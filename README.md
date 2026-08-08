@@ -11,10 +11,10 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 4 — arrastar e soltar.** Dá para criar conta, montar um quadro e
-> dividi-lo com outras pessoas; cards e colunas se arrastam. Ainda **sem tempo
-> real**: cada pessoa vê só o que ela mesma faz, e a tela se atualiza porque
-> pergunta de novo à API. É esse contraste que a fase 5 resolve.
+> **Fase atual: 5 — tempo real.** Dá para criar conta, montar um quadro e
+> dividi-lo com outras pessoas; cards e colunas se arrastam. E **duas pessoas no
+> mesmo quadro veem a mudança uma da outra na hora**, sem recarregar: um
+> WebSocket por quadro, com o servidor avisando primeiro.
 
 ## Documentação
 
@@ -128,6 +128,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. |
 | `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). |
 | `GET`/`DELETE` | `/anexos/{id}` | Baixa ou apaga o anexo. |
+| `GET` | `/ws?board={id}` | Abre o WebSocket do quadro. Fora do teto por sessão: é uma requisição só que dura horas. |
 
 **A rota nunca informa o quadro.** Card, coluna e etiqueta são identificados por
 si, e o servidor descobre sozinho a que quadro pertencem (card → coluna →

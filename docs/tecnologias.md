@@ -191,6 +191,28 @@ Um arquivo para desenvolvimento (hot reload, bind mount, Mailpit) e outro para
 produção (imagens prontas, sem porta publicada, contenção). Ver
 [producao.md](producao.md).
 
+### coder/websocket
+
+O tempo real da fase 5. Escolhido por ter API sobre `context`, o que faz cada
+envio e o desligamento gracioso caírem no mesmo mecanismo do resto do projeto.
+
+O desenho está em [`internal/adapter/realtime/hub`](../backend/internal/adapter/realtime/hub/hub.go)
+(salas por quadro, `RWMutex`, fan-out que não bloqueia) e em
+[`internal/adapter/http/ws`](../backend/internal/adapter/http/ws/ws.go) (handshake,
+ping/pong, uma goroutine de leitura e **uma** de escrita).
+
+⚠️ **WebSocket não obedece CORS.** Sem `OriginPatterns`, qualquer site que a
+vítima visitar abre uma conexão autenticada com o cookie dela e lê o quadro em
+tempo real — o Cross-Site WebSocket Hijacking. O `SameSite=Lax` é a segunda
+camada, não a primeira.
+
+⚠️ **`WriteTimeout` do `http.Server` mata conexão longa.** Ele vale para a
+conexão inteira, não por requisição. Os 15s que existiam derrubavam o quadro
+sempre no mesmo tempo, sem erro no cliente e sem nada no log. Hoje é zero, e o
+que protege está descrito em [`config/server.go`](../backend/config/server.go).
+
+📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) · [OWASP — WebSockets](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets)
+
 ### Caddy
 
 Proxy reverso com HTTPS automático. **Não é uma stack nossa**: o stacktrack

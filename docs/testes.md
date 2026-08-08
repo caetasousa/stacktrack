@@ -1,6 +1,6 @@
 # 🧪 Testes
 
-Quatro camadas hoje, e duas que faltam. Este documento diz o que cada uma cobre,
+Seis camadas hoje, e duas que faltam. Este documento diz o que cada uma cobre,
 o que ela **não** cobre, e onde isso já custou caro.
 
 ```bash
@@ -11,6 +11,8 @@ make test-frontend   # vitest run
 cd backend && make test        # com -race
 cd frontend && npm run check   # tipos (svelte-check)
 cd frontend && npx prettier --check "src/**/*.{svelte,ts}"
+
+cd backend && make test-tempo-real   # exige a API no ar (build tag)
 ```
 
 ---
@@ -63,7 +65,38 @@ JSON.
 > `vite.config.ts`. Sem isso o Vite entrega a build de **servidor** do Svelte e o
 > `mount()` falha com "not available on the server".
 
-## 5. Guard de schema (Go, sem banco)
+## 5. Tempo real (Go, com -race)
+
+`backend/test/realtime/hub_test.go` — o hub sozinho: salas isoladas, fan-out,
+remoção idempotente, desligamento. O caso que importa é
+`TestUsoConcorrenteNaoTemCorrida`: vinte goroutines publicando, vinte entrando e
+saindo e uma lendo o tamanho da sala, tudo ao mesmo tempo. Sem o mutex
+protegendo o mapa, o `-race` acusa.
+
+E `TestAssinanteQueNaoLeEDesconectado` prova a regra que sustenta o desenho:
+publicar não espera por ninguém. Um cliente que parou de ler é derrubado; sem
+isso, a requisição HTTP de quem moveu o card ficaria bloqueada até ele voltar —
+que pode ser nunca.
+
+### O teste de duas abas
+
+`duas_abas_test.go`, atrás da build tag `tempo_real` porque **exige a API no
+ar**:
+
+```bash
+make run                        # noutro terminal
+make -C backend test-tempo-real
+```
+
+Cobre o que só existe no handshake de verdade: ana age pela API REST e bruno
+recebe pelo WebSocket; o autor não recebe o próprio eco; quem não participa
+recebe **404**; quem vem de outra origem recebe **403** (o Cross-Site WebSocket
+Hijacking, que o CORS não impede); e sem sessão, **401**.
+
+> Um `429` ali não é defeito: é o teto por IP do rate limiter, que a suíte
+> inteira divide. O teste vira *skip* com a causa escrita, em vez de vermelho.
+
+## 6. Guard de schema (Go, sem banco)
 
 `backend/test/repository/sql_cobre_as_colunas_test.go` — lê as migrations,
 extrai toda coluna criada e falha se ela não aparecer em nenhum SQL do pacote de
@@ -83,9 +116,10 @@ Ver [entrega-continua.md](entrega-continua.md). Além dos testes: `gofmt`,
 `go vet`, `prettier --check`, `svelte-check`, `govulncheck`, `npm audit` e Trivy
 nas três imagens.
 
-O `go test` roda com **`-race`** desde já, antes mesmo de existir concorrência —
-para o hábito estar pronto quando o hub da fase 5 chegar. Concorrência sem
-detector de corrida é fé, não engenharia.
+O `go test` roda com **`-race`** — obrigatório desde que o hub existe.
+Concorrência sem detector de corrida é fé, não engenharia. O teste de duas abas
+NÃO roda na esteira: ele exige a stack no ar, e isso chega junto com o job de
+ponta a ponta.
 
 ---
 
@@ -103,8 +137,7 @@ coluna apertada — transformando a regra dos dois deploys em falha de build.
 
 ### Ponta a ponta (Playwright)
 
-**Fase 5.** A lacuna mais cara até aqui. Dois defeitos passaram por todos os
-testes verdes:
+A lacuna mais cara até aqui. Dois defeitos passaram por todos os testes verdes:
 
 - a **alça de arrastar coluna nunca funcionou** — a biblioteca só registra o
   `mousedown` quando `dragDisabled` já é falso, e o interruptor ligado no
@@ -112,5 +145,9 @@ testes verdes:
 - a **cor do card não pintava**, porque a marcação que a aplicava não estava no
   arquivo.
 
-Os dois só apareceram quando alguém usou a tela. O teste que define o projeto —
-dois `BrowserContext`, um arrasta e o outro vê — chega junto com o tempo real.
+Os dois só apareceram quando alguém usou a tela.
+
+O `duas_abas_test.go` já cobre o **protocolo** do tempo real de ponta a ponta —
+handshake, autorização, origem, entrega —, mas não cobre a tela: se o cliente
+deixar de aplicar o evento, ele continua verde. É esse pedaço que falta, com dois
+`BrowserContext` no Playwright.

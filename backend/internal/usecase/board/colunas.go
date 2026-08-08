@@ -36,7 +36,8 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.escreverEPublicar(ctx, evento.ColunaCriada, boardID, usuarioID, c,
+	if err := uc.escreverEPublicar(ctx, evento.ColunaCriada, boardID, usuarioID,
+		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -50,13 +51,18 @@ func (uc *ColunaUseCase) Renomear(ctx context.Context, colunaID, usuarioID, titu
 	if err != nil {
 		return nil, err
 	}
+	tituloAnterior := c.Titulo
 	if err := c.Renomear(titulo); err != nil {
 		return nil, err
 	}
 	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
-	if err := uc.escreverEPublicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, c,
+	dados := DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo}
+	if tituloAnterior != c.Titulo {
+		dados.TituloAnterior = tituloAnterior
+	}
+	if err := uc.escreverEPublicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, dados,
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -70,7 +76,7 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 		return err
 	}
 	return uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
-		map[string]string{"id": colunaID},
+		DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) })
 }
 

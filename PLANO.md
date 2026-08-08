@@ -479,20 +479,23 @@ outro navegador sem F5. O filtro "meus cards" esconde o resto e sobrevive ao rec
 
 ---
 
-### Fase 11 — Comentários e histórico de atividade ⏳
+### Fase 11 — Comentários e histórico de atividade ✅
 
-> **Comentários: feitos.** Conversa em markdown no card, com autor, data e marca
-> de edição; selo 💬 no card; evento `comentario.alterado` no tempo real. As três
-> permissões saíram como planejado — escrever exige só participação (o leitor
-> comenta), editar é **só do autor**, e apagar o autor no próprio ou quem
-> administra em qualquer um.
+> **Feita, as duas metades.** Conversa em markdown no card, com autor, data e
+> marca de edição; selo 💬 no card. As três permissões saíram como planejado —
+> escrever exige só participação (o leitor comenta), editar é **só do autor**, e
+> apagar o autor no próprio ou quem administra em qualquer um.
 >
-> **O histórico de atividade NÃO foi feito**, e a razão é a armadilha descrita
-> abaixo: ela se confirmou ao olhar o código. O payload de `card.movido` guarda
-> o card **já movido**, então a coluna de origem se perde e o feed não consegue
-> dizer "moveu de A para B". Enriquecer o payload é decisão que muda o formato do
-> que já está gravado, e merece ser tomada de propósito — não no fim de outra
-> entrega.
+> **A armadilha do payload foi resolvida pelo caminho recomendado.** O evento
+> passou a guardar o estado ANTERIOR onde ele importa: `card.movido` leva a
+> coluna de origem, `card.alterado` leva o título anterior, `card.apagado` leva o
+> nome (que some com o card). E guarda **nomes**, não só ids — um log registra o
+> que era verdade no momento, e resolver o id na leitura mostraria o título de
+> hoje numa frase sobre ontem.
+>
+> O histórico não tem tabela: é um read model sobre `board_events`, com uma
+> coluna `card_id` (expand puro) para ele ser lido por índice em vez de varrer
+> o payload de todos os eventos do quadro.
 >
 > Três defeitos apareceram só ao exercitar a API de verdade, todos da mesma
 > família (a borda HTTP): um erro de domínio sem tradução virando **500**, e dois

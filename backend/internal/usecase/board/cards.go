@@ -112,7 +112,8 @@ func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID strin
 		return nil, err
 	}
 	c.DefinirPrazo(prazo)
-	if err := uc.escreverEPublicar(ctx, evento.CardAlterado, boardID, usuarioID, c,
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardAlterado, boardID, c.ID, usuarioID,
+		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -142,7 +143,8 @@ func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, d
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.escreverEPublicar(ctx, evento.CardCriado, col.BoardID, usuarioID, c,
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardCriado, col.BoardID, c.ID, usuarioID,
+		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, Coluna: col.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -169,10 +171,17 @@ func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, de
 	if versaoVista != 0 && c.Version != versaoVista {
 		return nil, dcard.ErrConflito
 	}
+	// O título de ANTES é lido aqui, enquanto ainda existe: depois do Editar ele
+	// se perde, e sem ele o histórico não consegue dizer "renomeou de X para Y".
+	tituloAnterior := c.Titulo
 	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err
 	}
-	if err := uc.escreverEPublicar(ctx, evento.CardAlterado, boardID, usuarioID, c,
+	dados := DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version}
+	if tituloAnterior != c.Titulo {
+		dados.TituloAnterior = tituloAnterior
+	}
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardAlterado, boardID, c.ID, usuarioID, dados,
 		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -181,12 +190,15 @@ func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, de
 
 // Apagar remove o card. Exige papel de edição.
 func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) error {
-	_, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
+	c, boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
 		return err
 	}
-	return uc.escreverEPublicar(ctx, evento.CardApagado, boardID, usuarioID,
-		map[string]string{"id": cardID},
+	// O título vai no evento porque o card não estará mais lá para respondê-lo:
+	// "apagou um card" é bem menos útil que "apagou Migração", e depois do
+	// DELETE não há de onde tirar o nome.
+	return uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) })
 }
 

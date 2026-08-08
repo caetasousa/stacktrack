@@ -56,7 +56,7 @@ func (uc *ComentarioUseCase) Criar(ctx context.Context, cardID, usuarioID, texto
 	if err := uc.comentarios.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, map[string]string{"cardId": cardID})
+	uc.publicarNoCard(ctx, evento.ComentarioAlterado, boardID, cardID, usuarioID, DadosDoCard{CardID: cardID})
 	return c, nil
 }
 
@@ -78,7 +78,11 @@ func (uc *ComentarioUseCase) Editar(ctx context.Context, comentarioID, usuarioID
 	if err := uc.comentarios.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, map[string]string{"cardId": c.CardID})
+	// Editar e apagar NÃO entram no histórico do card: quem lê o histórico quer
+	// saber o que aconteceu com o trabalho, e a conversa já está logo acima, com
+	// a marca de "editado" em cada mensagem. O evento continua saindo ao vivo,
+	// para a tela de quem está junto recarregar.
+	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, DadosDoCard{CardID: c.CardID})
 	return c, nil
 }
 
@@ -98,7 +102,7 @@ func (uc *ComentarioUseCase) Apagar(ctx context.Context, comentarioID, usuarioID
 	if err := uc.comentarios.Apagar(ctx, comentarioID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, map[string]string{"cardId": c.CardID})
+	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, DadosDoCard{CardID: c.CardID})
 	return nil
 }
 

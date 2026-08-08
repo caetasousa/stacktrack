@@ -15,8 +15,8 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 > mudança uma da outra na hora, veem o avatar de quem está junto, e quem grava
 > por último num card em disputa é avisado em vez de sobrescrever. Quem cai e
 > volta recebe o que perdeu, pelo log de eventos do quadro. Cada card tem
-> responsável, o filtro responde "o que é meu?", e **agora cada card tem
-> conversa** — em markdown, com quem escreveu e quando.
+> responsável, o filtro responde "o que é meu?", e cada card tem **conversa** e
+> **histórico** — quem moveu de onde para onde, quem renomeou o quê.
 
 ## Documentação
 
@@ -129,6 +129,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
 | `PUT`/`DELETE` | `/cards/{id}/responsaveis/{usuarioId}` | Marca e desmarca quem responde pelo card. **422** se a pessoa não participa do quadro. |
+| `GET` | `/cards/{id}/atividade` | O histórico do card: o que aconteceu, quem fez e quando. Read model sobre o log de eventos. |
 | `GET`/`POST` | `/cards/{id}/comentarios` | A conversa do card, do mais antigo para o mais novo, e escrever nela. Basta participar — comentar não exige papel de edição. |
 | `PATCH`/`DELETE` | `/comentarios/{id}` | Edita ou apaga. **403** ao editar o de outra pessoa: só o autor edita. Apagar, o autor no próprio e o dono em qualquer um. |
 | `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |

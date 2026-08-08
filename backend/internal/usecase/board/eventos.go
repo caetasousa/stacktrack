@@ -109,7 +109,14 @@ func (e *eventos) ComEscritaAtomica(a EscritaAtomica) {
 // reconexão — manda a tela buscar tudo de novo. Para as mudanças estruturais,
 // onde um buraco é invisível, use escreverEPublicar.
 func (e *eventos) publicar(ctx context.Context, tipo evento.Tipo, boardID, autorID string, dados any) {
-	ev := evento.Novo(tipo, boardID, autorID, dados)
+	e.publicarNoCard(ctx, tipo, boardID, "", autorID, dados)
+}
+
+// publicarNoCard é publicar marcando a que card o evento pertence — é o que
+// permite ao histórico de um card ser lido por índice, sem varrer o payload de
+// todos os eventos do quadro.
+func (e *eventos) publicarNoCard(ctx context.Context, tipo evento.Tipo, boardID, cardID, autorID string, dados any) {
+	ev := evento.Novo(tipo, boardID, autorID, dados).NoCard(cardID)
 
 	// O log vem ANTES da entrega ao vivo, e a ordem importa: é ele que atribui
 	// o seq, e um evento entregue sem seq não pode ser retomado por quem
@@ -152,7 +159,17 @@ func (e *eventos) escreverEPublicar(
 	padrao Escrita,
 	mudanca func(Escrita) error,
 ) error {
-	ev := evento.Novo(tipo, boardID, autorID, dados)
+	return e.escreverEPublicarNoCard(ctx, tipo, boardID, "", autorID, dados, padrao, mudanca)
+}
+
+// escreverEPublicarNoCard é o mesmo, marcando o card a que o evento pertence.
+func (e *eventos) escreverEPublicarNoCard(
+	ctx context.Context,
+	tipo evento.Tipo, boardID, cardID, autorID string, dados any,
+	padrao Escrita,
+	mudanca func(Escrita) error,
+) error {
+	ev := evento.Novo(tipo, boardID, autorID, dados).NoCard(cardID)
 
 	if e.atomica == nil {
 		if err := mudanca(padrao); err != nil {

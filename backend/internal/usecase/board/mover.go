@@ -67,7 +67,16 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 	}
 
 	c.Mover(destino.ID, posicao)
-	if err := uc.escreverEPublicar(ctx, evento.CardMovido, boardID, usuarioID, c,
+	// A coluna de ORIGEM entra no evento porque ela se perde no próprio Mover:
+	// depois dele, o card só sabe onde está. Sem isto o histórico diria "moveu
+	// este card", que é a metade inútil da informação — e essa era exatamente a
+	// armadilha anotada no plano da fase 11.
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardMovido, boardID, c.ID, usuarioID,
+		DadosDoCard{
+			CardID: c.ID, Titulo: c.Titulo,
+			DeColuna: origem.Titulo, Coluna: destino.Titulo,
+			ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version,
+		},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -149,7 +158,8 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 	}
 
 	c.MoverPara(posicao)
-	if err := uc.escreverEPublicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID, c,
+	if err := uc.escreverEPublicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID,
+		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}

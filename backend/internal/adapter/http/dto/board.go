@@ -167,6 +167,25 @@ type ListaComentariosResponse struct {
 	Comentarios []ComentarioResponse `json:"comentarios"`
 }
 
+// AtividadeResponse é uma linha do histórico do card.
+//
+// `dados` vai como JSON cru, no formato que o evento gravou: quem monta a frase
+// é a tela, que sabe traduzir "card.movido" para "moveu de A para B". Montar o
+// texto aqui congelaria o idioma e a redação no servidor.
+type AtividadeResponse struct {
+	Seq        int64  `json:"seq"`
+	Tipo       string `json:"tipo"`
+	AutorID    string `json:"autorId"`
+	AutorNome  string `json:"autorNome"`
+	Dados      any    `json:"dados,omitempty"`
+	OcorridoEm string `json:"ocorridoEm"`
+}
+
+// ListaAtividadeResponse envelopa o histórico.
+type ListaAtividadeResponse struct {
+	Atividade []AtividadeResponse `json:"atividade"`
+}
+
 // ComentarioRequest é o corpo de escrever e editar comentário.
 type ComentarioRequest struct {
 	Texto string `json:"texto" validate:"required,max=2000"`

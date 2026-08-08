@@ -3,6 +3,7 @@
 
 import { apiDelete, apiGet, apiPatch, apiPost, BASE_URL } from './client';
 import type { Card, Cor, Etiqueta, Fundo, Board } from './boards';
+import type { Atividade } from '$lib/atividade';
 
 export interface ItemDeChecklist {
 	id: string;
@@ -118,6 +119,15 @@ export async function atribuir(cardId: string, usuarioId: string): Promise<void>
 
 export function desatribuir(cardId: string, usuarioId: string): Promise<void> {
 	return apiDelete(`/cards/${cardId}/responsaveis/${usuarioId}`);
+}
+
+// --- histórico -------------------------------------------------------------
+
+// atividadeDoCard busca o histórico sob demanda, e não junto do card: quase
+// toda abertura de card é para ler ou mexer, não para auditar. Trazer o
+// histórico sempre pagaria uma consulta a mais em todas elas.
+export function atividadeDoCard(cardId: string): Promise<{ atividade: Atividade[] }> {
+	return apiGet<{ atividade: Atividade[] }>(`/cards/${cardId}/atividade`);
 }
 
 // --- comentários ----------------------------------------------------------

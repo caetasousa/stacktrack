@@ -13,6 +13,7 @@
 		apagarAnexo,
 		apagarChecklist,
 		apagarComentario,
+		atividadeDoCard,
 		comentar,
 		editarComentario,
 		apagarItem,
@@ -29,6 +30,7 @@
 	import { iniciais } from '$lib/iniciais';
 	import { renderizarMarkdown } from '$lib/markdown';
 	import { sessao } from '$lib/stores/session.svelte';
+	import { descritas, quando as quandoAconteceu, type Atividade } from '$lib/atividade';
 
 	let {
 		cardId,
@@ -118,6 +120,30 @@
 	const souAutor = (autorId: string) => sessao.usuario?.id === autorId;
 	const podeApagarComentario = (autorId: string) => souAutor(autorId) || podeAdministrar;
 
+	// --- histórico ------------------------------------------------------------
+	//
+	// Carregado sob demanda, e não junto do card: quase toda abertura de card é
+	// para ler ou mexer, não para auditar. Trazer o histórico sempre pagaria uma
+	// consulta a mais em todas elas.
+	let atividade = $state<Atividade[]>([]);
+	let historicoAberto = $state(false);
+	let carregandoHistorico = $state(false);
+
+	const linhasDoHistorico = $derived(descritas(atividade));
+
+	async function alternarHistorico() {
+		historicoAberto = !historicoAberto;
+		if (!historicoAberto || atividade.length > 0) return;
+		carregandoHistorico = true;
+		try {
+			atividade = (await atividadeDoCard(cardId)).atividade;
+		} catch (e) {
+			falhar(e, 'não foi possível carregar o histórico');
+		} finally {
+			carregandoHistorico = false;
+		}
+	}
+
 	// Data curta: numa conversa o que importa é "quando", não a precisão.
 	function quando(iso: string): string {
 		return new Date(iso).toLocaleString('pt-BR', {
@@ -186,6 +212,10 @@
 	$effect(() => {
 		cardId;
 		carregando = true;
+		// O histórico é de OUTRO card agora: mantê-lo mostraria a história errada
+		// até a próxima abertura.
+		atividade = [];
+		historicoAberto = false;
 		carregar();
 	});
 
@@ -697,6 +727,46 @@
 							<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Comentar</button>
 						{/if}
 					</form>
+				</section>
+
+				<!-- histórico: um read model sobre o log de eventos, sem tabela
+				     própria. Fica recolhido porque é consulta de auditoria — quem
+				     abre o card quase sempre quer ler ou mexer, não investigar. -->
+				<section>
+					<button
+						class="cursor-pointer text-xs font-semibold tracking-widest text-mute uppercase hover:text-body"
+						onclick={alternarHistorico}
+						aria-expanded={historicoAberto}
+					>
+						Histórico {historicoAberto ? '▾' : '▸'}
+					</button>
+
+					{#if historicoAberto}
+						{#if carregandoHistorico}
+							<p class="mt-2 text-sm text-mute">carregando…</p>
+						{:else if linhasDoHistorico.length === 0}
+							<p class="mt-2 text-sm text-mute">Nada registrado ainda.</p>
+						{:else}
+							<ul class="mt-2 space-y-1.5">
+								{#each linhasDoHistorico as linha (linha.atividade.seq)}
+									<li class="flex gap-2 text-xs text-mute">
+										<span
+											class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-[9px] font-semibold"
+											title={linha.atividade.autorNome || 'conta removida'}
+										>
+											{iniciais(linha.atividade.autorNome || '?')}
+										</span>
+										<span>
+											<b class="font-semibold text-body">
+												{linha.atividade.autorNome || 'alguém'}
+											</b>
+											{linha.texto} · {quandoAconteceu(linha.atividade.ocorridoEm)}
+										</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
 				</section>
 
 				<!-- checklists -->

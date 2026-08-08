@@ -62,9 +62,15 @@ type Evento struct {
 	//
 	// Zero significa "não registrado": presença não vai para o log, porque
 	// descreve o agora e não faz sentido reproduzir depois.
-	Seq        int64
-	Tipo       Tipo
-	BoardID    string
+	Seq     int64
+	Tipo    Tipo
+	BoardID string
+	// CardID diz a que card o evento pertence, quando pertence a algum.
+	//
+	// Existe para o histórico de um card ser lido por índice, e não varrendo o
+	// payload de todos os eventos do quadro. Vazio nos eventos que são do quadro
+	// como um todo — coluna criada, membros alterados.
+	CardID     string
 	AutorID    string
 	OcorridoEm time.Time
 	// Dados carrega o que a tela precisa para aplicar a mudança sem perguntar
@@ -82,4 +88,13 @@ func Novo(tipo Tipo, boardID, autorID string, dados any) Evento {
 		OcorridoEm: time.Now(),
 		Dados:      dados,
 	}
+}
+
+// NoCard marca o evento como pertencente a um card, e devolve a cópia marcada.
+//
+// Separado de Novo de propósito: a maioria dos eventos não é de card nenhum, e
+// um parâmetro a mais em todos eles só seria ruído.
+func (e Evento) NoCard(cardID string) Evento {
+	e.CardID = cardID
+	return e
 }

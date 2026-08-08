@@ -51,6 +51,8 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	comentarios := memoria.NovosComentarios()
 	comentarios.LigarQuadro(colunas, cards)
 	comentarios.LigarUsuarios(usuarios)
+	atividades := memoria.NovasAtividades()
+	atividades.LigarUsuarios(usuarios)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -75,6 +77,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		ucboard.NovoAnexoUseCase(membros, colunas, cards, anexos, nil),
 		ucboard.NovoResponsavelUseCase(membros, colunas, cards, responsaveis),
 		ucboard.NovoComentarioUseCase(membros, colunas, cards, comentarios),
+		ucboard.NovoAtividadeUseCase(membros, colunas, cards, atividades),
 		identidade,
 	)
 	membroHandler := handler.NovoMembroHandler(
@@ -112,6 +115,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Patch("/", boardHandler.EditarCard)
 			r.Delete("/", boardHandler.ApagarCard)
 			r.Get("/", boardHandler.DetalharCard)
+			r.Get("/atividade", extrasHandler.Atividade)
 			r.Get("/comentarios", extrasHandler.ListarComentarios)
 			r.Post("/comentarios", extrasHandler.Comentar)
 		})

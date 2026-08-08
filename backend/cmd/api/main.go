@@ -67,6 +67,9 @@ func main() {
 	anexoRepo := repository.NovoAnexoPostgres(pool)
 	responsavelRepo := repository.NovoResponsavelPostgres(pool)
 	comentarioRepo := repository.NovoComentarioPostgres(pool)
+	// O log de eventos é repositório como os outros: escreve o outbox e, desde a
+	// fase 11, também É a fonte do histórico — o feed é um read model sobre ele.
+	logDeEventos := repository.NovoEventoPostgres(pool)
 
 	// armazém de anexos: disco, num volume próprio. O binário não vai para o
 	// banco — incharia backup e restore de um schema que guarda texto curto no
@@ -95,12 +98,12 @@ func main() {
 	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo, responsavelRepo)
 	responsavelUC := ucboard.NovoResponsavelUseCase(membroRepo, colunaRepo, cardRepo, responsavelRepo)
 	comentarioUC := ucboard.NovoComentarioUseCase(membroRepo, colunaRepo, cardRepo, comentarioRepo)
+	atividadeUC := ucboard.NovoAtividadeUseCase(membroRepo, colunaRepo, cardRepo, logDeEventos)
 
 	// O hub é o adaptador que implementa a porta Publicador. Ligá-lo aqui, e
 	// não no construtor de cada usecase, é o que mantém os testes construindo
 	// os mesmos usecases sem saber que tempo real existe.
 	salaDeEventos := hub.Novo()
-	logDeEventos := repository.NovoEventoPostgres(pool)
 	// A unidade de trabalho é o que faz o dado e o evento caírem no MESMO
 	// commit. Sem ela ligada, o usecase ainda funciona — grava numa transação e
 	// registra noutra —, e é assim que os testes de regra rodam, sem banco.
@@ -131,7 +134,7 @@ func main() {
 	)
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
-	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, identidadeDoContexto)
+	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, atividadeUC, identidadeDoContexto)
 
 	// OriginPatterns com a origem do frontend, e nada além: WebSocket NÃO
 	// obedece CORS, então sem esta lista qualquer site que a vítima visitar
@@ -283,6 +286,7 @@ func main() {
 			r.Delete("/etiquetas/{etiquetaID}", extrasHandler.RemoverEtiqueta)
 			r.Put("/responsaveis/{usuarioID}", extrasHandler.Atribuir)
 			r.Delete("/responsaveis/{usuarioID}", extrasHandler.Desatribuir)
+			r.Get("/atividade", extrasHandler.Atividade)
 			r.Get("/comentarios", extrasHandler.ListarComentarios)
 			r.Post("/comentarios", extrasHandler.Comentar)
 			r.Post("/checklists", extrasHandler.CriarChecklist)

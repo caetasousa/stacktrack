@@ -23,6 +23,7 @@ type ExtrasHandler struct {
 	anexos               *ucboard.AnexoUseCase
 	responsaveis         *ucboard.ResponsavelUseCase
 	comentarios          *ucboard.ComentarioUseCase
+	atividade            *ucboard.AtividadeUseCase
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool)
 }
 
@@ -33,12 +34,14 @@ func NovoExtrasHandler(
 	anexos *ucboard.AnexoUseCase,
 	responsaveis *ucboard.ResponsavelUseCase,
 	comentarios *ucboard.ComentarioUseCase,
+	atividade *ucboard.AtividadeUseCase,
 	identidadeDoContexto func(r *http.Request) (ucauth.Identidade, bool),
 ) *ExtrasHandler {
 	return &ExtrasHandler{
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
 		responsaveis:         responsaveis,
 		comentarios:          comentarios,
+		atividade:            atividade,
 		identidadeDoContexto: identidadeDoContexto,
 	}
 }
@@ -254,6 +257,32 @@ func (h *ExtrasHandler) ApagarComentario(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- histórico -------------------------------------------------------------
+
+// Atividade devolve o que aconteceu com o card, do mais recente para o mais
+// antigo. É um read model sobre o log de eventos — não há tabela própria.
+func (h *ExtrasHandler) Atividade(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	lista, err := h.atividade.DoCard(r.Context(), chi.URLParam(r, "cardID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao ler o histórico", err)
+		return
+	}
+
+	fora := make([]dto.AtividadeResponse, 0, len(lista))
+	for _, a := range lista {
+		fora = append(fora, dto.AtividadeResponse{
+			Seq: a.Seq, Tipo: string(a.Tipo), AutorID: a.AutorID,
+			AutorNome: a.AutorNome, Dados: a.Dados, OcorridoEm: a.OcorridoEm,
+		})
+	}
+	responderJSON(w, http.StatusOK, dto.ListaAtividadeResponse{Atividade: fora})
 }
 
 // --- checklists -----------------------------------------------------------

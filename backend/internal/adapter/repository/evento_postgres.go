@@ -3,8 +3,10 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"stacktrack/internal/domain/evento"
+	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,9 +47,10 @@ func (r *EventoPostgres) RegistrarNaTransacao(ctx context.Context, tx pgx.Tx, e 
 	}
 	var seq int64
 	err = tx.QueryRow(ctx,
-		`INSERT INTO board_events (board_id, tipo, payload, autor_id, criado_em)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING seq`,
-		e.BoardID, string(e.Tipo), corpo, vazioParaNulo(e.AutorID), e.OcorridoEm,
+		`INSERT INTO board_events (board_id, card_id, tipo, payload, autor_id, criado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING seq`,
+		e.BoardID, vazioParaNulo(e.CardID), string(e.Tipo), corpo,
+		vazioParaNulo(e.AutorID), e.OcorridoEm,
 	).Scan(&seq)
 	return seq, err
 }
@@ -106,6 +109,49 @@ func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, l
 		eventos = append(eventos, e)
 	}
 	return eventos, linhas.Err()
+}
+
+// DoCard devolve o histórico de um card, do mais recente para o mais antigo —
+// é a ordem em que se lê histórico.
+//
+// O JOIN com usuarios é LEFT de propósito: `autor_id` não tem chave
+// estrangeira, justamente para o histórico sobreviver à remoção de uma conta.
+// Um INNER JOIN faria a linha inteira sumir nesse caso, que é o oposto do que
+// um histórico serve para fazer.
+func (r *EventoPostgres) DoCard(ctx context.Context, cardID string, limite int) ([]ucboard.Atividade, error) {
+	linhas, err := r.pool.Query(ctx,
+		`SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, e.criado_em
+		   FROM board_events e
+		   LEFT JOIN usuarios u ON u.id = e.autor_id
+		  WHERE e.card_id = $1
+		  ORDER BY e.seq DESC
+		  LIMIT $2`, cardID, limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	lista := make([]ucboard.Atividade, 0)
+	for linhas.Next() {
+		var a ucboard.Atividade
+		var tipo string
+		var corpo []byte
+		var autor, nome *string
+		var quando time.Time
+		if err := linhas.Scan(&a.Seq, &tipo, &corpo, &autor, &nome, &quando); err != nil {
+			return nil, err
+		}
+		a.Tipo = evento.Tipo(tipo)
+		a.AutorID = valorOuVazio(autor)
+		a.AutorNome = valorOuVazio(nome)
+		a.OcorridoEm = quando.Format(time.RFC3339)
+		if len(corpo) > 0 {
+			a.Dados = json.RawMessage(corpo)
+		}
+		lista = append(lista, a)
+	}
+	return lista, linhas.Err()
 }
 
 // UltimoSeq informa em que ponto o quadro está agora.

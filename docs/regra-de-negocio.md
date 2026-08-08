@@ -96,6 +96,17 @@ outra pessoa.
 Um comentário editado carrega a marca disso (`editadoEm`), e o card mostra
 quantos tem — a contagem vem junto com o quadro, numa consulta só.
 
+**Histórico** é o que aconteceu com o card: quem criou, moveu, renomeou,
+apagou e comentou. Não tem tabela própria — é um *read model* sobre o log de
+eventos que a reconexão já usava.
+
+O evento guarda **nomes**, e não só ids, e isso é decisão: um log registra o que
+era verdade **no momento**. Resolver o id na hora de ler mostraria o título de
+hoje numa frase sobre ontem — "moveu Migração para Pronto" viraria outra coisa
+só porque alguém renomeou a coluna depois — e não mostraria nada quando a coluna
+já tivesse sido apagada. Pelo mesmo motivo o evento de card apagado leva o nome
+do card: depois do `DELETE` não há de onde tirá-lo.
+
 **Prazo** é opcional. O campo `vencido` vem calculado **pelo servidor** — o
 relógio do navegador pode estar errado, e um card vermelho por engano confunde
 mais do que ajuda.

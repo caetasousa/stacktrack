@@ -421,21 +421,230 @@ do domínio**, nunca por SQL na migration.
 **Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
 · o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
 
+> **Deixou de ser opcional.** `ordem.ErrSemEspaco` não é hipótese: ~50 solturas no mesmo ponto
+> esgotam a mantissa e a pessoa recebe um erro que ela não tem como resolver pela interface. É a
+> única falha conhecida ainda de pé, e por isso esta fase é **conserto**, não funcionalidade —
+> trate-a em paralelo com as de baixo, não depois delas.
+
 ---
 
-### Depois, se der gosto
+## Continuação — o produto
+
+As fases de 0 a 8 entregaram um quadro que funciona e sincroniza. O que segue é o que falta para
+ele ser usado por um time de verdade, na ordem em que cada peça passa a fazer falta.
+
+A ordem não é arbitrária: a **10** faz o quadro responder "o que é meu?", a **11** cria o primeiro
+fluxo em que recarregar tudo é obviamente desperdício, e a **12** cobra a fatura que a 11 gerou.
+As três formam um arco. As demais são independentes entre si.
+
+---
+
+### Fase 10 — Responsável no card, e filtro
+
+**Conceito novo:** nenhum grande no backend — é um vínculo N:N reaproveitando a autorização que já
+existe. O que muda é a pergunta que o quadro passa a responder: hoje ele mostra *o que existe*, e
+não *o que é meu*.
+
+**Entrega:**
+- Tabela `card_responsaveis` (`card_id`, `usuario_id`, `criado_em`), chave primária composta — a
+  mesma forma de `card_etiquetas`, e pelo mesmo motivo: ela já impede a atribuição repetida
+- Regra de domínio: **só dá para atribuir quem participa do quadro**. A checagem é do usecase,
+  como todas as outras; a chave estrangeira aponta para `usuarios`, não para `board_membros`
+- Avatar no card, no mesmo padrão da presença (iniciais em círculo)
+- Filtro na tela do quadro: por responsável, etiqueta e prazo — combináveis, aplicados no
+  cliente sobre o quadro já carregado
+- A leitura do quadro devolve os responsáveis de todos os cards **numa consulta só**, no mesmo
+  molde de `EtiquetasDoBoardPorCard`
+
+**Migrations:** `V15__cria_tabela_card_responsaveis.sql`
+
+**A decisão que não dá para adiar:** o que acontece com a atribuição quando a pessoa é removida do
+quadro. Manter gera uma lista de responsáveis que mente — nomes de quem não tem mais acesso.
+Recomendo remover o vínculo junto, na mesma transação da remoção do membro, e é a
+`UnidadeDeTrabalho` da fase 8 que torna isso barato.
+
+**Pronto quando:** duas contas no mesmo quadro, uma atribui a outra, e o avatar aparece na tela do
+outro navegador sem F5. O filtro "meus cards" esconde o resto e sobrevive ao recarregar.
+
+**Estudo:**
+- [pgx — CollectRows](https://pkg.go.dev/github.com/jackc/pgx/v5) para agregar sem N+1 (o
+  `EtiquetasDoBoardPorCard` já é o exemplo pronto dentro do projeto)
+- [Trello — atribuir membros a um cartão](https://support.atlassian.com/trello/docs/adding-members-to-a-card/)
+  para ver o que a referência faz com o caso de quem sai do quadro
+
+---
+
+### Fase 11 — Comentários e histórico de atividade
+
+**Conceito novo:** o primeiro fluxo **append-only** do projeto, e o primeiro em que recarregar o
+quadro inteiro por um evento fica evidentemente errado — um comentário chegando não deveria
+provocar um `GET /boards/{id}`.
+
+**Entrega:**
+- Tabela `comentarios` (`id`, `card_id`, `autor_id`, `texto`, `criado_em`, `editado_em` anulável).
+  O `autor_id` **sem** `ON DELETE CASCADE`: apagar uma conta não pode reescrever a conversa
+- Renderização com o `lib/markdown.ts` que já existe
+- Tipo de evento novo, `comentario.criado`, com payload útil — este é o primeiro evento cujo
+  conteúdo a tela vai querer aplicar direto, e não usar como aviso
+- **Histórico de atividade do card, sem tabela nova:** `board_events` já guarda tipo, autor,
+  payload e data. O feed é um *read model* sobre o que a fase 7 já escreve
+
+**Migrations:** `V16__cria_tabela_comentarios.sql`
+
+**A armadilha, e ela é concreta:** o payload dos eventos estruturais **não basta para o feed**. O
+`card.movido` guarda o card já movido, com a coluna de destino — a coluna de origem se perde, e
+sem ela não dá para escrever "moveu de *A fazer* para *Fazendo*". O mesmo vale para renomear, que
+não guarda o título anterior.
+
+São dois caminhos, e é melhor escolher com os olhos abertos:
+
+1. **Enriquecer o payload agora** — o evento passa a levar o antes e o depois. O feed fica bom, e
+   o custo é a tabela crescer mais rápido;
+2. **Aceitar um feed pobre** — "fulano moveu este card", sem de onde para onde.
+
+Recomendo o **1**, e fazê-lo *nesta* fase: mudar o formato do payload depois não corrige o
+histórico já gravado, e evento antigo não se reescreve.
+
+**Pronto quando:** ana comenta e bruno vê aparecer sem recarregar; o card abre mostrando quem fez o
+quê desde que ele nasceu.
+
+**Estudo:**
+- [PostgreSQL — tipos JSON](https://www.postgresql.org/docs/current/datatype-json.html), agora
+  para versionar o formato do payload sem quebrar o que já está gravado
+- [Event sourcing vs. event log](https://martinfowler.com/eaaDev/EventSourcing.html) — o suficiente
+  para ver que aqui o log é *derivado*, não a fonte da verdade, e por que essa diferença importa
+
+---
+
+### Fase 12 — Aplicação incremental de eventos
+
+**Conceito novo:** deixar de recarregar e passar a aplicar diferença — e assumir o risco que isso
+traz, que é a tela poder divergir do banco **em silêncio**.
+
+Hoje todo evento que não é presença cai numa recarga do quadro. A escolha foi deliberada e está
+certa para uma primeira versão: recarregar é sempre correto. O preço é que o servidor manda o tipo
+e o payload de cada evento, e o cliente joga os dois fora.
+
+**Entrega:**
+- Um caminho de aplicação por tipo de evento, sobre o `$state`
+- `recarregue.tudo` permanece como rede de segurança, e passa a ser usado também quando a
+  aplicação incremental encontra um evento que não sabe tratar
+- **Reconciliação:** ao reganhar o foco da aba, comparar o último `seq` aplicado com o do servidor
+  e recarregar se divergirem. É o que impede um erro de aplicação de durar para sempre
+
+**Pronto quando:** mover um card no navegador A **não gera requisição nenhuma** no navegador B —
+confira na aba Network — e o teste de duas abas continua verde.
+
+**A armadilha, que é a razão de esta fase vir depois da 11:** qualquer caminho de aplicação errado
+deixa a tela discordando do banco sem ninguém perceber, que é o pior defeito possível num quadro
+colaborativo. Faça só depois de ter um caso em que recarregar dói de verdade — senão você paga o
+risco sem receber o benefício.
+
+**Estudo:**
+- [Svelte 5 — runes](https://svelte.dev/docs/svelte/what-are-runes), agora `$state.snapshot` e
+  atualização granular de listas
+- [Convergência e reconciliação](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html)
+  — o vocabulário para pensar "a tela e o banco concordam?"
+
+---
+
+### Fase 13 — Arquivar, com desfazer
+
+**Conceito novo:** exclusão reversível, e o ciclo expand/contract numa coluna nova que **não tem
+contract** — ela nasce anulável e assim fica.
+
+Hoje `DELETE /cards/{id}` é definitivo e leva checklists e anexos por cascata. Não há desfazer, e
+não há como recuperar. O Trello arquiva.
+
+**Entrega:**
+- `arquivado_em TIMESTAMPTZ` anulável em `cards` e `colunas`
+- Toda leitura passa a filtrar `arquivado_em IS NULL`
+- Tela de arquivados do quadro, com desarquivar
+- Apagar de vez continua existindo, só do dono, e a partir da tela de arquivados
+
+**Migrations:** `V17__adiciona_arquivado_em_em_cards_e_colunas.sql`
+
+**A armadilha:** **todo** `SELECT` existente precisa passar a filtrar, e um esquecido faz o card
+arquivado reaparecer no quadro. É exatamente o tipo de defeito que os fakes em memória não pegam —
+e é onde os testes de repositório contra Postgres real da fase 8 pagam o investimento.
+
+**Pronto quando:** arquivar um card o tira do quadro nos dois navegadores, ele aparece na tela de
+arquivados, e desarquivar o devolve à mesma coluna e posição.
+
+---
+
+### Fase 14 — WIP limit por coluna
+
+**Conceito novo:** a primeira regra que **recusa** uma operação por política do quadro, e não por
+falta de permissão. E a primeira em que a contagem precisa acontecer dentro da transação.
+
+**Entrega:**
+- `colunas.wip_limite INTEGER` anulável (nulo = sem limite)
+- O domínio recusa criar e mover para uma coluna cheia; o handler responde **409** com a mensagem
+- A coluna mostra `3/5`, e muda de cor ao encher
+
+**Migrations:** `V18__adiciona_wip_limite_em_colunas.sql`
+
+**A armadilha, e ela é do eixo do projeto:** duas pessoas movem um card ao mesmo tempo para uma
+coluna com **uma** vaga. Se a contagem for feita antes da transação, as duas passam e a coluna
+estoura o próprio limite. Contar **dentro** da transação da escrita é o que resolve — e a
+`UnidadeDeTrabalho` da fase 8 já entrega os repositórios ligados a ela.
+
+**Pronto quando:** existe um teste que dispara dois movimentos concorrentes contra uma coluna com
+uma vaga e prova que **exatamente um** passa.
+
+**Estudo:**
+- [Atlassian — WIP limits](https://www.atlassian.com/agile/kanban/wip-limits)
+- [PostgreSQL — isolamento de transações](https://www.postgresql.org/docs/current/transaction-iso.html),
+  desta vez para valer: é aqui que `READ COMMITTED` não basta sozinho
+
+---
+
+### Fase 15 (opcional) — Mais de uma instância da API
+
+**Conceito novo:** o hub é um mapa em memória, e memória não é compartilhada entre processos.
+
+Subir uma segunda réplica hoje quebra o tempo real **em silêncio**: quem está conectado na
+instância A não recebe o que aconteceu na B. Nada falha, nada aparece no log — a tela só para de
+atualizar para metade das pessoas.
+
+**Entrega:** o hub continua sendo a sala local; entra uma ponte por
+[LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) que avisa as outras
+instâncias.
+
+**O detalhe que faz o desenho ficar simples:** o `NOTIFY` tem teto de payload (8000 bytes), então
+**não mande o evento pelo canal — mande só o `seq`**. Cada instância lê o evento de
+`board_events`, que é a fonte da verdade e já está lá desde a fase 7. Some o problema de tamanho, e
+some também o de formato.
+
+**Pronto quando:** duas instâncias da API atrás do mesmo proxy, dois navegadores em instâncias
+diferentes, e o card move nos dois.
+
+**Estudo:**
+- [PostgreSQL — NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) e o
+  [suporte do pgx](https://pkg.go.dev/github.com/jackc/pgx/v5#Conn.WaitForNotification)
+- [NATS](https://docs.nats.io/) ou [Redis Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/)
+  — a saída industrial, para saber o que se está trocando
+
+---
+
+### Depois disso, se der gosto
 
 **Já foram feitos, fora de ordem:** etiquetas, prazo, checklist e anexos entraram junto com a
 adaptação do template do Trello, entre as fases 3 e 4. A consequência a pagar está na fase 5:
 cada uma dessas tabelas é uma fonte de eventos que o hub vai precisar propagar — etiqueta
 aplicada, item marcado, anexo enviado —, e isso não estava no desenho original daquela fase.
 
-O que segue de fora: comentários, histórico de atividade, WIP limit por coluna, cursor de cada
-pessoa flutuando na tela. E dois caminhos de estudo que este projeto abre naturalmente:
+Comentários, histórico de atividade, WIP limit e múltiplas instâncias saíram desta lista: viraram
+as fases 11, 14 e 15 acima. O que segue realmente de fora:
 
-- **Múltiplas instâncias da API:** o hub em memória só avisa quem está conectado *naquele*
-  processo. A saída caseira é [PostgreSQL LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html);
-  a industrial é Redis Pub/Sub ou NATS.
+- **Cursor de cada pessoa flutuando na tela.** Bonito e caro: exige um canal de altíssima
+  frequência (dezenas de mensagens por segundo por pessoa) que não pode passar pelo mesmo caminho
+  dos eventos do quadro, nem ser gravado. É estado efêmero levado ao extremo.
+- **"Fulano está editando este card"**, que a fase 6 previa e não foi feito: marca temporária com
+  TTL, renovada enquanto o campo tem foco. Depende de o cliente passar a **enviar** mensagens pelo
+  socket, coisa que hoje ele não faz — `lerAteMorrer` existe só para processar os pongs.
+- **Notificações** (por email ou push) e **quadros públicos por link**.
 - **Edição concorrente de texto de verdade** (dois digitando na mesma descrição): é o território
   de [CRDTs](https://crdt.tech/) — [Yjs](https://docs.yjs.dev/) e
   [Automerge](https://automerge.org/) são as implementações de referência.

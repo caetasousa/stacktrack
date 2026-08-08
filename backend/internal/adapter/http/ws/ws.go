@@ -10,8 +10,10 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -49,9 +51,24 @@ type Identificador func(ctx context.Context) (string, bool)
 // mostra: um avatar com id cru não diz nada a ninguém.
 type Nomeador func(usuarioID string) string
 
+// Historico é o log do quadro, consultado no reconnect.
+type Historico interface {
+	Desde(boardID string, seq int64, limite int) ([]evento.Evento, error)
+	UltimoSeq(boardID string) (int64, error)
+}
+
+// maxBacklog é o teto de eventos entregues num reconnect.
+//
+// Uma aba que ficou uma semana fechada pediria a história inteira do quadro, e
+// montá-la em memória para entregá-la seria uma negação de serviço com pedido
+// educado. Passando do teto, o cliente é mandado recarregar tudo — mais barato
+// e sempre correto.
+const maxBacklog = 200
+
 // Handler serve o endpoint de tempo real.
 type Handler struct {
 	hub            *hub.Hub
+	historico      Historico
 	autorizador    Autorizador
 	identidade     Identificador
 	nome           Nomeador
@@ -68,18 +85,25 @@ type Handler struct {
 // SameSite=Lax do cookie é a segunda camada, não a primeira.
 func NovoHandler(
 	h *hub.Hub,
+	hist Historico,
 	a Autorizador,
 	id Identificador,
 	nome Nomeador,
 	origensAceitas []string,
 	log *slog.Logger,
 ) *Handler {
-	return &Handler{hub: h, autorizador: a, identidade: id, nome: nome, origensAceitas: origensAceitas, log: log}
+	return &Handler{
+		hub: h, historico: hist, autorizador: a, identidade: id, nome: nome,
+		origensAceitas: origensAceitas, log: log,
+	}
 }
 
 // mensagem é o formato que viaja no fio. É separado de evento.Evento de
 // propósito: o domínio não deve ganhar tags de JSON por causa do transporte.
 type mensagem struct {
+	// Seq é a posição na história do quadro. O cliente guarda a maior que
+	// aplicou e a devolve no reconnect, em ?desde=N.
+	Seq     int64       `json:"seq,omitempty"`
 	Tipo    evento.Tipo `json:"tipo"`
 	BoardID string      `json:"boardId"`
 	AutorID string      `json:"autorId"`
@@ -125,6 +149,19 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.hub.Cancelar(assinante)
+
+	// O que o cliente perdeu enquanto esteve fora, ANTES de qualquer evento ao
+	// vivo. A ordem é o ponto: entregar o backlog depois faria o cliente aplicar
+	// o passado por cima do presente.
+	//
+	// A assinatura já aconteceu, então os eventos que chegarem durante a
+	// reposição ficam na fila do canal e são entregues em seguida — sem buraco
+	// entre o fim da história e o começo do ao vivo, que é exatamente onde um
+	// desenho ingênuo perde eventos.
+	if err := h.repor(r.Context(), conexao, boardID, r.URL.Query().Get("desde")); err != nil {
+		h.log.Debug("falha ao repor o histórico", "erro", err, "board", boardID)
+		return
+	}
 
 	// Um contexto por conexão: qualquer um dos lados que termine cancela o
 	// outro. É o que faz a goroutine de leitura e a de escrita morrerem juntas
@@ -213,9 +250,63 @@ func (h *Handler) enviar(ctx context.Context, c *websocket.Conn, e evento.Evento
 		AutorID: e.AutorID,
 		Em:      e.OcorridoEm,
 		Dados:   e.Dados,
+		Seq:     e.Seq,
 	})
 	if err != nil {
 		return err
 	}
 	return c.Write(prazo, websocket.MessageText, corpo)
+}
+
+// repor entrega o que aconteceu desde o seq informado.
+//
+// Sem `desde`, é a primeira conexão: nada de história, só a posição atual —
+// para a próxima reconexão ter de onde partir. Com `desde` grande demais, ou
+// com backlog além do teto, manda recarregar tudo em vez de reproduzir.
+func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID, desde string) error {
+	if h.historico == nil {
+		return nil
+	}
+
+	if desde == "" {
+		atual, err := h.historico.UltimoSeq(boardID)
+		if err != nil {
+			return err
+		}
+		return h.enviar(ctx, c, evento.Evento{
+			Tipo: evento.Sincronizado, BoardID: boardID, Seq: atual,
+			OcorridoEm: time.Now(),
+		})
+	}
+
+	ultimoAplicado, err := strconv.ParseInt(desde, 10, 64)
+	if err != nil || ultimoAplicado < 0 {
+		return fmt.Errorf("desde inválido: %q", desde)
+	}
+
+	perdidos, err := h.historico.Desde(boardID, ultimoAplicado, maxBacklog+1)
+	if err != nil {
+		return err
+	}
+
+	// Backlog além do teto: em vez de reproduzir centenas de eventos, manda a
+	// tela buscar o quadro inteiro. Uma requisição resolve, e o resultado é o
+	// mesmo — com a vantagem de ser sempre correto.
+	if len(perdidos) > maxBacklog {
+		atual, err := h.historico.UltimoSeq(boardID)
+		if err != nil {
+			return err
+		}
+		return h.enviar(ctx, c, evento.Evento{
+			Tipo: evento.RecarregueTudo, BoardID: boardID, Seq: atual,
+			OcorridoEm: time.Now(),
+		})
+	}
+
+	for _, e := range perdidos {
+		if err := h.enviar(ctx, c, e); err != nil {
+			return err
+		}
+	}
+	return nil
 }

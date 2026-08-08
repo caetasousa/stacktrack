@@ -96,10 +96,15 @@ func main() {
 	// não no construtor de cada usecase, é o que mantém os testes construindo
 	// os mesmos usecases sem saber que tempo real existe.
 	salaDeEventos := hub.Novo()
-	for _, uc := range []interface{ ComPublicador(ucboard.Publicador) }{
+	logDeEventos := repository.NovoEventoPostgres(pool)
+	for _, uc := range []interface {
+		ComPublicador(ucboard.Publicador)
+		ComRegistro(ucboard.RegistroDeEventos)
+	}{
 		quadroUC, colunaUC, cardUC, etiquetaUC, checklistUC, anexoUC,
 	} {
 		uc.ComPublicador(salaDeEventos)
+		uc.ComRegistro(logDeEventos)
 	}
 
 	// handlers e middlewares
@@ -123,6 +128,7 @@ func main() {
 	// tempo real (Cross-Site WebSocket Hijacking).
 	wsHandler := ws.NovoHandler(
 		salaDeEventos,
+		logDeEventos,
 		quadroUC,
 		func(ctx context.Context) (string, bool) {
 			id, ok := middleware.IdentidadeDoContexto(ctx)

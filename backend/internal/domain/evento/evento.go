@@ -34,6 +34,15 @@ const (
 	// existe no banco, vive só no mapa de conexões do hub e morre com o
 	// processo. Justamente por isso não há migration para ele.
 	PresencaAlterada Tipo = "presenca.alterada"
+
+	// Controle da reconexão. Não descrevem mudança no quadro: dizem ao cliente
+	// em que ponto da história ele está.
+	//
+	// Sincronizado é a primeira conexão — "você está em dia, a posição é esta".
+	// RecarregueTudo é a desistência honesta: o intervalo perdido é grande
+	// demais para reproduzir, então busque o quadro inteiro.
+	Sincronizado   Tipo = "sincronizado"
+	RecarregueTudo Tipo = "recarregue.tudo"
 )
 
 // Evento é uma coisa que aconteceu num quadro.
@@ -41,6 +50,16 @@ const (
 // AutorID existe para o cliente poder ignorar o próprio eco: quem arrastou o
 // card já moveu a tela na hora, e reaplicar o evento causaria um solavanco.
 type Evento struct {
+	// Seq é a posição do evento na história do quadro, atribuída pelo banco.
+	//
+	// É o que torna a reconexão possível: o cliente guarda o último aplicado e
+	// pergunta "o que houve desde ele?". E é o que torna a reaplicação
+	// inofensiva — evento com seq menor ou igual ao último já visto é
+	// descartado, então receber o mesmo duas vezes não duplica nada.
+	//
+	// Zero significa "não registrado": presença não vai para o log, porque
+	// descreve o agora e não faz sentido reproduzir depois.
+	Seq        int64
 	Tipo       Tipo
 	BoardID    string
 	AutorID    string

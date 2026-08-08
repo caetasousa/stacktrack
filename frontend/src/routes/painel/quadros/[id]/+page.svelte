@@ -92,6 +92,13 @@
 			presentes = (e.dados as Presente[]) ?? [];
 			return;
 		}
+		// `sincronizado` só carrega a posição atual da história — a conexão
+		// registra o seq e não há nada a mostrar. Recarregar aqui daria uma
+		// requisição a cada conexão, sem nenhuma mudança para ver.
+		if (e.tipo === 'sincronizado') return;
+
+		// Tudo o mais — inclusive `recarregue.tudo`, quando o intervalo perdido
+		// foi grande demais para repor — cai na recarga do quadro.
 		recarregar();
 	}
 

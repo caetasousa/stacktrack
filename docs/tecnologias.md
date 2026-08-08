@@ -242,12 +242,26 @@ em vez de fingir que nada aconteceu.
 isso exige **ordem total**. Identificador aleatório não ordena, e timestamp
 empata — dois eventos no mesmo microssegundo ficariam sem sucessor definido.
 
-⚠️ **A garantia hoje é mais fraca que o padrão outbox.** O evento é gravado logo
-depois da mudança, e não dentro da mesma transação: um processo que morra entre
-as duas escritas deixa um buraco no log. O que segura isso é o cliente cair na
-recarga completa quando o intervalo não fecha — sempre correta, só mais cara.
-Fechar a transação exige levar o `pgx.Tx` até os repositórios, e está anotado
-como o próximo passo em [testes.md](testes.md).
+**A mudança e o evento caem no mesmo commit.** Quem faz isso é
+`repository.UnidadeDeTrabalho`: ela abre a transação, entrega à operação os
+repositórios ligados a ela, grava o evento e comita. Ou o card move e o evento
+existe, ou nenhum dos dois.
+
+A peça que torna isso barato é a interface `consultante` — o que `*pgxpool.Pool`
+e `pgx.Tx` têm em comum. Os repositórios dependem dela, e não do pool concreto,
+então o mesmo SQL serve para uma consulta solta e para uma dentro de transação,
+sem uma linha duplicada.
+
+A publicação ao vivo fica **fora** da transação, de propósito: anunciar antes do
+commit avisaria de uma mudança que o rollback ainda pode desfazer, e quem
+recebesse o evento recarregaria o quadro para encontrar o estado anterior.
+
+⚠️ **Nem todo evento passa por ali, e isso é decisão.** Etiqueta, checklist e
+anexo publicam pelo caminho simples, sem transação comum: o evento deles é um
+aviso de "recarregue o quadro", e perder um não deixa buraco perceptível —
+qualquer evento seguinte, ou a própria reconexão, manda a tela buscar tudo de
+novo. O que exige atomicidade são as mudanças estruturais, onde o buraco é
+invisível para quem reconecta.
 
 📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
 📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real

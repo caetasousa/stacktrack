@@ -81,6 +81,51 @@ publicar não espera por ninguém. Um cliente que parou de ler é derrubado; sem
 isso, a requisição HTTP de quem moveu o card ficaria bloqueada até ele voltar —
 que pode ser nunca.
 
+`TestQuedaPorLentidaoAvisaQuemFicou` fecha o outro lado dessa regra: **cair por
+lentidão também é sair**, e quem fica precisa saber. A remoção acontece dentro
+de `Publicar`, e o `defer Cancelar` do handler roda depois — encontrando o
+assinante já fora da sala, ele não anuncia nada. Sem o aviso vindo do próprio
+`Publicar`, o avatar de quem caiu ficava preso na tela dos outros até o próximo
+evento de presença, que pode nunca vir. O teste anterior não pegava isso porque
+só conferia que a sala esvaziou, nunca que alguém foi avisado.
+
+### O protocolo do WebSocket, sem stack
+
+`ws_test.go` roda na suíte padrão: o handler sobe em `httptest` e o cliente é o
+mesmo `coder/websocket` do outro lado, então o que se prova é o protocolo de
+verdade — sem Docker, sem navegador, sem API no ar.
+
+Existe porque o pacote `adapter/http/ws` não tinha cobertura nenhuma no
+`go test ./...`. O que o exercitava era o teste de duas abas (build tag) e o
+Playwright, ou seja: só rodava para quem lembrasse de subir tudo. A peça mais
+delicada do projeto era a menos coberta no dia a dia.
+
+Treze casos, em quatro grupos:
+
+| grupo | o que tranca |
+|---|---|
+| handshake | 401 sem sessão, 400 sem quadro, **404** para quem não participa (nunca 403, que confirmaria a existência), e origem fora da lista recusada — o CSWSH |
+| entrega | primeira conexão recebe a posição atual; evento ao vivo chega; o eco do próprio autor não volta |
+| reposição | o intervalo volta em ordem; o eco é filtrado também no passado; um intervalo só do próprio autor **ainda fecha o seq**; backlog além do teto vira `recarregue.tudo` |
+| revalidação | acesso revogado e sessão encerrada derrubam a conexão |
+
+O último grupo usa `ComIntervaloDeRevalidacao` para não esperar os 30 segundos
+de produção.
+
+### A transação do outbox
+
+Prova em duas camadas, porque são duas perguntas diferentes.
+
+`test/usecase/outbox_test.go` prova o **contrato**: o usecase pede a escrita
+atômica, e quando ela falha não registra nem publica — publicar ali anunciaria
+mudança que não aconteceu. Não precisa de banco.
+
+`test/repository/outbox_test.go` (tag `integracao`) prova o que só o Postgres
+responde: que as duas escritas realmente compartilham a transação. O caso que
+importa força o `INSERT` do evento a violar a chave estrangeira **depois** de o
+`UPDATE` do card já ter acontecido, e verifica que o card voltou à posição
+original. É exatamente a janela que o outbox fecha.
+
 ### O teste de duas abas
 
 `duas_abas_test.go`, atrás da build tag `tempo_real` porque **exige a API no
@@ -208,16 +253,6 @@ cliente.
 ---
 
 ## O que ainda não existe
-
-### A transação do outbox
-
-O evento é gravado logo **depois** da mudança, e não dentro da mesma transação.
-Um processo que morra entre as duas escritas deixa um buraco no log — e o
-cliente que reconectar pedindo "desde o 41" receberia o 43 sem saber que o 42
-existiu.
-
-O que segura isso hoje é o caminho de recarga completa, sempre correto. Fechar a
-transação exige levar o `pgx.Tx` até os repositórios, e é o próximo passo aqui.
 
 ### Arrastar e soltar sob o Playwright
 

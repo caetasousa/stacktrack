@@ -6,10 +6,19 @@
 // de aplicar o evento, aquele teste continua verde. É esse pedaço que vive aqui.
 
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { abaDe, convidar, criarColuna, criarConta, criarQuadro, type Conta } from './apoio';
+import {
+	abaDe,
+	convidar,
+	criarColuna,
+	criarConta,
+	criarQuadro,
+	TetoDeRequisicoes,
+	type Conta
+} from './apoio';
 
 let ana: Conta;
 let bruno: Conta;
+let carlos: Conta;
 let boardId: string;
 let abaAna: BrowserContext;
 let abaBruno: BrowserContext;
@@ -23,12 +32,24 @@ let telaBruno: Page;
 // produto e é o rate limiter fazendo o trabalho dele.
 test.beforeAll(async ({ browser, playwright }) => {
 	const req = await playwright.request.newContext();
-	ana = await criarConta(req, 'ana');
-	bruno = await criarConta(req, 'bruno');
+	try {
+		// As três contas nascem juntas, numa rajada só. Criar uma no meio da
+		// suíte esbarrava no teto por IP e deixava um teste intermitente — que é
+		// pior que um teste vermelho: ele ensina a ignorar a suíte.
+		ana = await criarConta(req, 'ana');
+		bruno = await criarConta(req, 'bruno');
+		carlos = await criarConta(req, 'carlos');
+	} catch (e) {
+		// Sem cenário não há teste — mas 429 é o rate limiter, não defeito.
+		// Vermelho aqui mandaria procurar bug onde não há.
+		if (e instanceof TetoDeRequisicoes) test.skip(true, e.message);
+		throw e;
+	}
 
 	const quadro = await criarQuadro(req, ana, 'Tempo real');
 	boardId = quadro.id;
 	await convidar(req, ana, boardId, bruno);
+	await convidar(req, ana, boardId, carlos);
 	await criarColuna(req, ana, boardId, 'A fazer');
 	await req.dispose();
 
@@ -122,4 +143,66 @@ test('a queda da conexão aparece na tela, e ela volta sozinha', async ({ browse
 	await expect(tela.getByText(/reconectando|conectando/)).toHaveCount(0, { timeout: 30_000 });
 
 	await aba.close();
+});
+
+// --- fase 6: presença e edição concorrente ---------------------------------
+
+// Presença é estado efêmero: vive no mapa de conexões do hub e morre com o
+// processo. Não há migration para ela, e é isso que a torna barata.
+test('cada um vê o avatar do outro, e ele some quando a aba fecha', async ({ browser }) => {
+	const avatares = telaAna.getByLabel('Quem está neste quadro agora').locator('span');
+	await expect(avatares).toHaveCount(2);
+
+	// Uma terceira pessoa abre o quadro...
+	const abaCarlos = await abaDe(browser, carlos);
+	const telaCarlos = await abaCarlos.newPage();
+	await telaCarlos.goto(`/painel/quadros/${boardId}`);
+	await expect(telaCarlos.getByText('A fazer')).toBeVisible();
+
+	// ...e a ana vê o avatar aparecer, sem recarregar.
+	await expect(avatares).toHaveCount(3);
+
+	// Ao fechar a aba, ele some — a saída também é um evento.
+	await abaCarlos.close();
+	await expect(avatares).toHaveCount(2);
+});
+
+// O caso que o bloqueio otimista existe para resolver: dois editando o mesmo
+// card, e o trabalho de um não pode sumir em silêncio.
+test('quem grava por último recebe o aviso em vez de sobrescrever', async () => {
+	const titulo = `Disputado ${Date.now()}`;
+
+	const campoNovo = telaAna.getByLabel('Título do novo card').first();
+	await campoNovo.fill(titulo);
+	await campoNovo.press('Enter');
+	await expect(telaBruno.getByText(titulo)).toBeVisible();
+
+	// Os dois abrem o mesmo card: enxergam a mesma versão.
+	await telaAna.getByText(titulo).click();
+	await telaBruno.getByText(titulo).click();
+	await telaAna.getByRole('button', { name: 'Editar título e descrição' }).click();
+	await telaBruno.getByRole('button', { name: 'Editar título e descrição' }).click();
+
+	// Ana grava primeiro.
+	await telaAna.getByLabel('Título', { exact: true }).fill('Texto da ana');
+	await telaAna.getByRole('button', { name: 'Salvar' }).click();
+	// .first() porque o título passa a aparecer em dois lugares: no card do
+	// quadro e no modal aberto por cima dele.
+	await expect(telaAna.getByText('Texto da ana').first()).toBeVisible();
+
+	// Bruno grava depois, com a versão que ele viu — e é recusado.
+	await telaBruno.getByLabel('Título', { exact: true }).fill('Texto do bruno');
+	await telaBruno.getByRole('button', { name: 'Salvar' }).click();
+
+	await expect(
+		telaBruno.getByText('Alguém alterou este card enquanto você escrevia.')
+	).toBeVisible();
+
+	// O texto do bruno continua na tela: o aviso não pode custar o trabalho
+	// dele, que é justamente o que o bloqueio existe para proteger.
+	await expect(telaBruno.getByLabel('Título', { exact: true })).toHaveValue('Texto do bruno');
+
+	// E o texto da ana sobreviveu no servidor.
+	await telaBruno.getByRole('button', { name: 'Trazer a versão atual' }).click();
+	await expect(telaBruno.getByText('Texto da ana').first()).toBeVisible();
 });

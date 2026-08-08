@@ -10,6 +10,21 @@ import type { APIRequestContext, Browser, BrowserContext } from '@playwright/tes
 export const API = process.env.E2E_API_URL ?? 'http://localhost:8080';
 export const APP = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 
+/**
+ * TetoDeRequisicoes é o 429 do rate limiter, e NÃO um defeito do produto: é o
+ * teto por IP fazendo o trabalho dele, e a suíte inteira divide o mesmo IP.
+ *
+ * Tem tipo próprio para o beforeAll poder distinguir "não deu para montar o
+ * cenário" de "o produto está quebrado" — o primeiro vira skip, o segundo
+ * vermelho.
+ */
+export class TetoDeRequisicoes extends Error {
+	constructor(quem: string) {
+		super(`teto por IP do rate limiter atingido ao criar ${quem} — espere um minuto`);
+		this.name = 'TetoDeRequisicoes';
+	}
+}
+
 export interface Conta {
 	nome: string;
 	email: string;
@@ -24,12 +39,13 @@ export async function criarConta(req: APIRequestContext, nome: string): Promise<
 
 	const cadastro = await req.post(`${API}/auth/cadastro`, { data: { nome, email, senha } });
 	if (!cadastro.ok()) {
+		if (cadastro.status() === 429) throw new TetoDeRequisicoes(nome);
 		throw new Error(`cadastro de ${nome} falhou: ${cadastro.status()} ${await cadastro.text()}`);
 	}
 
 	const login = await req.post(`${API}/auth/login`, { data: { email, senha } });
 	if (!login.ok()) {
-		// 429 aqui é o teto por IP do rate limiter, não defeito do produto.
+		if (login.status() === 429) throw new TetoDeRequisicoes(nome);
 		throw new Error(`login de ${nome} falhou: ${login.status()} ${await login.text()}`);
 	}
 

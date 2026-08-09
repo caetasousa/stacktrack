@@ -42,7 +42,7 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	ctx := context.Background()
 	boardID, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	antes := contarEventos(t, boardID)
 
 	unidade := repository.NovaUnidadeDeTrabalho(pool)
-	c.Mover(colunaID, 2048, "t")
+	c.Mover(colunaID, "t")
 	e := evento.Novo(evento.CardMovido, boardID, usuarioID, c)
 
 	seq, err := unidade.Escrever(ctx, e, func(esc ucboard.Escrita) error {
@@ -68,8 +68,8 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	if err != nil || gravado == nil {
 		t.Fatalf("ler card: %v", err)
 	}
-	if gravado.Posicao != 2048 {
-		t.Errorf("posição gravada = %v, esperado 2048", gravado.Posicao)
+	if gravado.Chave != "t" {
+		t.Errorf("chave gravada = %q, esperado \"t\"", gravado.Chave)
 	}
 	// ...e o evento existe.
 	if depois := contarEventos(t, boardID); depois != antes+1 {
@@ -86,7 +86,7 @@ func TestFalhaNaMudancaNaoDeixaEventoOrfao(t *testing.T) {
 	ctx := context.Background()
 	boardID, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
@@ -120,13 +120,13 @@ func TestFalhaAoGravarEventoDesfazAMudanca(t *testing.T) {
 	ctx := context.Background()
 	_, colunaID, usuarioID := cenario(t)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", 1024, ordem.ChaveInicial)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Migração", "", "", ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
 
 	unidade := repository.NovaUnidadeDeTrabalho(pool)
-	c.Mover(colunaID, 4096, "t")
+	c.Mover(colunaID, "t")
 	// Quadro que não existe: o INSERT em board_events vai bater na FK.
 	e := evento.Novo(evento.CardMovido, uuid.NewString(), usuarioID, c)
 
@@ -136,13 +136,13 @@ func TestFalhaAoGravarEventoDesfazAMudanca(t *testing.T) {
 		t.Fatal("escrever devolveu sucesso com o evento violando a chave estrangeira")
 	}
 
-	// O card tem de ter voltado à posição original.
+	// O card tem de ter voltado à chave original.
 	gravado, err := repository.NovoCardPostgres(pool).BuscarPorID(ctx, c.ID)
 	if err != nil || gravado == nil {
 		t.Fatalf("ler card: %v", err)
 	}
-	if gravado.Posicao != 1024 {
-		t.Errorf("posição = %v, esperado 1024: o UPDATE não foi desfeito quando o evento falhou",
-			gravado.Posicao)
+	if gravado.Chave != ordem.ChaveInicial {
+		t.Errorf("chave = %q, esperado %q: o UPDATE não foi desfeito quando o evento falhou",
+			gravado.Chave, ordem.ChaveInicial)
 	}
 }

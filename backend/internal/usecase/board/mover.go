@@ -2,7 +2,6 @@ package board
 
 import (
 	"context"
-	"errors"
 	dcard "stacktrack/internal/domain/card"
 	dcoluna "stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/evento"
@@ -68,23 +67,7 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 	if err != nil {
 		return nil, err
 	}
-	// A posição é legado, e escrevê-la NÃO pode mais barrar nada.
-	//
-	// Enquanto o expand não terminar as duas colunas são gravadas — mas deixar o
-	// esgotamento do float abortar o movimento manteria de pé exatamente a falha
-	// que esta fase existe para remover: o 409 voltaria na 53ª inserção no mesmo
-	// ponto, mesmo com a chave tendo espaço de sobra.
-	posicao, err := uc.posicaoEntreCards(ctx, destino.ID, vizinhos)
-	if err != nil {
-		if !errors.Is(err, ordem.ErrSemEspaco) {
-			return nil, err
-		}
-		// Sem espaço no float: a posição perde o sentido, e quem ordena já é a
-		// chave. Fica a do próprio card, que o contract vai apagar.
-		posicao = c.Posicao
-	}
-
-	c.Mover(destino.ID, posicao, chave)
+	c.Mover(destino.ID, chave)
 	// A coluna de ORIGEM entra no evento porque ela se perde no próprio Mover:
 	// depois dele, o card só sabe onde está. Sem isto o histórico diria "moveu
 	// este card", que é a metade inútil da informação — e essa era exatamente a
@@ -93,7 +76,7 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 		DadosDoCard{
 			CardID: c.ID, Titulo: c.Titulo,
 			DeColuna: origem.Titulo, Coluna: destino.Titulo,
-			ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version,
+			ColunaID: c.ColunaID, Version: c.Version,
 		},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
@@ -103,16 +86,14 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 
 // chaveEntreCards resolve os vizinhos em chaves reais e calcula a do meio.
 //
-// Vizinho sem chave — linha antiga, que o backfill ainda não alcançou — conta
-// como ponta: é o comportamento seguro durante o expand, porque colocar o card
-// entre uma chave e um vazio produziria uma ordem que não corresponde ao que a
-// tela mostrava.
+// Vizinho ausente conta como ponta: sem anterior o card vai para o começo, sem
+// próximo vai para o fim, e sem nenhum dos dois vai para o fim da coluna.
 func (uc *CardUseCase) chaveEntreCards(ctx context.Context, colunaID string, vizinhos Vizinhos) (string, error) {
-	anterior, err := uc.chaveDoCard(ctx, vizinhos.AnteriorID)
+	anterior, err := uc.chaveDoCard(ctx, vizinhos.AnteriorID, colunaID)
 	if err != nil {
 		return "", err
 	}
-	proximo, err := uc.chaveDoCard(ctx, vizinhos.ProximoID)
+	proximo, err := uc.chaveDoCard(ctx, vizinhos.ProximoID, colunaID)
 	if err != nil {
 		return "", err
 	}
@@ -130,59 +111,23 @@ func (uc *CardUseCase) chaveEntreCards(ctx context.Context, colunaID string, viz
 	return ordem.ChaveEntre(anterior, proximo)
 }
 
-func (uc *CardUseCase) chaveDoCard(ctx context.Context, cardID string) (string, error) {
+// chaveDoCard devolve a chave do vizinho, conferindo que ele é DA COLUNA de
+// destino.
+//
+// A conferência não é zelo: um id de card de outra coluna produziria uma chave
+// que não significa nada ali, e o item pousaria em lugar nenhum.
+func (uc *CardUseCase) chaveDoCard(ctx context.Context, cardID, colunaID string) (string, error) {
 	if cardID == "" {
 		return "", nil
 	}
 	c, err := uc.cards.BuscarPorID(ctx, cardID)
-	if err != nil || c == nil {
+	if err != nil {
 		return "", err
 	}
+	if c == nil || c.ColunaID != colunaID {
+		return "", dcard.ErrNaoEncontrado
+	}
 	return c.Chave, nil
-}
-
-// posicaoEntreCards resolve os vizinhos em posições reais e calcula o meio.
-//
-// Cada vizinho é conferido contra a coluna de destino: um id de card de outra
-// coluna produziria uma posição que não faz sentido lá, e o item pousaria em
-// lugar nenhum.
-func (uc *CardUseCase) posicaoEntreCards(ctx context.Context, colunaID string, vizinhos Vizinhos) (float64, error) {
-	anterior, err := uc.posicaoDoCardNaColuna(ctx, vizinhos.AnteriorID, colunaID)
-	if err != nil {
-		return 0, err
-	}
-	proximo, err := uc.posicaoDoCardNaColuna(ctx, vizinhos.ProximoID, colunaID)
-	if err != nil {
-		return 0, err
-	}
-
-	// Sem vizinho nenhum e coluna já povoada: o item vai para o fim, e não para
-	// a posição inicial — soltar num espaço vazio abaixo dos cards significa
-	// "no fim", não "no começo".
-	if anterior == 0 && proximo == 0 {
-		ultima, err := uc.cards.UltimaPosicao(ctx, colunaID)
-		if err != nil {
-			return 0, err
-		}
-		return ordem.NoFim(ultima), nil
-	}
-	return ordem.Entre(anterior, proximo)
-}
-
-// posicaoDoCardNaColuna devolve a posição do card vizinho, ou 0 quando não há
-// vizinho daquele lado.
-func (uc *CardUseCase) posicaoDoCardNaColuna(ctx context.Context, cardID, colunaID string) (float64, error) {
-	if cardID == "" {
-		return 0, nil
-	}
-	vizinho, err := uc.cards.BuscarPorID(ctx, cardID)
-	if err != nil {
-		return 0, err
-	}
-	if vizinho == nil || vizinho.ColunaID != colunaID {
-		return 0, dcard.ErrNaoEncontrado
-	}
-	return vizinho.Posicao, nil
 }
 
 // Mover reposiciona a coluna dentro do quadro. Exige papel de edição.
@@ -192,40 +137,12 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 		return nil, err
 	}
 
-	anterior, err := uc.posicaoDaColunaNoBoard(ctx, vizinhos.AnteriorID, c.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	proximo, err := uc.posicaoDaColunaNoBoard(ctx, vizinhos.ProximoID, c.BoardID)
-	if err != nil {
-		return nil, err
-	}
-
-	var posicao float64
-	if anterior == 0 && proximo == 0 {
-		ultima, err := uc.colunas.UltimaPosicao(ctx, c.BoardID)
-		if err != nil {
-			return nil, err
-		}
-		posicao = ordem.NoFim(ultima)
-	} else {
-		posicao, err = ordem.Entre(anterior, proximo)
-		if err != nil {
-			if !errors.Is(err, ordem.ErrSemEspaco) {
-				return nil, err
-			}
-			// Legado sem espaço: quem ordena é a chave. Ver o comentário em
-			// CardUseCase.Mover.
-			posicao = c.Posicao
-		}
-	}
-
 	chave, err := uc.chaveEntreColunas(ctx, c.BoardID, vizinhos)
 	if err != nil {
 		return nil, err
 	}
 
-	c.MoverPara(posicao, chave)
+	c.MoverPara(chave)
 	if err := uc.escreverEPublicar(ctx, evento.ColunaMovida, c.BoardID, usuarioID,
 		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
@@ -236,11 +153,11 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 
 // chaveEntreColunas faz para colunas o que chaveEntreCards faz para cards.
 func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, boardID string, vizinhos Vizinhos) (string, error) {
-	anterior, err := uc.chaveDaColuna(ctx, vizinhos.AnteriorID)
+	anterior, err := uc.chaveDaColuna(ctx, vizinhos.AnteriorID, boardID)
 	if err != nil {
 		return "", err
 	}
-	proximo, err := uc.chaveDaColuna(ctx, vizinhos.ProximoID)
+	proximo, err := uc.chaveDaColuna(ctx, vizinhos.ProximoID, boardID)
 	if err != nil {
 		return "", err
 	}
@@ -254,27 +171,18 @@ func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, boardID string, 
 	return ordem.ChaveEntre(anterior, proximo)
 }
 
-func (uc *ColunaUseCase) chaveDaColuna(ctx context.Context, colunaID string) (string, error) {
+// chaveDaColuna devolve a chave da vizinha, conferindo que ela é DO MESMO
+// quadro — mesma razão de chaveDoCard.
+func (uc *ColunaUseCase) chaveDaColuna(ctx context.Context, colunaID, boardID string) (string, error) {
 	if colunaID == "" {
 		return "", nil
 	}
 	c, err := uc.colunas.BuscarPorID(ctx, colunaID)
-	if err != nil || c == nil {
+	if err != nil {
 		return "", err
 	}
+	if c == nil || c.BoardID != boardID {
+		return "", dcoluna.ErrNaoEncontrada
+	}
 	return c.Chave, nil
-}
-
-func (uc *ColunaUseCase) posicaoDaColunaNoBoard(ctx context.Context, colunaID, boardID string) (float64, error) {
-	if colunaID == "" {
-		return 0, nil
-	}
-	vizinha, err := uc.colunas.BuscarPorID(ctx, colunaID)
-	if err != nil {
-		return 0, err
-	}
-	if vizinha == nil || vizinha.BoardID != boardID {
-		return 0, dcoluna.ErrNaoEncontrada
-	}
-	return vizinha.Posicao, nil
 }

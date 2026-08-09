@@ -2,9 +2,9 @@ package board
 
 import (
 	"context"
-	dcoluna "stacktrack/internal/domain/coluna"
 	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/evento"
+	"stacktrack/internal/domain/ordem"
 
 	"github.com/google/uuid"
 )
@@ -48,7 +48,7 @@ func (uc *EtiquetaUseCase) Criar(ctx context.Context, boardID, usuarioID, nome s
 		return nil, err
 	}
 
-	e, err := detiqueta.Nova(uuid.NewString(), boardID, nome, cor, dcoluna.PosicaoNoFim(ultima))
+	e, err := detiqueta.Nova(uuid.NewString(), boardID, nome, cor, ordem.NoFim(ultima))
 	if err != nil {
 		return nil, err
 	}

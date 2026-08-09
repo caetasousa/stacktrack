@@ -15,7 +15,6 @@ import (
 	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 	"stacktrack/internal/domain/ordem"
-	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/google/uuid"
 )
@@ -45,7 +44,7 @@ func cenario(t *testing.T) (boardID, colunaID, usuarioID string) {
 		t.Fatalf("membro: %v", err)
 	}
 
-	c, err := coluna.Nova(uuid.NewString(), b.ID, "A fazer", cor.Verde, 1024, ordem.ChaveInicial)
+	c, err := coluna.Nova(uuid.NewString(), b.ID, "A fazer", cor.Verde, ordem.ChaveInicial)
 	if err != nil {
 		t.Fatalf("coluna: %v", err)
 	}
@@ -65,7 +64,7 @@ func TestTodoCampoDoCardSobreviveAoBanco(t *testing.T) {
 	repo := repository.NovoCardPostgres(pool)
 
 	prazo := time.Date(2030, 3, 14, 15, 9, 0, 0, time.UTC)
-	c, err := card.Novo(uuid.NewString(), colunaID, "Migração", "com **markdown**", cor.Roxo, 2048, ordem.ChaveInicial)
+	c, err := card.Novo(uuid.NewString(), colunaID, "Migração", "com **markdown**", cor.Roxo, ordem.ChaveInicial)
 	if err != nil {
 		t.Fatalf("card: %v", err)
 	}
@@ -92,8 +91,8 @@ func TestTodoCampoDoCardSobreviveAoBanco(t *testing.T) {
 	if lido.Prazo == nil || !lido.Prazo.Equal(prazo) {
 		t.Errorf("prazo = %v — o campo não sobreviveu ao SQL", lido.Prazo)
 	}
-	if lido.Posicao != 2048 {
-		t.Errorf("posicao = %v", lido.Posicao)
+	if lido.Chave != ordem.ChaveInicial {
+		t.Errorf("chave = %q — o campo não sobreviveu ao SQL", lido.Chave)
 	}
 	if lido.Version != c.Version {
 		t.Errorf("version = %d, esperado %d", lido.Version, c.Version)
@@ -132,7 +131,7 @@ func TestOBancoRecusaEscritaComVersaoDefasada(t *testing.T) {
 	_, colunaID, _ := cenario(t)
 	repo := repository.NovoCardPostgres(pool)
 
-	c, _ := card.Novo(uuid.NewString(), colunaID, "Disputado", "", "", 1024, ordem.ChaveInicial)
+	c, _ := card.Novo(uuid.NewString(), colunaID, "Disputado", "", "", ordem.ChaveInicial)
 	if err := repo.Salvar(context.Background(), c); err != nil {
 		t.Fatalf("salvar: %v", err)
 	}
@@ -262,7 +261,7 @@ func TestChaveDeOrdemPersisteEOrdena(t *testing.T) {
 	for _, caso := range []struct{ titulo, chave string }{
 		{"terceiro", "t"}, {"primeiro", "b"}, {"segundo", "n"},
 	} {
-		c, err := card.Novo(uuid.NewString(), colunaID, caso.titulo, "", "", 1024, caso.chave)
+		c, err := card.Novo(uuid.NewString(), colunaID, caso.titulo, "", "", caso.chave)
 		if err != nil {
 			t.Fatalf("montar %s: %v", caso.titulo, err)
 		}
@@ -285,80 +284,6 @@ func TestChaveDeOrdemPersisteEOrdena(t *testing.T) {
 		}
 		if cards[i].Chave == "" {
 			t.Errorf("a chave de %q não voltou do banco", cards[i].Titulo)
-		}
-	}
-}
-
-// Linha antiga (sem chave) e linha nova convivem durante o expand: o NULLS
-// FIRST põe a antiga antes, e a posição desempata entre elas.
-func TestCardSemChaveConviveComCardComChave(t *testing.T) {
-	ctx := context.Background()
-	boardID, colunaID, _ := cenario(t)
-	repo := repository.NovoCardPostgres(pool)
-
-	antigo, _ := card.Novo(uuid.NewString(), colunaID, "antigo", "", "", 1024, "")
-	if err := repo.Salvar(ctx, antigo); err != nil {
-		t.Fatalf("salvar antigo: %v", err)
-	}
-	novo, _ := card.Novo(uuid.NewString(), colunaID, "novo", "", "", 2048, "n")
-	if err := repo.Salvar(ctx, novo); err != nil {
-		t.Fatalf("salvar novo: %v", err)
-	}
-
-	cards, err := repo.ListarDoBoard(ctx, boardID)
-	if err != nil {
-		t.Fatalf("listar: %v", err)
-	}
-	if len(cards) != 2 {
-		t.Fatalf("cards = %d", len(cards))
-	}
-	if cards[0].Titulo != "antigo" {
-		t.Errorf("a linha sem chave devia vir primeiro, veio %q", cards[0].Titulo)
-	}
-	if cards[0].Chave != "" {
-		t.Errorf("a linha sem chave voltou com chave %q", cards[0].Chave)
-	}
-}
-
-// O backfill contra o banco real: preenche as linhas antigas preservando a
-// ordem que a posição ditava.
-func TestBackfillContraOBancoPreservaAOrdem(t *testing.T) {
-	ctx := context.Background()
-	boardID, colunaID, _ := cenario(t)
-	repo := repository.NovoCardPostgres(pool)
-
-	for _, caso := range []struct {
-		titulo  string
-		posicao float64
-	}{{"terceiro", 3072}, {"primeiro", 1024}, {"segundo", 2048}} {
-		c, _ := card.Novo(uuid.NewString(), colunaID, caso.titulo, "", "", caso.posicao, "")
-		if err := repo.Salvar(ctx, c); err != nil {
-			t.Fatalf("salvar %s: %v", caso.titulo, err)
-		}
-	}
-
-	backfill := ucboard.NovoBackfillUseCase(repository.NovoColunaPostgres(pool), repo)
-	if _, err := backfill.ExecutarTudo(ctx, 20); err != nil {
-		t.Fatalf("backfill: %v", err)
-	}
-
-	cards, err := repo.ListarDoBoard(ctx, boardID)
-	if err != nil {
-		t.Fatalf("listar: %v", err)
-	}
-	for i, esperado := range []string{"primeiro", "segundo", "terceiro"} {
-		if cards[i].Titulo != esperado {
-			t.Errorf("posição %d = %q, esperado %q — o backfill embaralhou", i, cards[i].Titulo, esperado)
-		}
-		if cards[i].Chave == "" {
-			t.Errorf("%q ficou sem chave depois do backfill", cards[i].Titulo)
-		}
-	}
-	// Estritamente crescentes: chave repetida sobreviveria enquanto `posicao`
-	// desempata, e viraria ordem aleatória no dia do contract.
-	for i := 1; i < len(cards); i++ {
-		if cards[i-1].Chave >= cards[i].Chave {
-			t.Fatalf("chaves repetidas ou fora de ordem: %q >= %q", cards[i-1].Chave, cards[i].Chave)
 		}
 	}
 }

@@ -122,22 +122,6 @@ func main() {
 		uc.ComEscritaAtomica(unidadeDeTrabalho)
 	}
 
-	// BACKFILL da fase 9: preenche a chave de ordenação das linhas criadas antes
-	// do expand. Roda no start porque é idempotente e barato quando não há nada
-	// a fazer — e porque o contract do deploy seguinte (o SET NOT NULL) depende
-	// de ele ter terminado.
-	//
-	// Falhar aqui NÃO impede a aplicação de subir: a leitura ordena por chave
-	// com a posição como desempate, então uma linha sem chave ainda aparece no
-	// lugar certo. O que não pode é o quadro ficar fora do ar por causa de uma
-	// migração de dados.
-	if r, err := ucboard.NovoBackfillUseCase(colunaRepo, cardRepo).ExecutarTudo(context.Background(), 100); err != nil {
-		slog.Error("backfill da chave de ordenação falhou", slog.String("erro", err.Error()))
-	} else if r.Colunas > 0 || r.Cards > 0 {
-		slog.Info("backfill da chave de ordenação",
-			slog.Int("colunas", r.Colunas), slog.Int("cards", r.Cards))
-	}
-
 	// handlers e middlewares
 	autenticacao := middleware.NovoAuth(validarSessaoUC, config.CookieSeguro())
 	identidadeDoContexto := func(r *http.Request) (ucauth.Identidade, bool) {

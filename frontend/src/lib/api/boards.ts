@@ -25,7 +25,6 @@ export interface Card {
 	colunaId: string;
 	titulo: string;
 	descricao: string;
-	posicao: number;
 	// version viaja para o cliente porque a partir da fase 6 ela volta no
 	// update, como prova de qual versão a pessoa estava vendo.
 	version: number;
@@ -85,7 +84,9 @@ export interface Coluna {
 	// Cor opcional da coluna: tinge o cabeçalho, para a etapa ter significado
 	// de relance — verde no começo, amarelo no meio, azul no fim.
 	cor: Cor | '';
-	posicao: number;
+	// A ordem é a da lista: o servidor já devolve cards e colunas ordenados
+	// pela chave textual, e a chave em si não sobe — o cliente não decide
+	// ordem, só a mostra. Ver backend/internal/domain/ordem.
 	cards: Card[];
 }
 

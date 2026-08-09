@@ -226,7 +226,7 @@ func (r *Colunas) ListarDoBoard(ctx context.Context, boardID string) ([]coluna.C
 			lista = append(lista, *c)
 		}
 	}
-	ordenarPorPosicao(lista, func(c coluna.Coluna) (string, float64, string) { return c.Chave, c.Posicao, c.ID })
+	ordenarPorChave(lista, func(c coluna.Coluna) (string, string) { return c.Chave, c.ID })
 	return lista, nil
 }
 
@@ -235,19 +235,6 @@ func (r *Colunas) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	r.cards.apagarDaColuna(id)
 	return nil
-}
-
-func (r *Colunas) UltimaPosicao(ctx context.Context, boardID string) (float64, error) {
-	if r.ErroForcado != nil {
-		return 0, r.ErroForcado
-	}
-	var ultima float64
-	for _, c := range r.porID {
-		if c.BoardID == boardID && c.Posicao > ultima {
-			ultima = c.Posicao
-		}
-	}
-	return ultima, nil
 }
 
 // Quantidade informa quantas colunas existem — atalho para os testes.
@@ -316,26 +303,13 @@ func (r *Cards) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card,
 			lista = append(lista, *c)
 		}
 	}
-	ordenarPorPosicao(lista, func(c card.Card) (string, float64, string) { return c.Chave, c.Posicao, c.ID })
+	ordenarPorChave(lista, func(c card.Card) (string, string) { return c.Chave, c.ID })
 	return lista, nil
 }
 
 func (r *Cards) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	return nil
-}
-
-func (r *Cards) UltimaPosicao(ctx context.Context, colunaID string) (float64, error) {
-	if r.ErroForcado != nil {
-		return 0, r.ErroForcado
-	}
-	var ultima float64
-	for _, c := range r.porID {
-		if c.ColunaID == colunaID && c.Posicao > ultima {
-			ultima = c.Posicao
-		}
-	}
-	return ultima, nil
 }
 
 func (r *Cards) apagarDaColuna(colunaID string) {
@@ -352,29 +326,20 @@ func (r *Cards) Quantidade() int { return len(r.porID) }
 // ordenarPorPosicao ordena por posição com desempate por id, igual ao
 // ORDER BY posicao, id do repositório de verdade — sem o desempate a ordem de
 // duas posições iguais varia entre execuções e o teste fica intermitente.
-// ordenarPorPosicao reproduz o ORDER BY do repositório de verdade:
+// ordenarPorChave reproduz o ORDER BY do repositório de verdade:
 //
-//	ORDER BY chave COLLATE "C" NULLS FIRST, posicao, id
+//	ORDER BY chave COLLATE "C", id
 //
-// ⚠️ A ordem principal é a CHAVE, não a posição — e o nome desta função ficou
-// do tempo em que era o contrário. O fake precisa ordenar igual ao banco: com
-// ele ordenando por posição enquanto o SQL ordena por chave, todo teste de
-// usecase validaria uma ordem que produção não produz. Foi assim que um defeito
-// real passou — a posição legada esgotava e o card ia parar em outro lugar, e
-// nenhum teste em memória percebia.
-func ordenarPorPosicao[T any](lista []T, chave func(T) (string, float64, string)) {
+// ⚠️ O fake precisa ordenar IGUAL ao banco. Com ele ordenando por um critério e
+// o SQL por outro, todo teste de usecase valida uma ordem que produção não
+// produz — foi assim que um defeito real passou, quando o fake ainda ordenava
+// por posição enquanto o SQL já ordenava por chave.
+func ordenarPorChave[T any](lista []T, chaveDe func(T) (string, string)) {
 	sort.Slice(lista, func(i, j int) bool {
-		ki, pi, idi := chave(lista[i])
-		kj, pj, idj := chave(lista[j])
-		// NULLS FIRST: a linha que o backfill ainda não alcançou vem antes.
-		if (ki == "") != (kj == "") {
-			return ki == ""
-		}
+		ki, idi := chaveDe(lista[i])
+		kj, idj := chaveDe(lista[j])
 		if ki != kj {
 			return ki < kj
-		}
-		if pi != pj {
-			return pi < pj
 		}
 		return idi < idj
 	})
@@ -396,44 +361,6 @@ func (r *Cards) UltimaChave(ctx context.Context, colunaID string) (string, error
 	return maior, nil
 }
 
-// SemChave devolve os cards que o backfill ainda não alcançou, na ordem que a
-// POSIÇÃO ainda dita — é a ordem que o backfill precisa preservar.
-func (r *Cards) SemChave(ctx context.Context, limite int) ([]card.Card, error) {
-	if r.ErroForcado != nil {
-		return nil, r.ErroForcado
-	}
-	lista := make([]card.Card, 0)
-	for _, c := range r.porID {
-		if c.Chave == "" {
-			lista = append(lista, *c)
-		}
-	}
-	sort.Slice(lista, func(i, j int) bool {
-		if lista[i].ColunaID != lista[j].ColunaID {
-			return lista[i].ColunaID < lista[j].ColunaID
-		}
-		if lista[i].Posicao != lista[j].Posicao {
-			return lista[i].Posicao < lista[j].Posicao
-		}
-		return lista[i].ID < lista[j].ID
-	})
-	if len(lista) > limite {
-		lista = lista[:limite]
-	}
-	return lista, nil
-}
-
-// GravarChave grava só a chave, sem subir a version.
-func (r *Cards) GravarChave(ctx context.Context, id, chave string) error {
-	if r.ErroForcado != nil {
-		return r.ErroForcado
-	}
-	if c, existe := r.porID[id]; existe {
-		c.Chave = chave
-	}
-	return nil
-}
-
 // UltimaChave devolve a maior chave em uso no quadro, ou vazio.
 func (r *Colunas) UltimaChave(ctx context.Context, boardID string) (string, error) {
 	if r.ErroForcado != nil {
@@ -446,75 +373,4 @@ func (r *Colunas) UltimaChave(ctx context.Context, boardID string) (string, erro
 		}
 	}
 	return maior, nil
-}
-
-// SemChave devolve as colunas que o backfill ainda não alcançou.
-func (r *Colunas) SemChave(ctx context.Context, limite int) ([]coluna.Coluna, error) {
-	if r.ErroForcado != nil {
-		return nil, r.ErroForcado
-	}
-	lista := make([]coluna.Coluna, 0)
-	for _, c := range r.porID {
-		if c.Chave == "" {
-			lista = append(lista, *c)
-		}
-	}
-	sort.Slice(lista, func(i, j int) bool {
-		if lista[i].BoardID != lista[j].BoardID {
-			return lista[i].BoardID < lista[j].BoardID
-		}
-		if lista[i].Posicao != lista[j].Posicao {
-			return lista[i].Posicao < lista[j].Posicao
-		}
-		return lista[i].ID < lista[j].ID
-	})
-	if len(lista) > limite {
-		lista = lista[:limite]
-	}
-	return lista, nil
-}
-
-// GravarChave grava só a chave.
-func (r *Colunas) GravarChave(ctx context.Context, id, chave string) error {
-	if r.ErroForcado != nil {
-		return r.ErroForcado
-	}
-	if c, existe := r.porID[id]; existe {
-		c.Chave = chave
-	}
-	return nil
-}
-
-// PrimeiraChave devolve a menor chave em uso na coluna, ou vazio.
-func (r *Cards) PrimeiraChave(ctx context.Context, colunaID string) (string, error) {
-	if r.ErroForcado != nil {
-		return "", r.ErroForcado
-	}
-	menor := ""
-	for _, c := range r.porID {
-		if c.ColunaID != colunaID || c.Chave == "" {
-			continue
-		}
-		if menor == "" || c.Chave < menor {
-			menor = c.Chave
-		}
-	}
-	return menor, nil
-}
-
-// PrimeiraChave devolve a menor chave em uso no quadro, ou vazio.
-func (r *Colunas) PrimeiraChave(ctx context.Context, boardID string) (string, error) {
-	if r.ErroForcado != nil {
-		return "", r.ErroForcado
-	}
-	menor := ""
-	for _, c := range r.porID {
-		if c.BoardID != boardID || c.Chave == "" {
-			continue
-		}
-		if menor == "" || c.Chave < menor {
-			menor = c.Chave
-		}
-	}
-	return menor, nil
 }

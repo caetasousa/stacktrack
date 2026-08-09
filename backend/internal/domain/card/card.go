@@ -51,10 +51,9 @@ type Card struct {
 	ColunaID  string
 	Titulo    string
 	Descricao string
-	Posicao   float64
-	// Chave é a ordenação TEXTUAL, que substitui Posicao. Durante o expand as
-	// duas convivem: o código novo escreve as duas, e a leitura já ordena pela
-	// chave. Vazia só nas linhas antigas, até o backfill passar.
+	// Chave é a ordenação. Textual, e não numérica: entre duas chaves sempre
+	// cabe outra, então arrastar para o mesmo ponto nunca esgota — o que a
+	// posição em double precision fazia em 52 inserções.
 	Chave   string
 	Version int
 	// Cor é opcional: card sem cor usa o visual padrão. Vira uma tarja na
@@ -77,15 +76,14 @@ func (c *Card) DefinirPrazo(prazo *time.Time) {
 	c.AtualizadoEm = time.Now()
 }
 
-// Mover leva o card para uma coluna e uma posição. A coluna pode ser a mesma —
-// reordenar dentro dela é o caso mais comum.
+// Mover leva o card para uma coluna e uma chave de ordem. A coluna pode ser a
+// mesma — reordenar dentro dela é o caso mais comum.
 //
-// A posição vem pronta: quem a calcula é quem enxerga os vizinhos (ver
+// A chave vem pronta: quem a calcula é quem enxerga os vizinhos (ver
 // usecase/board e o pacote ordem). O card não tem como saber ao lado de quem
 // foi solto.
-func (c *Card) Mover(colunaID string, posicao float64, chave string) {
+func (c *Card) Mover(colunaID, chave string) {
 	c.ColunaID = colunaID
-	c.Posicao = posicao
 	c.Chave = chave
 	c.Version++
 	c.AtualizadoEm = time.Now()
@@ -97,9 +95,9 @@ func (c *Card) Vencido(agora time.Time) bool {
 	return c.Prazo != nil && agora.After(*c.Prazo)
 }
 
-// Novo cria um card na posição informada. A descrição é opcional; o título,
-// não.
-func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64, chave string) (*Card, error) {
+// Novo cria um card na chave de ordem informada. A descrição é opcional; o
+// título, não.
+func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, chave string) (*Card, error) {
 	titulo, descricao, err := validar(titulo, descricao)
 	if err != nil {
 		return nil, err
@@ -115,7 +113,6 @@ func Novo(id, colunaID, titulo, descricao string, cores cor.Cor, posicao float64
 		Titulo:       titulo,
 		Descricao:    descricao,
 		Cor:          cores,
-		Posicao:      posicao,
 		Chave:        chave,
 		Version:      1,
 		CriadoEm:     agora,
@@ -154,18 +151,4 @@ func validar(titulo, descricao string) (string, string, error) {
 		return "", "", ErrDescricaoLonga
 	}
 	return titulo, descricao, nil
-}
-
-// DefinirChaveDeOrdem grava a chave textual de ordenação.
-//
-// Existe para o BACKFILL: as linhas criadas antes do expand não têm chave, e
-// quem as preenche é um comando do domínio — nunca SQL numa migration, porque
-// decidir com que valor as linhas antigas ficam é decisão de negócio, e em SQL
-// ela viraria uma segunda fonte da verdade sem teste e sem conserto.
-//
-// Não mexe em Version: preencher a chave não é uma edição feita por ninguém, e
-// subir a versão faria o bloqueio otimista recusar a próxima gravação legítima
-// de quem estava com o card aberto.
-func (c *Card) DefinirChaveDeOrdem(chave string) {
-	c.Chave = chave
 }

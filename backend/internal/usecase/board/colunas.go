@@ -28,11 +28,6 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 		return nil, err
 	}
 
-	ultima, err := uc.colunas.UltimaPosicao(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-
 	ultimaChave, err := uc.colunas.UltimaChave(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -42,7 +37,7 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 		return nil, err
 	}
 
-	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, dcoluna.PosicaoNoFim(ultima), chave)
+	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, chave)
 	if err != nil {
 		return nil, err
 	}

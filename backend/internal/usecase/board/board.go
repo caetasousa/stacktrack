@@ -44,7 +44,7 @@ type CardNoQuadro struct {
 	QtdComentarios int
 }
 
-// ColunaComCards é uma coluna e os cards dela, já em ordem de posição.
+// ColunaComCards é uma coluna e os cards dela, já em ordem de chave.
 type ColunaComCards struct {
 	Coluna coluna.Coluna
 	Cards  []CardNoQuadro

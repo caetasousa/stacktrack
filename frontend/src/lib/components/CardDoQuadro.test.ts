@@ -24,7 +24,6 @@ function cardFalso(ajustes: Partial<Card> = {}): Card {
 		colunaId: 'col-1',
 		titulo: 'Migração',
 		descricao: '',
-		posicao: 1024,
 		version: 1,
 		prazo: null,
 		vencido: false,

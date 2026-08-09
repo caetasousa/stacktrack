@@ -60,13 +60,12 @@ type ListaBoardsResponse struct {
 // Etiquetas, Checklist e QtdAnexos são o RESUMO que o card mostra como selo —
 // vêm juntos com o quadro para a tela não precisar abrir card por card.
 type CardResponse struct {
-	ID        string  `json:"id"`
-	ColunaID  string  `json:"colunaId"`
-	Titulo    string  `json:"titulo"`
-	Descricao string  `json:"descricao"`
-	Cor       string  `json:"cor"`
-	Posicao   float64 `json:"posicao"`
-	Version   int     `json:"version"`
+	ID        string `json:"id"`
+	ColunaID  string `json:"colunaId"`
+	Titulo    string `json:"titulo"`
+	Descricao string `json:"descricao"`
+	Cor       string `json:"cor"`
+	Version   int    `json:"version"`
 	// Prazo é nulo quando o card não tem data de entrega.
 	Prazo *time.Time `json:"prazo"`
 	// Vencido é calculado pelo servidor: o relógio do navegador pode estar
@@ -203,10 +202,10 @@ type PrazoRequest struct {
 // registrar que algo venceu ontem é informação legítima.
 func (r PrazoRequest) Validar() error { return nil }
 
-// MoverRequest diz ONDE o item foi solto, e não em que posição.
+// MoverRequest diz ONDE o item foi solto, e não em que ordem.
 //
-// O cliente manda os vizinhos; quem calcula o número é o servidor, que enxerga
-// as posições reais — ver usecase/board.Vizinhos para as três razões.
+// O cliente manda os vizinhos; quem calcula a chave é o servidor, que enxerga
+// as chaves reais — ver usecase/board.Vizinhos para as três razões.
 // Vazio significa ponta: sem anterior é o topo, sem próximo é o fim.
 type MoverRequest struct {
 	// ColunaID só vale para card, e vazio significa "mesma coluna".
@@ -278,7 +277,6 @@ type ColunaResponse struct {
 	BoardID string         `json:"boardId"`
 	Titulo  string         `json:"titulo"`
 	Cor     string         `json:"cor"`
-	Posicao float64        `json:"posicao"`
 	Cards   []CardResponse `json:"cards"`
 }
 

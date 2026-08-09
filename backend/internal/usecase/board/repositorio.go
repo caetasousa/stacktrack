@@ -164,47 +164,23 @@ type RepositorioColuna interface {
 	Salvar(ctx context.Context, c *coluna.Coluna) error
 	Atualizar(ctx context.Context, c *coluna.Coluna) error
 	BuscarPorID(ctx context.Context, id string) (*coluna.Coluna, error)
-	// ListarDoBoard devolve as colunas em ordem de posição.
+	// ListarDoBoard devolve as colunas em ordem de chave.
 	ListarDoBoard(ctx context.Context, boardID string) ([]coluna.Coluna, error)
 	Apagar(ctx context.Context, id string) error
-	// UltimaPosicao devolve a maior posição em uso no quadro, ou 0 se não
-	// houver coluna nenhuma.
-	UltimaPosicao(ctx context.Context, boardID string) (float64, error)
-	// UltimaChave devolve a maior chave em uso no quadro, ou vazio quando não
-	// há coluna nenhuma — ou quando nenhuma foi alcançada pelo backfill ainda.
+	// UltimaChave devolve a maior chave em uso no quadro, ou vazio quando o
+	// quadro não tem coluna nenhuma.
 	UltimaChave(ctx context.Context, boardID string) (string, error)
-	// PrimeiraChave devolve a MENOR chave em uso. É o que o backfill precisa:
-	// a linha antiga aparece na tela ANTES de quem já tem chave (NULLS FIRST),
-	// então a chave dela tem de ficar antes da menor existente.
-	PrimeiraChave(ctx context.Context, boardID string) (string, error)
-	// SemChave devolve as colunas do quadro que o backfill ainda não alcançou,
-	// em ordem de posição — é assim que o comando de backfill as encontra.
-	SemChave(ctx context.Context, limite int) ([]coluna.Coluna, error)
-	// GravarChave grava só a chave, sem tocar no resto da linha.
-	GravarChave(ctx context.Context, id, chave string) error
 }
 
 type RepositorioCard interface {
 	Salvar(ctx context.Context, c *card.Card) error
 	Atualizar(ctx context.Context, c *card.Card) error
 	BuscarPorID(ctx context.Context, id string) (*card.Card, error)
-	// ListarDoBoard devolve todos os cards do quadro em ordem de posição,
+	// ListarDoBoard devolve todos os cards do quadro em ordem de chave,
 	// numa consulta só — buscar coluna a coluna seria um N+1 que cresce com o
 	// tamanho do quadro.
 	ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error)
 	Apagar(ctx context.Context, id string) error
-	// UltimaPosicao devolve a maior posição em uso na coluna, ou 0 se a coluna
-	// estiver vazia.
-	UltimaPosicao(ctx context.Context, colunaID string) (float64, error)
 	// UltimaChave devolve a maior chave em uso na coluna, ou vazio.
 	UltimaChave(ctx context.Context, colunaID string) (string, error)
-	// PrimeiraChave devolve a MENOR chave em uso na coluna. Ver a porta de
-	// coluna para o motivo.
-	PrimeiraChave(ctx context.Context, colunaID string) (string, error)
-	// SemChave devolve os cards que o backfill ainda não alcançou, em ordem de
-	// posição.
-	SemChave(ctx context.Context, limite int) ([]card.Card, error)
-	// GravarChave grava só a chave, sem subir a version — o backfill não é uma
-	// edição feita por ninguém.
-	GravarChave(ctx context.Context, id, chave string) error
 }

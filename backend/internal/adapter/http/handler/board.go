@@ -109,7 +109,7 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 		}
 		colunas = append(colunas, dto.ColunaResponse{
 			ID: cc.Coluna.ID, BoardID: cc.Coluna.BoardID, Titulo: cc.Coluna.Titulo,
-			Cor: string(cc.Coluna.Cor), Posicao: cc.Coluna.Posicao, Cards: cards,
+			Cor: string(cc.Coluna.Cor), Cards: cards,
 		})
 	}
 
@@ -174,7 +174,7 @@ func (h *BoardHandler) CriarColuna(w http.ResponseWriter, r *http.Request) {
 	}
 	responderJSON(w, http.StatusCreated, dto.ColunaResponse{
 		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Cor: string(c.Cor),
-		Posicao: c.Posicao, Cards: []dto.CardResponse{},
+		Cards: []dto.CardResponse{},
 	})
 }
 
@@ -196,7 +196,7 @@ func (h *BoardHandler) RenomearColuna(w http.ResponseWriter, r *http.Request) {
 	}
 	responderJSON(w, http.StatusOK, dto.ColunaResponse{
 		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Cor: string(c.Cor),
-		Posicao: c.Posicao, Cards: []dto.CardResponse{},
+		Cards: []dto.CardResponse{},
 	})
 }
 
@@ -283,7 +283,7 @@ func (h *BoardHandler) usuario(w http.ResponseWriter, r *http.Request) (string, 
 func paraCardResponse(c dcard.Card) dto.CardResponse {
 	return dto.CardResponse{
 		ID: c.ID, ColunaID: c.ColunaID, Titulo: c.Titulo, Descricao: c.Descricao,
-		Cor: string(c.Cor), Posicao: c.Posicao, Version: c.Version, Prazo: c.Prazo,
+		Cor: string(c.Cor), Version: c.Version, Prazo: c.Prazo,
 		Vencido:      c.Vencido(time.Now()),
 		Responsaveis: []dto.ResponsavelResponse{},
 		Etiquetas:    []string{},
@@ -388,12 +388,6 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// dela, e encheria o log de erro por um caminho previsto.
 	case errors.Is(err, ordem.ErrForaDeOrdem),
 		errors.Is(err, ordem.ErrChaveInvalida):
-		responderErro(w, http.StatusConflict, err.Error())
-	// ErrSemEspaco era o esgotamento da precisão do float. Desde a fase 9 quem
-	// ordena é a chave textual, e o esgotamento do float legado não aborta mais
-	// o movimento — este caso virou rede de segurança, e deve deixar de existir
-	// junto com o `DROP` de `posicao`, no contract.
-	case errors.Is(err, ordem.ErrSemEspaco):
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):
 		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())
@@ -564,7 +558,7 @@ func (h *BoardHandler) MoverColuna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderJSON(w, http.StatusOK, dto.ColunaResponse{
-		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Posicao: c.Posicao,
+		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo,
 		Cards: []dto.CardResponse{},
 	})
 }

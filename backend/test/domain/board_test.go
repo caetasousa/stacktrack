@@ -102,11 +102,11 @@ func TestNovoMembroRecusaPapelInvalido(t *testing.T) {
 }
 
 func TestColunaUsaAMesmaReguaDeTituloDoQuadro(t *testing.T) {
-	if _, err := coluna.Nova("id-1", "b-1", "  ", "", 1, ordem.ChaveInicial); !errors.Is(err, board.ErrTituloObrigatorio) {
+	if _, err := coluna.Nova("id-1", "b-1", "  ", "", ordem.ChaveInicial); !errors.Is(err, board.ErrTituloObrigatorio) {
 		t.Errorf("erro = %v, esperado ErrTituloObrigatorio", err)
 	}
 
-	c, err := coluna.Nova("id-1", "b-1", "  A fazer ", "", 1, ordem.ChaveInicial)
+	c, err := coluna.Nova("id-1", "b-1", "  A fazer ", "", ordem.ChaveInicial)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -115,23 +115,8 @@ func TestColunaUsaAMesmaReguaDeTituloDoQuadro(t *testing.T) {
 	}
 }
 
-// O passo largo entre posições é o espaço em que a fase 4 vai inserir cards no
-// meio sem renumerar ninguém.
-func TestPosicaoNoFimDeixaEspacoParaInserirNoMeio(t *testing.T) {
-	primeira := coluna.PosicaoNoFim(0)
-	segunda := coluna.PosicaoNoFim(primeira)
-
-	if primeira >= segunda {
-		t.Fatalf("as posições precisam crescer: %v depois %v", primeira, segunda)
-	}
-	meio := (primeira + segunda) / 2
-	if meio <= primeira || meio >= segunda {
-		t.Errorf("não coube posição entre %v e %v", primeira, segunda)
-	}
-}
-
 func TestNovoCardNasceNaVersaoUm(t *testing.T) {
-	c, err := card.Novo("id-1", "col-1", "Migração", "", "", 1, ordem.ChaveInicial)
+	c, err := card.Novo("id-1", "col-1", "Migração", "", "", ordem.ChaveInicial)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -143,7 +128,7 @@ func TestNovoCardNasceNaVersaoUm(t *testing.T) {
 // A versão é o contador do bloqueio otimista da fase 6: se ela não subir a cada
 // edição, a checagem que virá depois não terá o que comparar.
 func TestEditarCardIncrementaAVersao(t *testing.T) {
-	c, _ := card.Novo("id-1", "col-1", "Migração", "", "", 1, ordem.ChaveInicial)
+	c, _ := card.Novo("id-1", "col-1", "Migração", "", "", ordem.ChaveInicial)
 
 	if err := c.Editar("Migração V2", "com rollback", ""); err != nil {
 		t.Fatalf("erro inesperado: %v", err)
@@ -158,10 +143,10 @@ func TestEditarCardIncrementaAVersao(t *testing.T) {
 }
 
 func TestCardExigeTituloMasNaoDescricao(t *testing.T) {
-	if _, err := card.Novo("id-1", "col-1", "  ", "descrição", "", 1, ordem.ChaveInicial); !errors.Is(err, card.ErrTituloObrigatorio) {
+	if _, err := card.Novo("id-1", "col-1", "  ", "descrição", "", ordem.ChaveInicial); !errors.Is(err, card.ErrTituloObrigatorio) {
 		t.Errorf("erro = %v, esperado ErrTituloObrigatorio", err)
 	}
-	if _, err := card.Novo("id-1", "col-1", "Tarefa", "", "", 1, ordem.ChaveInicial); err != nil {
+	if _, err := card.Novo("id-1", "col-1", "Tarefa", "", "", ordem.ChaveInicial); err != nil {
 		t.Errorf("descrição vazia devia ser aceita: %v", err)
 	}
 }
@@ -169,7 +154,7 @@ func TestCardExigeTituloMasNaoDescricao(t *testing.T) {
 // Título é rótulo curto e ganha trim; descrição é texto livre, onde quebra de
 // linha e indentação podem ser intencionais.
 func TestDescricaoDoCardNaoEAparada(t *testing.T) {
-	c, err := card.Novo("id-1", "col-1", "Tarefa", "\n  passo 1\n  passo 2\n", "", 1, ordem.ChaveInicial)
+	c, err := card.Novo("id-1", "col-1", "Tarefa", "\n  passo 1\n  passo 2\n", "", ordem.ChaveInicial)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -179,10 +164,10 @@ func TestDescricaoDoCardNaoEAparada(t *testing.T) {
 }
 
 func TestCardRecusaTextoLongoDemais(t *testing.T) {
-	if _, err := card.Novo("id-1", "col-1", strings.Repeat("a", card.TamanhoMaximoTitulo+1), "", "", 1, ordem.ChaveInicial); !errors.Is(err, card.ErrTituloLongo) {
+	if _, err := card.Novo("id-1", "col-1", strings.Repeat("a", card.TamanhoMaximoTitulo+1), "", "", ordem.ChaveInicial); !errors.Is(err, card.ErrTituloLongo) {
 		t.Error("título longo demais devia ser recusado")
 	}
-	if _, err := card.Novo("id-1", "col-1", "Tarefa", strings.Repeat("a", card.TamanhoMaximoDescricao+1), "", 1, ordem.ChaveInicial); !errors.Is(err, card.ErrDescricaoLonga) {
+	if _, err := card.Novo("id-1", "col-1", "Tarefa", strings.Repeat("a", card.TamanhoMaximoDescricao+1), "", ordem.ChaveInicial); !errors.Is(err, card.ErrDescricaoLonga) {
 		t.Error("descrição longa demais devia ser recusada")
 	}
 }

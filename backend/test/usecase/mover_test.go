@@ -70,9 +70,9 @@ func TestMoverEscreveApenasOCardMovido(t *testing.T) {
 
 	depoisA, _ := q.cards.BuscarPorID(context.Background(), a)
 	depoisB, _ := q.cards.BuscarPorID(context.Background(), b)
-	if depoisA.Posicao != antesA.Posicao || depoisB.Posicao != antesB.Posicao {
-		t.Errorf("as posições dos vizinhos mudaram: A %v→%v, B %v→%v",
-			antesA.Posicao, depoisA.Posicao, antesB.Posicao, depoisB.Posicao)
+	if depoisA.Chave != antesA.Chave || depoisB.Chave != antesB.Chave {
+		t.Errorf("as chaves dos vizinhos mudaram: A %q→%q, B %q→%q",
+			antesA.Chave, depoisA.Chave, antesB.Chave, depoisB.Chave)
 	}
 	// e a versão dos vizinhos também não: eles não foram editados
 	if depoisA.Version != antesA.Version {
@@ -220,11 +220,11 @@ func TestMoverColunaReordenaOQuadro(t *testing.T) {
 // vizinhos colados não comportavam mais ninguém, e o movimento era recusado com
 // ErrSemEspaco — o erro que a pessoa não tinha como resolver pela interface.
 //
-// Agora quem ordena é a chave textual, e entre duas chaves sempre cabe outra. A
-// posição continua sendo gravada enquanto o expand não termina, mas o
-// esgotamento dela deixou de barrar o movimento: se barrasse, a falha estaria
-// de pé apesar da fase inteira.
-func TestMovimentoEntreVizinhosColadosPassaPelaChave(t *testing.T) {
+// "Colados" mudou de sentido junto com o tipo. No float era a MESMA posição; na
+// chave textual são caracteres VIZINHOS do alfabeto, entre os quais não cabe
+// outra letra. A diferença é que agora cabe uma chave mais longa: entre "b" e
+// "c" cabe "bn", e é isso que faz o movimento passar.
+func TestMovimentoEntreChavesVizinhasPassa(t *testing.T) {
 	q := novoQuadro()
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 	col := q.criarColuna(t, boardID, "ana", "A fazer")
@@ -232,18 +232,19 @@ func TestMovimentoEntreVizinhosColadosPassaPelaChave(t *testing.T) {
 	segundo := q.criarCard(t, col, "ana", "Segundo")
 	movel := q.criarCard(t, col, "ana", "Móvel")
 
-	// Empurra o "Segundo" para a MESMA posição do "Primeiro": no float, não
-	// sobra intervalo nenhum entre os dois.
+	// Cola as chaves em letras vizinhas do alfabeto: não existe letra entre
+	// elas.
 	//
 	// Salvar, e não Atualizar: esta é preparação de cenário, gravando um estado
 	// que o domínio não produziria. Atualizar exige a versão anterior — é o
 	// bloqueio otimista —, e passar por ele aqui faria a preparação falhar em
 	// silêncio, deixando o teste verde por não ter montado o caso que queria.
-	posInicial, _ := q.cards.BuscarPorID(context.Background(), primeiro)
-	alvo, _ := q.cards.BuscarPorID(context.Background(), segundo)
-	alvo.Posicao = posInicial.Posicao
-	if err := q.cards.Salvar(context.Background(), alvo); err != nil {
-		t.Fatalf("preparação do cenário: %v", err)
+	for id, chave := range map[string]string{primeiro: "b", segundo: "c"} {
+		c, _ := q.cards.BuscarPorID(context.Background(), id)
+		c.Chave = chave
+		if err := q.cards.Salvar(context.Background(), c); err != nil {
+			t.Fatalf("preparação do cenário: %v", err)
+		}
 	}
 
 	depois, err := q.card.Mover(context.Background(), movel, "ana", col,
@@ -252,9 +253,8 @@ func TestMovimentoEntreVizinhosColadosPassaPelaChave(t *testing.T) {
 		t.Fatalf("o movimento devia passar pela chave: %v", err)
 	}
 
-	// E a chave ficou de fato entre as dos vizinhos.
-	if depois.Chave <= posInicial.Chave || depois.Chave >= alvo.Chave {
-		t.Errorf("chave = %q, esperado entre %q e %q", depois.Chave, posInicial.Chave, alvo.Chave)
+	if !(depois.Chave > "b" && depois.Chave < "c") {
+		t.Errorf("chave = %q, esperado entre \"b\" e \"c\"", depois.Chave)
 	}
 }
 

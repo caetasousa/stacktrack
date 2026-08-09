@@ -337,8 +337,8 @@ func TestCadaColunaNovaVaiParaOFim(t *testing.T) {
 	segunda, _ := q.coluna.Criar(context.Background(), boardID, "ana", "Fazendo", "")
 	terceira, _ := q.coluna.Criar(context.Background(), boardID, "ana", "Pronto", "")
 
-	if !(primeira.Posicao < segunda.Posicao && segunda.Posicao < terceira.Posicao) {
-		t.Errorf("posições fora de ordem: %v, %v, %v", primeira.Posicao, segunda.Posicao, terceira.Posicao)
+	if !(primeira.Chave < segunda.Chave && segunda.Chave < terceira.Chave) {
+		t.Errorf("chaves fora de ordem: %q, %q, %q", primeira.Chave, segunda.Chave, terceira.Chave)
 	}
 }
 
@@ -354,9 +354,24 @@ func TestPosicaoDosCardsEPorColuna(t *testing.T) {
 	q.criarCard(t, colunaA, "ana", "A2")
 	primeiroDeB, _ := q.card.Criar(context.Background(), colunaB, "ana", "B1", "", "")
 
-	if primeiroDeA.Posicao != primeiroDeB.Posicao {
-		t.Errorf("o primeiro card de cada coluna devia ter a mesma posição inicial: %v vs %v",
-			primeiroDeA.Posicao, primeiroDeB.Posicao)
+	// Cada coluna tem a PRÓPRIA sequência: a chave do primeiro card de B é
+	// calculada sem olhar para A.
+	//
+	// A afirmação não é de igualdade — as chaves iniciais são sorteadas, e
+	// exigir que coincidam travaria o teste no sorteio em vez da regra. O que
+	// importa é que a chave exista e que a coluna A tenha ordenado a sua.
+	if primeiroDeA.Chave == "" || primeiroDeB.Chave == "" {
+		t.Fatalf("chaves iniciais = %q e %q", primeiroDeA.Chave, primeiroDeB.Chave)
+	}
+	cardsDeA, _ := q.cards.ListarDoBoard(context.Background(), boardID)
+	var deA []string
+	for _, c := range cardsDeA {
+		if c.ColunaID == colunaA {
+			deA = append(deA, c.Chave)
+		}
+	}
+	if len(deA) != 2 || deA[0] >= deA[1] {
+		t.Errorf("a coluna A não ficou ordenada: %v", deA)
 	}
 }
 

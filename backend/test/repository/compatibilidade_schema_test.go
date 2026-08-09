@@ -11,12 +11,23 @@
 // Este teste aplica as migrations até a penúltima, fotografa o schema, aplica a
 // última e compara. Coluna nova obrigatória, coluna removida e coluna apertada
 // param o build com o nome do que quebrou.
+//
+// O CONTRACT DELIBERADO é declarado no próprio arquivo, numa linha:
+//
+//	-- CONTRACT: cards.posicao, colunas.posicao
+//
+// Sem essa saída o guard tornaria o ciclo expand/contract IMPOSSÍVEL de fechar —
+// ele reprovaria justamente o segundo passo, que é o objetivo do primeiro. Mas
+// a declaração não desliga a checagem: ela lista o que pode quebrar, e tudo o
+// que estiver fora da lista continua reprovando. É a diferença entre autorizar
+// uma mudança e abrir uma exceção geral.
 package repository_test
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -69,10 +80,22 @@ func TestUltimaMigrationNaoQuebraAVersaoAnterior(t *testing.T) {
 	depois := fotografarSchema(t, ctx, poolIsolado)
 
 	nome := filepath.Base(ultima)
+	autorizadas, err := contractDeclarado(ultima)
+	if err != nil {
+		t.Fatalf("ler %s: %v", nome, err)
+	}
+	if len(autorizadas) > 0 {
+		t.Logf("%s declara contract sobre: %v", nome, chavesOrdenadas(autorizadas))
+	}
+	usadas := make(map[string]bool, len(autorizadas))
 
 	for chave, coluna := range antes {
 		nova, continua := depois[chave]
 		if !continua {
+			if autorizadas[chave] {
+				usadas[chave] = true
+				continue
+			}
 			t.Errorf(
 				"%s REMOVE a coluna %s.\n"+
 					"A versão anterior da aplicação ainda a escreve, e é para onde um rollback volta.\n"+
@@ -81,6 +104,10 @@ func TestUltimaMigrationNaoQuebraAVersaoAnterior(t *testing.T) {
 			continue
 		}
 		if coluna.Anulavel && !nova.Anulavel {
+			if autorizadas[chave] {
+				usadas[chave] = true
+				continue
+			}
 			t.Errorf(
 				"%s APERTA a coluna %s para NOT NULL.\n"+
 					"A versão anterior insere linhas sem ela e passaria a falhar no primeiro INSERT.\n"+
@@ -108,6 +135,52 @@ func TestUltimaMigrationNaoQuebraAVersaoAnterior(t *testing.T) {
 				nome, coluna)
 		}
 	}
+
+	// Declarar o que não aconteceu é sinal de que a migration mudou e a
+	// declaração ficou para trás — e uma lista desatualizada autoriza em
+	// silêncio a próxima quebra que cair no mesmo nome.
+	for chave := range autorizadas {
+		if !usadas[chave] {
+			t.Errorf(
+				"%s declara contract sobre %s, mas nada mudou nessa coluna.\n"+
+					"Uma declaração que sobra vira autorização esquecida: remova-a.",
+				nome, chave)
+		}
+	}
+}
+
+// contractDeclarado lê as colunas que a migration declara que vai quebrar.
+//
+// O formato é uma linha de comentário SQL:
+//
+//	-- CONTRACT: tabela.coluna, outra.coluna
+func contractDeclarado(caminho string) (map[string]bool, error) {
+	conteudo, err := os.ReadFile(caminho)
+	if err != nil {
+		return nil, err
+	}
+	autorizadas := map[string]bool{}
+	for _, linha := range strings.Split(string(conteudo), "\n") {
+		linha = strings.TrimSpace(linha)
+		if !strings.HasPrefix(linha, "-- CONTRACT:") {
+			continue
+		}
+		for _, item := range strings.Split(strings.TrimPrefix(linha, "-- CONTRACT:"), ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				autorizadas[item] = true
+			}
+		}
+	}
+	return autorizadas, nil
+}
+
+func chavesOrdenadas(m map[string]bool) []string {
+	fora := make([]string, 0, len(m))
+	for k := range m {
+		fora = append(fora, k)
+	}
+	sort.Strings(fora)
+	return fora
 }
 
 // tabelasDe extrai o conjunto de tabelas de uma fotografia do schema.

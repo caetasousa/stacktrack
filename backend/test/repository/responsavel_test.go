@@ -35,7 +35,7 @@ func usuarioDeTeste(t *testing.T, nome string) string {
 
 func cardDeTeste(t *testing.T, colunaID, titulo string) string {
 	t.Helper()
-	c, _ := card.Novo(uuid.NewString(), colunaID, titulo, "", "", 1024, ordem.ChaveInicial)
+	c, _ := card.Novo(uuid.NewString(), colunaID, titulo, "", "", ordem.ChaveInicial)
 	if err := repository.NovoCardPostgres(pool).Salvar(context.Background(), c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}

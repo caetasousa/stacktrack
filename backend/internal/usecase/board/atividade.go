@@ -34,11 +34,10 @@ type DadosDoCard struct {
 	// Coluna é onde o card está depois — e, em card.movido, DeColuna é de onde
 	// ele saiu. Sem ela o histórico só saberia dizer "moveu este card", que é a
 	// metade inútil da informação.
-	Coluna   string  `json:"coluna,omitempty"`
-	DeColuna string  `json:"deColuna,omitempty"`
-	ColunaID string  `json:"colunaId,omitempty"`
-	Posicao  float64 `json:"posicao,omitempty"`
-	Version  int     `json:"version,omitempty"`
+	Coluna   string `json:"coluna,omitempty"`
+	DeColuna string `json:"deColuna,omitempty"`
+	ColunaID string `json:"colunaId,omitempty"`
+	Version  int    `json:"version,omitempty"`
 }
 
 // DadosDaColuna é o payload dos eventos de coluna.

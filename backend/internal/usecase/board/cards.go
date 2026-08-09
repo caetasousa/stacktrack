@@ -114,7 +114,7 @@ func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID strin
 	}
 	c.DefinirPrazo(prazo)
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardAlterado, boardID, c.ID, usuarioID,
-		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version},
+		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Version: c.Version},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -135,24 +135,19 @@ func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, d
 		return nil, traduzirParaColuna(err)
 	}
 
-	ultima, err := uc.cards.UltimaPosicao(ctx, colunaID)
-	if err != nil {
-		return nil, err
-	}
 	// Card novo nasce no FIM da coluna: a chave é calculada depois da última,
-	// sem próximo. Se a coluna estiver vazia — ou se a última for de antes do
-	// backfill —, sai a chave inicial.
+	// sem próximo. Coluna vazia produz a chave inicial.
 	chave, err := uc.chaveNoFimDaColuna(ctx, colunaID)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, dcoluna.PosicaoNoFim(ultima), chave)
+	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, chave)
 	if err != nil {
 		return nil, err
 	}
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardCriado, col.BoardID, c.ID, usuarioID,
-		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, Coluna: col.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version},
+		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, Coluna: col.Titulo, ColunaID: c.ColunaID, Version: c.Version},
 		uc.escrita(), func(e Escrita) error { return e.Cards.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -185,7 +180,7 @@ func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, de
 	if err := c.Editar(titulo, descricao, cores); err != nil {
 		return nil, err
 	}
-	dados := DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Posicao: c.Posicao, Version: c.Version}
+	dados := DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Version: c.Version}
 	if tituloAnterior != c.Titulo {
 		dados.TituloAnterior = tituloAnterior
 	}

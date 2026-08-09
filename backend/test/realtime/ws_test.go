@@ -410,11 +410,20 @@ func esperarConexaoCair(t *testing.T, c *websocket.Conn, porque string) {
 	defer cancelar()
 
 	for {
-		if _, _, err := c.Read(ctx); err != nil {
-			return // caiu, que é o esperado
+		_, _, err := c.Read(ctx)
+		if err == nil {
+			continue // chegou mensagem; segue esperando o fechamento
 		}
+		// ⚠️ A ordem importa, e é onde este helper já esteve errado: quando o
+		// PRAZO DAQUI expira, o Read também devolve erro. Tratar todo erro como
+		// "caiu" fazia o teste passar mesmo com a conexão intacta — ele não
+		// tinha como falhar, e deixou passar uma revalidação desligada.
+		//
+		// Por isso o ctx.Err() é conferido ANTES: se o prazo estourou, o erro é
+		// nosso, não do servidor.
 		if ctx.Err() != nil {
 			t.Fatalf("a conexão continuou de pé depois de %s", porque)
 		}
+		return // fechamento de verdade, vindo do servidor
 	}
 }

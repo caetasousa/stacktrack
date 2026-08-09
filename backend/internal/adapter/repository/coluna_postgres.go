@@ -151,3 +151,15 @@ func (r *ColunaPostgres) GravarChave(ctx context.Context, id, chave string) erro
 	_, err := r.db.Exec(ctx, `UPDATE colunas SET chave = $2 WHERE id = $1`, id, chave)
 	return err
 }
+
+// PrimeiraChave devolve a menor chave em uso no quadro, ou vazio.
+func (r *ColunaPostgres) PrimeiraChave(ctx context.Context, boardID string) (string, error) {
+	var chave *string
+	err := r.db.QueryRow(ctx,
+		`SELECT min(chave COLLATE "C") FROM colunas WHERE board_id = $1`, boardID,
+	).Scan(&chave)
+	if err != nil {
+		return "", err
+	}
+	return valorOuVazio(chave), nil
+}

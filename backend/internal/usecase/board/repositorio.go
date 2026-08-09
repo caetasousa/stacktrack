@@ -173,6 +173,10 @@ type RepositorioColuna interface {
 	// UltimaChave devolve a maior chave em uso no quadro, ou vazio quando não
 	// há coluna nenhuma — ou quando nenhuma foi alcançada pelo backfill ainda.
 	UltimaChave(ctx context.Context, boardID string) (string, error)
+	// PrimeiraChave devolve a MENOR chave em uso. É o que o backfill precisa:
+	// a linha antiga aparece na tela ANTES de quem já tem chave (NULLS FIRST),
+	// então a chave dela tem de ficar antes da menor existente.
+	PrimeiraChave(ctx context.Context, boardID string) (string, error)
 	// SemChave devolve as colunas do quadro que o backfill ainda não alcançou,
 	// em ordem de posição — é assim que o comando de backfill as encontra.
 	SemChave(ctx context.Context, limite int) ([]coluna.Coluna, error)
@@ -194,6 +198,9 @@ type RepositorioCard interface {
 	UltimaPosicao(ctx context.Context, colunaID string) (float64, error)
 	// UltimaChave devolve a maior chave em uso na coluna, ou vazio.
 	UltimaChave(ctx context.Context, colunaID string) (string, error)
+	// PrimeiraChave devolve a MENOR chave em uso na coluna. Ver a porta de
+	// coluna para o motivo.
+	PrimeiraChave(ctx context.Context, colunaID string) (string, error)
 	// SemChave devolve os cards que o backfill ainda não alcançou, em ordem de
 	// posição.
 	SemChave(ctx context.Context, limite int) ([]card.Card, error)

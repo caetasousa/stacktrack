@@ -354,4 +354,11 @@ func TestBackfillContraOBancoPreservaAOrdem(t *testing.T) {
 			t.Errorf("%q ficou sem chave depois do backfill", cards[i].Titulo)
 		}
 	}
+	// Estritamente crescentes: chave repetida sobreviveria enquanto `posicao`
+	// desempata, e viraria ordem aleatória no dia do contract.
+	for i := 1; i < len(cards); i++ {
+		if cards[i-1].Chave >= cards[i].Chave {
+			t.Fatalf("chaves repetidas ou fora de ordem: %q >= %q", cards[i-1].Chave, cards[i].Chave)
+		}
+	}
 }

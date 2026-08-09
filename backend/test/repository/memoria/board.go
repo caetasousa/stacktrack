@@ -484,3 +484,37 @@ func (r *Colunas) GravarChave(ctx context.Context, id, chave string) error {
 	}
 	return nil
 }
+
+// PrimeiraChave devolve a menor chave em uso na coluna, ou vazio.
+func (r *Cards) PrimeiraChave(ctx context.Context, colunaID string) (string, error) {
+	if r.ErroForcado != nil {
+		return "", r.ErroForcado
+	}
+	menor := ""
+	for _, c := range r.porID {
+		if c.ColunaID != colunaID || c.Chave == "" {
+			continue
+		}
+		if menor == "" || c.Chave < menor {
+			menor = c.Chave
+		}
+	}
+	return menor, nil
+}
+
+// PrimeiraChave devolve a menor chave em uso no quadro, ou vazio.
+func (r *Colunas) PrimeiraChave(ctx context.Context, boardID string) (string, error) {
+	if r.ErroForcado != nil {
+		return "", r.ErroForcado
+	}
+	menor := ""
+	for _, c := range r.porID {
+		if c.BoardID != boardID || c.Chave == "" {
+			continue
+		}
+		if menor == "" || c.Chave < menor {
+			menor = c.Chave
+		}
+	}
+	return menor, nil
+}

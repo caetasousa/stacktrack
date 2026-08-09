@@ -82,6 +82,13 @@ func TestOBackfillPreservaAOrdemQueAPessoaVia(t *testing.T) {
 				i, porChave[i].Titulo, titulo)
 		}
 	}
+	// Estritamente crescentes: chave repetida faria a ordem depender do
+	// desempate por posicao, que o contract vai apagar.
+	for i := 1; i < len(porChave); i++ {
+		if porChave[i-1].Chave >= porChave[i].Chave {
+			t.Fatalf("chaves repetidas ou fora de ordem: %q >= %q", porChave[i-1].Chave, porChave[i].Chave)
+		}
+	}
 }
 
 // Rodar duas vezes não pode estragar nada: o comando roda no start da
@@ -191,6 +198,73 @@ func TestOBackfillNaoMisturaQuadros(t *testing.T) {
 		}
 		if len(cards) > 0 && cards[0].Chave == "" {
 			t.Errorf("quadro %s: card sem chave depois do backfill", boardID)
+		}
+	}
+}
+
+// titulos extrai os títulos na ordem em que a leitura devolveu.
+func titulos(cards []dcard.Card) []string {
+	fora := make([]string, 0, len(cards))
+	for _, c := range cards {
+		fora = append(fora, c.Titulo)
+	}
+	return fora
+}
+
+// COLUNA MISTA: linha antiga (sem chave) convivendo com card novo (com chave).
+//
+// É o estado que sobra quando um backfill anterior falhou no meio de um lote e
+// a aplicação seguiu servindo — o erro é registrado e não impede o start.
+//
+// Este teste tranca um defeito real: o backfill encadeava a partir da MAIOR
+// chave existente, o que mandava a linha antiga para o FIM da coluna. Só que a
+// leitura ordena por `chave NULLS FIRST`, então ela aparecia ANTES na tela — e
+// o comando que existe para preservar a ordem era justamente quem a
+// embaralhava.
+func TestOBackfillNaoReordenaColunaMista(t *testing.T) {
+	q := novoQuadro()
+	ana := "u-ana"
+	boardID := q.criarQuadro(t, ana, "Estudos")
+	colunaID := q.criarColuna(t, boardID, ana, "A fazer")
+
+	// Legado com posição BAIXA: na tela ele vem primeiro.
+	legado(t, q, colunaID, "antigo", 10)
+	// E um card criado depois do expand, que já nasce com chave.
+	q.criarCard(t, colunaID, ana, "novo")
+
+	antes, _ := q.cards.ListarDoBoard(context.Background(), boardID)
+	ordemAntes := titulos(antes)
+
+	if _, err := ucboard.NovoBackfillUseCase(q.colunas, q.cards).ExecutarTudo(context.Background(), 10); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	depois, _ := q.cards.ListarDoBoard(context.Background(), boardID)
+	ordemDepois := titulos(depois)
+
+	for i := range ordemAntes {
+		if ordemAntes[i] != ordemDepois[i] {
+			t.Fatalf("o backfill reordenou o quadro: %v -> %v", ordemAntes, ordemDepois)
+		}
+	}
+
+	// ⚠️ As chaves precisam ficar ESTRITAMENTE crescentes, e não só a ordem
+	// final estar certa.
+	//
+	// A diferença não é acadêmica: com o defeito, os dois cards recebiam a MESMA
+	// chave ("n"), e a ordem só continuava certa porque `posicao` desempatava.
+	// O contract vai apagar `posicao` — e aí a ordem entre chaves iguais passa a
+	// depender do id, ou seja, vira aleatória. Conferir só a ordem deixava o
+	// defeito passar, e foi exatamente o que aconteceu.
+	for i := 1; i < len(depois); i++ {
+		if depois[i-1].Chave >= depois[i].Chave {
+			t.Fatalf("chaves não são estritamente crescentes: %q (%s) >= %q (%s)",
+				depois[i-1].Chave, depois[i-1].Titulo, depois[i].Chave, depois[i].Titulo)
+		}
+	}
+	for _, c := range depois {
+		if c.Chave == "" {
+			t.Errorf("%q ficou sem chave", c.Titulo)
 		}
 	}
 }

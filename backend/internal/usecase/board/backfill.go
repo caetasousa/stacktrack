@@ -38,6 +38,16 @@ func (r ResultadoDoBackfill) Completo() bool {
 // aparecendo onde apareciam, só que agora com chave. Um backfill que mudasse a
 // ordem seria pior que nenhum — a pessoa abriria o quadro e encontraria os
 // cards embaralhados.
+//
+// ⚠️ E é por isso que as chaves são geradas ANTES da menor existente, e não
+// depois da maior. A leitura ordena por `chave NULLS FIRST`, então a linha sem
+// chave aparece na tela ANTES de quem já tem uma. Encadear a partir da maior
+// mandava a linha antiga para o FIM — reordenando exatamente o quadro que este
+// comando existe para preservar.
+//
+// A situação acontece numa coluna MISTA: parte com chave, parte sem. É o que
+// sobra quando um backfill anterior falhou no meio de um lote e a aplicação
+// seguiu servindo — o erro é registrado e não impede o start, de propósito.
 type BackfillUseCase struct {
 	colunas RepositorioColuna
 	cards   RepositorioCard
@@ -61,19 +71,19 @@ func (uc *BackfillUseCase) Executar(ctx context.Context) (ResultadoDoBackfill, e
 	}
 	// A chave de cada grupo continua de onde a última parou: o SemChave devolve
 	// agrupado e em ordem de posição, então basta encadear.
-	ultima := map[string]string{}
+	ultima, teto := map[string]string{}, map[string]string{}
 	for _, c := range colunas {
 		anterior, visto := ultima[c.BoardID]
 		if !visto {
-			// A primeira do quadro pode ter vizinhas JÁ preenchidas por uma
-			// passada anterior — encadear a partir delas é o que mantém a ordem
-			// entre lotes.
-			anterior, err = uc.colunas.UltimaChave(ctx, c.BoardID)
+			anterior = ""
+			// O TETO é a menor chave já existente no quadro: tudo o que este
+			// comando gerar precisa ficar antes dela.
+			teto[c.BoardID], err = uc.colunas.PrimeiraChave(ctx, c.BoardID)
 			if err != nil {
 				return r, err
 			}
 		}
-		chave, err := ordem.ChaveEntre(anterior, "")
+		chave, err := ordem.ChaveEntre(anterior, teto[c.BoardID])
 		if err != nil {
 			return r, err
 		}
@@ -88,16 +98,17 @@ func (uc *BackfillUseCase) Executar(ctx context.Context) (ResultadoDoBackfill, e
 	if err != nil {
 		return r, err
 	}
-	ultimaDoCard := map[string]string{}
+	ultimaDoCard, tetoDoCard := map[string]string{}, map[string]string{}
 	for _, c := range cards {
 		anterior, visto := ultimaDoCard[c.ColunaID]
 		if !visto {
-			anterior, err = uc.cards.UltimaChave(ctx, c.ColunaID)
+			anterior = ""
+			tetoDoCard[c.ColunaID], err = uc.cards.PrimeiraChave(ctx, c.ColunaID)
 			if err != nil {
 				return r, err
 			}
 		}
-		chave, err := ordem.ChaveEntre(anterior, "")
+		chave, err := ordem.ChaveEntre(anterior, tetoDoCard[c.ColunaID])
 		if err != nil {
 			return r, err
 		}

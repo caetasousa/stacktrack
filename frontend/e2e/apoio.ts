@@ -108,6 +108,16 @@ export async function criarColuna(
  */
 export async function abaDe(navegador: Browser, conta: Conta): Promise<BrowserContext> {
 	const contexto = await navegador.newContext({ baseURL: APP });
+
+	// O `secure` vem do ESQUEMA, e não é opcional: contra um ambiente HTTPS o
+	// cookie de sessão leva o prefixo `__Host-`, e esse prefixo exige Secure.
+	// Sem ele o navegador recusa o cookie inteiro com "Invalid cookie fields", e
+	// a suíte falha na primeira aba autenticada — foi o que aconteceu ao mirar
+	// produção pela primeira vez.
+	//
+	// `domain` + `path` (e não `url`): o Playwright aceita um OU outro, nunca os
+	// dois. Com `domain` sem ponto inicial o cookie nasce host-only, que é o que
+	// o `__Host-` também exige.
 	await contexto.addCookies([
 		{
 			name: conta.cookie.name,
@@ -115,6 +125,7 @@ export async function abaDe(navegador: Browser, conta: Conta): Promise<BrowserCo
 			domain: new URL(APP).hostname,
 			path: '/',
 			httpOnly: true,
+			secure: new URL(APP).protocol === 'https:',
 			sameSite: 'Lax'
 		}
 	]);

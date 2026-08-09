@@ -119,7 +119,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
 | `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
 | `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
-| `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a posição. 409 sem espaço. |
+| `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
 | `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida por email. |
 | `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |

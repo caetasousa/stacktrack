@@ -408,7 +408,7 @@ prova seu valor.
 
 ---
 
-### Fase 9 — Chaves de ordenação textuais ✅ (falta o contract)
+### Fase 9 — Chaves de ordenação textuais ✅
 
 **Conceito novo:** consertar em produção uma escolha de tipo, usando a doutrina expand/contract do
 próprio agendaGo.
@@ -421,11 +421,24 @@ do domínio**, nunca por SQL na migration.
 **Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
 · o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
 
-> **Feita — menos o contract, que é do PRÓXIMO deploy.**
+> **Feita, nos dois deploys.**
 >
-> O limite era real e está medido: o teste do float mede o esgotamento em **52
-> inserções** seguidas no mesmo ponto. A chave textual não esgota — mil
-> inserções passam, e cem produzem uma chave de nove caracteres.
+> O limite era real e está medido: o float esgotava em **52 inserções** seguidas
+> no mesmo ponto. A chave textual leva o teto para perto de **750** — e esse
+> número só apareceu no contract, quando o domínio passou a conhecer o
+> `VARCHAR(200)` da coluna. Até então os testes prometiam "mil inserções nunca
+> esgotam", o que era falso: eles passavam porque ninguém perguntava ao banco se
+> a chave cabia. Sem essa amarração, o estouro sairia como erro de driver — 500
+> em vez do 409 previsto.
+>
+> No caminho apareceu um desperdício do algoritmo: entre `"bq"` e `"c"` ele
+> estendia para três caracteres quando `"br".."bz"` cabiam com dois, gastando uma
+> letra POR inserção. Nesse padrão o teto era **199**, não 750. Corrigido, os
+> quatro padrões de reordenação convergem para perto de 750.
+>
+> O teto ainda existe, e é assim que fica: uma coluna mais larga só o adiaria. O
+> conserto de verdade, no dia em que alguém alcançá-lo, é redistribuir as chaves
+> da lista — a reescrita em massa que o esquema evita no caso comum.
 >
 > A invariante que sustenta o esquema: **nenhuma chave termina no menor
 > caractere**. Sem ela, `"a"` seria um beco sem saída, porque não existe string
@@ -433,7 +446,7 @@ do domínio**, nunca por SQL na migration.
 > ilustrava com "entre a e b cabe an"; na implementação `"a"` não é chave
 > válida, e o exemplo equivalente é entre `"b"` e `"c"`.)
 >
-> O que já está no ar, nesta ordem:
+> O ciclo completo, nesta ordem:
 >
 > 1. **expand** (`V18`): `chave` anulável em `cards` e `colunas`, com índice em
 >    `COLLATE "C"`;
@@ -441,16 +454,41 @@ do domínio**, nunca por SQL na migration.
 >    leitura ordena por ela com a posição como desempate (`NULLS FIRST`, para a
 >    linha ainda não preenchida aparecer onde aparecia);
 > 3. **backfill**: comando do domínio (`BackfillUseCase`), idempotente e
->    retomável, que roda no start da aplicação. Preserva a ordem que a posição
->    ditava — um backfill que embaralhasse o quadro seria pior que nenhum — e
->    **não sobe a `version`**, porque preencher a chave não é uma edição feita
->    por ninguém e subir a versão faria o bloqueio otimista recusar a próxima
->    gravação legítima.
+>    retomável, que rodava no start da aplicação. Preservava a ordem que a
+>    posição ditava — um backfill que embaralhasse o quadro seria pior que
+>    nenhum — e **não subia a `version`**, porque preencher a chave não é uma
+>    edição feita por ninguém e subir a versão faria o bloqueio otimista recusar
+>    a próxima gravação legítima;
+> 4. **contract** (`V19`): `SET NOT NULL` na chave e `DROP` de `posicao`, só
+>    depois de o passo 3 ter rodado em produção. Fazê-lo junto quebraria a
+>    versão anterior da aplicação, que continua no ar durante o deploy e é para
+>    onde um rollback volta. O `BackfillUseCase` saiu no mesmo commit: um
+>    backfill que já rodou e cuja coluna de origem não existe mais é código
+>    morto.
 >
-> ⏳ **Falta o contract**, e ele é deliberadamente do deploy seguinte:
-> `SET NOT NULL` na chave e `DROP` de `posicao`. Fazê-lo junto quebraria a
-> versão anterior da aplicação, que continua no ar durante o deploy e é para
-> onde um rollback volta. Só depois de o backfill ter rodado em produção.
+> O contract precisou **declarar-se ao guard**: `compatibilidade_schema_test.go`
+> reprova coluna apertada e coluna removida por padrão, e agora lê uma linha
+> `-- CONTRACT:` na migration listando exatamente o que está autorizado. Ele
+> falha nos dois sentidos — se a migration mexer em algo fora da lista, e se
+> sobrar declaração sem uso, porque autorização esquecida é a que passa
+> despercebida no dia do acidente.
+>
+> ⚠️ **O erro que a fase 9 quase escondeu.** A implementação inicial estava
+> verde e **não funcionava**: o cálculo do float vinha antes do da chave, e o
+> `ErrSemEspaco` dele abortava o movimento — o mesmo 409 que a fase existia para
+> matar, na 53ª inserção. O teste não pegou porque movia sempre entre os
+> *mesmos* dois vizinhos, e aí o intervalo nunca apertava. A lição virou método:
+> **teste verde não é prova**. O que passou a valer é quebrar o código de
+> propósito e conferir que algum teste cai.
+>
+> Duas coisas mais só apareceram assim. O backfill **reordenava** colunas mistas
+> — encadeava a partir de `UltimaChave` (o MAX), mas a leitura usava
+> `NULLS FIRST`, então as linhas antigas pulavam para o fim; e o teste disso só
+> checava a ordem, enquanto o defeito produzia chaves **duplicadas** que a
+> `posicao` desempatava. E duas pessoas soltando um card no mesmo ponto ao mesmo
+> tempo geravam a **mesma** chave, depois da qual não cabia mais nada entre
+> elas: a chave nova passou a ser sorteada dentro da folga em vez de fixada no
+> meio exato.
 >
 > ⚠️ A armadilha que se confirmou: **a ordenação de texto no Postgres depende da
 > collation**. O `ORDER BY` e o índice usam `COLLATE "C"` — a ordem de bytes,

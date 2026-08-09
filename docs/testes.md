@@ -24,9 +24,10 @@ Os dois últimos exigem `make run` noutro terminal.
 
 `backend/test/domain/` — regra pura, sem I/O nenhum. Roda em milissegundos.
 
-Cobre: validação de título, papéis e o que cada um pode, ordenação fracionária
-(inclusive o teste que **mede** o esgotamento da mantissa em 52 inserções),
-cores da paleta, prazo e checklist.
+Cobre: validação de título, papéis e o que cada um pode, a chave de ordenação
+textual (inclusive os quatro padrões de reordenação no mesmo ponto, e o teto
+real de ~750 que a coluna impõe — contra 52 da posição em float), cores da
+paleta, prazo e checklist.
 
 ## 2. Usecases (Go, com fakes)
 
@@ -226,6 +227,28 @@ guard, e o conserto está no código.
 
 > Verifiquei que ele reprova de verdade acrescentando uma migration que aperta o
 > schema — um guard que nunca falhou é decoração.
+
+**Mas o contract da fase 9 precisava fazer exatamente as três coisas proibidas.**
+Um guard sem escape vira um guard desligado no dia em que atrapalha, então ele
+ganhou uma declaração: uma linha `-- CONTRACT: tabela.coluna, ...` na própria
+migration autoriza **exatamente** aquelas colunas. Qualquer outra quebra na mesma
+migration continua reprovando.
+
+Ele falha nos dois sentidos, e o segundo é o que importa: **declaração que sobra
+também reprova**. Autorização esquecida é justamente a que ninguém relê no dia do
+acidente. Verificado nos dois — tirando um item da lista o guard acusa a coluna
+removida; deixando um item a mais, acusa a declaração sem uso.
+
+### O teto da chave de ordenação
+
+`chave_cabe_na_coluna_test.go` pergunta ao banco o tamanho de `cards.chave` e
+compara com `ordem.TamanhoMaximo`. São dois lugares que precisam concordar, e
+eles moram em arquivos que ninguém edita junto — a migration e o domínio.
+
+Foi assim que apareceu que a promessa "a chave nunca esgota" era falsa: ela
+esgota, perto de 750 reordenações no mesmo ponto, porque a coluna é
+`VARCHAR(200)`. Os testes de domínio afirmavam mil e passavam só porque nunca
+perguntaram ao banco.
 
 ## 8. Guard de schema (Go, sem banco)
 

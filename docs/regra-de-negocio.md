@@ -136,47 +136,70 @@ nada que alguém escreveu chega ao HTML como marcação.
 
 ---
 
-## Ordenação: por que fracionária
+## Ordenação: por que uma chave de texto
 
-A posição de cards e colunas é um **float**, não um inteiro sequencial. Com
-`1, 2, 3, 4`, arrastar um item para o meio obrigaria a reescrever a numeração de
-todos abaixo dele — muitas linhas alteradas e corrida garantida com duas pessoas
-no mesmo quadro. Com fração, inserir entre `2048` e `3072` é gravar `2560`:
+Arrastar um card não pode renumerar a coluna inteira. Com posições `1, 2, 3, 4`,
+soltar um item no meio obrigaria a reescrever todos abaixo dele — muitas linhas
+alteradas e corrida garantida com duas pessoas no mesmo quadro. A saída é dar a
+cada item uma posição *entre* as dos vizinhos, escrevendo uma linha só.
 
-```
-antes:   A(2048)   B(3072)            C(4096)
-                       ▲ solta aqui
-depois:  A(2048)   C(2560)   B(3072)          ← só C foi escrito
-```
-
-**A API recebe os vizinhos, não a posição.** O cliente manda `anteriorId` e
-`proximoId`; quem calcula o número é o servidor. Três razões:
-
-1. a cópia do quadro na tela pode estar velha, e a média entre posições que já
-   mudaram põe o item no lugar errado;
-2. o esgotamento da precisão só é detectável onde os valores reais estão;
-3. posição vinda do cliente é entrada do usuário — embaralharia a ordem de um
-   quadro inteiro.
-
-O card continua se movendo na tela na hora. Ele só não decide o número.
-
-**O limite do `double precision` era real e está medido:** dividir sempre o
-mesmo intervalo esgotava a mantissa de 53 bits em **52 inserções seguidas no
+A primeira tentativa foi um **float**, e ela tinha um fundo raso: dividir sempre
+o mesmo intervalo esgotava a mantissa de 53 bits em **52 inserções seguidas no
 mesmo ponto**, e o movimento respondia `409` — um erro que a pessoa não tinha
-como resolver pela interface.
+como resolver pela interface. Cards e colunas passaram a usar uma **chave
+textual**: entre `"b"` e `"c"` cabe `"bn"`, e entre `"b"` e `"bn"` cabe `"bg"`.
 
-**A ordem passou a ser uma chave textual**, e o limite deixou de existir: entre
-`"b"` e `"c"` cabe `"bn"`, infinitamente. A chave cresce um caractere por
-colisão — cem inserções no mesmo ponto produzem nove caracteres.
+No papel isso é infinito. Na prática a chave mora num `VARCHAR(200)`, e o fundo
+continua existindo — só que **catorze vezes mais fundo**: medido, a chave cresce
+cerca de 0,27 caractere por movimento no mesmo ponto, e o teto chega perto de
+**750 reordenações consecutivas exatamente no mesmo lugar**. O domínio conhece
+esse teto e responde `409` por conta própria; se ele se calasse, quem reclamaria
+seria o driver do Postgres, e um erro previsto viraria `500`.
 
-A invariante que sustenta o esquema: **nenhuma chave termina no menor
-caractere**. Sem ela, uma chave `"a"` seria um beco sem saída — não existe
-string entre `""` e `"a"`, e inserir no topo passaria a ser impossível.
+Se esse dia chegar, a saída **não** é uma coluna mais larga — isso só adia o
+mesmo problema. É redistribuir as chaves daquela lista, aceitando de propósito a
+reescrita em massa que este esquema evita no caso comum.
 
-A `posicao` em float ainda existe no banco: a coluna nova entrou anulável
-(*expand*), o código escreve as duas, e um comando **do domínio** preencheu as
-linhas antigas preservando a ordem que elas tinham. O `DROP` da antiga é a
-migration do deploy seguinte — ver [PLANO.md](../PLANO.md), fase 9.
+```
+antes:   A("b")   B("n")           C("t")
+                      ▲ solta aqui
+depois:  A("b")   C("g")   B("n")          ← só C foi escrito
+```
+
+Duas invariantes sustentam o esquema:
+
+- **Nenhuma chave termina no menor caractere.** Sem isso, uma chave `"a"` seria
+  um beco sem saída: não existe string entre `""` e `"a"`, e inserir no topo
+  passaria a ser impossível.
+- **A chave nova é sorteada dentro da folga**, não fixada no meio exato. Duas
+  pessoas que soltam um card no mesmo ponto ao mesmo tempo calculariam a mesma
+  chave determinística — e a partir daí não caberia mais nada entre elas. O
+  sorteio faz o empate ser improvável em vez de garantido.
+
+**A API recebe os vizinhos, não a chave.** O cliente manda `anteriorId` e
+`proximoId`; quem calcula é o servidor. Três razões:
+
+1. a cópia do quadro na tela pode estar velha, e calcular entre vizinhos que já
+   se moveram põe o item no lugar errado;
+2. o servidor é o único lugar onde os valores reais estão;
+3. chave vinda do cliente é entrada do usuário — embaralharia um quadro inteiro.
+
+O card continua se movendo na tela na hora. Ele só não decide a chave.
+
+A ordenação por chave depende de comparar texto **byte a byte**: a consulta e o
+índice usam `COLLATE "C"`, porque a collation padrão do banco pode ignorar caixa
+ou tratar acentos, e aí a ordem lida não seria a que o domínio calculou.
+
+**Etiqueta e checklist continuam em float**, e isso não é dívida: elas só
+acrescentam no fim, nunca inserem entre dois vizinhos. Sem divisão repetida do
+mesmo intervalo, o limite da mantissa não é alcançável. Se um dia a etiqueta
+ganhar arrastar-e-soltar, ela migra — o cálculo já está pronto.
+
+A troca foi feita em **dois deploys**, como manda qualquer aperto de schema: a
+coluna `chave` entrou anulável (*expand*), o código passou a escrevê-la, um
+comando **do domínio** preencheu as linhas antigas preservando a ordem que
+tinham, e só o deploy seguinte apertou a coluna e derrubou a `posicao`
+(*contract*) — ver [PLANO.md](../PLANO.md), fase 9.
 
 ---
 

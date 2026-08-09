@@ -270,13 +270,24 @@ invisível para quem reconecta.
 ### Chave de ordenação textual
 
 A ordem de cards e colunas é uma **chave de texto**, não um número. A posição
-fracionária em `double precision` funcionava até a mantissa acabar — o teste do
-domínio mede o esgotamento em **52 inserções** seguidas no mesmo ponto —, e a
-partir daí o movimento respondia 409 com um erro sem saída pela interface.
+fracionária em `double precision` funcionava até a mantissa acabar — o
+esgotamento foi medido em **52 inserções** seguidas no mesmo ponto —, e a partir
+daí o movimento respondia 409 com um erro sem saída pela interface.
 
-Com chave textual não há limite: entre `"b"` e `"c"` cabe `"bn"`, e a chave
-cresce um caractere por colisão. Ver
+Com chave textual o limite fica muito mais longe: entre `"b"` e `"c"` cabe
+`"bn"`, e a chave só cresce quando o espaço no comprimento atual acaba. O teto
+passa a ser o da coluna (`VARCHAR(200)`), o que dá perto de **750** reordenações
+seguidas no mesmo ponto — e o domínio conhece esse número, para o estouro sair
+como 409 e não como erro de driver. Ver
 [`internal/domain/ordem/chave.go`](../backend/internal/domain/ordem/chave.go).
+A posição em float continua viva para **etiqueta e checklist**, que só
+acrescentam no fim: sem inserção no meio, não há divisão repetida do mesmo
+intervalo e o limite não é alcançável.
+
+A chave nova é **sorteada dentro da folga**, não fixada no meio exato. Duas
+pessoas soltando um card no mesmo ponto ao mesmo tempo calculariam a mesma
+chave determinística, e depois disso não caberia mais nada entre elas — o
+sorteio troca um empate garantido por um improvável.
 
 ⚠️ **`COLLATE "C"` não é detalhe.** A ordenação de texto no Postgres depende da
 collation do banco, e uma que ignore caixa ou trate acentos ordenaria diferente

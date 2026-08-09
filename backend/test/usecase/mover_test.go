@@ -10,7 +10,6 @@ import (
 
 	dcoluna "stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/membro"
-	"stacktrack/internal/domain/ordem"
 	ucboard "stacktrack/internal/usecase/board"
 )
 
@@ -215,10 +214,17 @@ func TestMoverColunaReordenaOQuadro(t *testing.T) {
 	_ = b
 }
 
-// Quando o intervalo esgota, o movimento FALHA dizendo isso — em vez de gravar
-// em silêncio duas posições iguais e deixar o card num lugar que ninguém pediu.
-// A fase 9 remove essa possibilidade trocando o float por chave textual.
-func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
+// O que ANTES falhava com 409 agora passa.
+//
+// Este teste afirmava o contrário até a fase 9: com a posição em float, dois
+// vizinhos colados não comportavam mais ninguém, e o movimento era recusado com
+// ErrSemEspaco — o erro que a pessoa não tinha como resolver pela interface.
+//
+// Agora quem ordena é a chave textual, e entre duas chaves sempre cabe outra. A
+// posição continua sendo gravada enquanto o expand não termina, mas o
+// esgotamento dela deixou de barrar o movimento: se barrasse, a falha estaria
+// de pé apesar da fase inteira.
+func TestMovimentoEntreVizinhosColadosPassaPelaChave(t *testing.T) {
 	q := novoQuadro()
 	boardID := q.criarQuadro(t, "ana", "Estudos")
 	col := q.criarColuna(t, boardID, "ana", "A fazer")
@@ -226,7 +232,8 @@ func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
 	segundo := q.criarCard(t, col, "ana", "Segundo")
 	movel := q.criarCard(t, col, "ana", "Móvel")
 
-	// Empurra o "Segundo" para o mais perto possível do "Primeiro".
+	// Empurra o "Segundo" para a MESMA posição do "Primeiro": no float, não
+	// sobra intervalo nenhum entre os dois.
 	//
 	// Salvar, e não Atualizar: esta é preparação de cenário, gravando um estado
 	// que o domínio não produziria. Atualizar exige a versão anterior — é o
@@ -239,41 +246,52 @@ func TestMovimentoSemEspacoFalhaEmVezDeCorromperAOrdem(t *testing.T) {
 		t.Fatalf("preparação do cenário: %v", err)
 	}
 
-	_, err := q.card.Mover(context.Background(), movel, "ana", col, ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
-
-	if !errors.Is(err, ordem.ErrSemEspaco) {
-		t.Errorf("erro = %v, esperado ErrSemEspaco", err)
+	depois, err := q.card.Mover(context.Background(), movel, "ana", col,
+		ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
+	if err != nil {
+		t.Fatalf("o movimento devia passar pela chave: %v", err)
 	}
-	// e o card não se mexeu
-	depois, _ := q.cards.BuscarPorID(context.Background(), movel)
-	if depois.ColunaID != col || depois.Posicao <= alvo.Posicao {
-		t.Error("o card não podia ter sido movido")
+
+	// E a chave ficou de fato entre as dos vizinhos.
+	if depois.Chave <= posInicial.Chave || depois.Chave >= alvo.Chave {
+		t.Errorf("chave = %q, esperado entre %q e %q", depois.Chave, posInicial.Chave, alvo.Chave)
 	}
 }
 
-// A PROVA DA FASE 9, e o contraste direto com o teste do float acima: mover
-// sempre para o mesmo ponto deixou de esgotar.
+// A PROVA DA FASE 9, e o contraste direto com o teste do float acima.
 //
-// Com `posicao` em double precision isto falhava com 409 depois de ~50
-// movimentos, e a pessoa ficava com um erro que não tinha como resolver pela
-// interface. Com a chave textual, cem movimentos passam — e passariam mil.
-func TestMoverCemVezesParaOMesmoPontoNaoEsgotaMais(t *testing.T) {
+// ⚠️ Este teste precisa APERTAR o intervalo — cada movimento entra entre o
+// primeiro e o card movido ANTES. Uma versão anterior dele movia sempre entre
+// os MESMOS dois vizinhos, o que não aperta nada: o intervalo ficava igual, o
+// float nunca esgotava, e o teste passava sem provar coisa alguma. Ele deixou
+// passar um defeito real, em que a posição legada ainda abortava o movimento na
+// 53ª vez mesmo com a chave tendo espaço de sobra.
+//
+// Setenta movimentos é o número certo: o float esgota em 52, então qualquer
+// coisa acima disso exercita o caminho que só a chave textual sustenta.
+func TestApertarOMesmoIntervaloAlemDoLimiteDoFloat(t *testing.T) {
 	q := novoQuadro()
 	ana := "u-ana"
 	boardID := q.criarQuadro(t, ana, "Estudos")
 	colunaID := q.criarColuna(t, boardID, ana, "A fazer")
 
 	primeiro := q.criarCard(t, colunaID, ana, "primeiro")
-	segundo := q.criarCard(t, colunaID, ana, "segundo")
-	viajante := q.criarCard(t, colunaID, ana, "viajante")
+	proximo := q.criarCard(t, colunaID, ana, "ancora")
 
-	// Sempre entre os mesmos dois vizinhos — o pior caso possível.
-	for i := 0; i < 100; i++ {
-		_, err := q.card.Mover(context.Background(), viajante, ana, colunaID,
-			ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: segundo})
+	moveis := make([]string, 0, 70)
+	for i := 0; i < 70; i++ {
+		moveis = append(moveis, q.criarCard(t, colunaID, ana, "c"))
+	}
+
+	for i, cid := range moveis {
+		_, err := q.card.Mover(context.Background(), cid, ana, colunaID,
+			ucboard.Vizinhos{AnteriorID: primeiro, ProximoID: proximo})
 		if err != nil {
-			t.Fatalf("no movimento %d: %v — a chave textual não devia esgotar", i, err)
+			t.Fatalf("no movimento %d: %v — a chave textual não devia esgotar", i+1, err)
 		}
+		// O próximo aperto é entre o primeiro e ESTE: é isso que encolhe o
+		// intervalo a cada volta.
+		proximo = cid
 	}
 
 	// E a ordem continua correta depois de tudo isso.
@@ -281,12 +299,14 @@ func TestMoverCemVezesParaOMesmoPontoNaoEsgotaMais(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listar: %v", err)
 	}
-	porChave := map[string]string{}
+	chaves := make([]string, 0, len(cards))
 	for _, c := range cards {
-		porChave[c.Titulo] = c.Chave
+		chaves = append(chaves, c.Chave)
 	}
-	if !(porChave["primeiro"] < porChave["viajante"] && porChave["viajante"] < porChave["segundo"]) {
-		t.Errorf("a ordem se perdeu: primeiro=%q viajante=%q segundo=%q",
-			porChave["primeiro"], porChave["viajante"], porChave["segundo"])
+	for i := 1; i < len(chaves); i++ {
+		if chaves[i-1] >= chaves[i] {
+			t.Fatalf("a ordem se perdeu entre as posições %d e %d: %q >= %q",
+				i-1, i, chaves[i-1], chaves[i])
+		}
 	}
 }

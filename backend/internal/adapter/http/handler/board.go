@@ -382,8 +382,10 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// esta chamada. A tela recarrega o card em vez de insistir.
 	case errors.Is(err, dcard.ErrConflito):
 		responderErro(w, http.StatusConflict, err.Error())
-	// ErrSemEspaco é o esgotamento da precisão do float — a fase 9 remove essa
-	// possibilidade.
+	// ErrSemEspaco era o esgotamento da precisão do float. Desde a fase 9 quem
+	// ordena é a chave textual, e o esgotamento do float legado não aborta mais
+	// o movimento — este caso virou rede de segurança, e deve deixar de existir
+	// junto com o `DROP` de `posicao`, no contract.
 	case errors.Is(err, ordem.ErrSemEspaco):
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):

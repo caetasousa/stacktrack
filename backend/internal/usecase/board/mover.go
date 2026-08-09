@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	dcard "stacktrack/internal/domain/card"
 	dcoluna "stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/evento"
@@ -17,8 +18,8 @@ import (
 //
 //  1. o cliente pode estar com uma cópia velha do quadro, e calcular a média
 //     entre posições que já mudaram coloca o item no lugar errado;
-//  2. o esgotamento da precisão (ordem.ErrSemEspaco) só pode ser detectado
-//     onde os valores reais estão;
+//  2. só onde os valores reais estão dá para calcular a chave entre os
+//     vizinhos de verdade;
 //  3. posição vinda do cliente é entrada do usuário: um float qualquer
 //     embaralharia a ordem de um quadro inteiro.
 //
@@ -61,16 +62,26 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 		}
 	}
 
-	posicao, err := uc.posicaoEntreCards(ctx, destino.ID, vizinhos)
-	if err != nil {
-		return nil, err
-	}
-	// A CHAVE é o que passa a mandar na ordem; a posição continua sendo escrita
-	// só enquanto o expand não terminar. Ao contrário dela, a chave nunca falta:
-	// ChaveEntre só erra por entrada inválida, nunca por falta de espaço.
+	// A CHAVE é o que manda na ordem. Ela vem PRIMEIRO de propósito: é a que
+	// pode recusar o movimento por motivo real (vizinho inválido).
 	chave, err := uc.chaveEntreCards(ctx, vizinhos)
 	if err != nil {
 		return nil, err
+	}
+	// A posição é legado, e escrevê-la NÃO pode mais barrar nada.
+	//
+	// Enquanto o expand não terminar as duas colunas são gravadas — mas deixar o
+	// esgotamento do float abortar o movimento manteria de pé exatamente a falha
+	// que esta fase existe para remover: o 409 voltaria na 53ª inserção no mesmo
+	// ponto, mesmo com a chave tendo espaço de sobra.
+	posicao, err := uc.posicaoEntreCards(ctx, destino.ID, vizinhos)
+	if err != nil {
+		if !errors.Is(err, ordem.ErrSemEspaco) {
+			return nil, err
+		}
+		// Sem espaço no float: a posição perde o sentido, e quem ordena já é a
+		// chave. Fica a do próprio card, que o contract vai apagar.
+		posicao = c.Posicao
 	}
 
 	c.Mover(destino.ID, posicao, chave)
@@ -189,7 +200,12 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 	} else {
 		posicao, err = ordem.Entre(anterior, proximo)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, ordem.ErrSemEspaco) {
+				return nil, err
+			}
+			// Legado sem espaço: quem ordena é a chave. Ver o comentário em
+			// CardUseCase.Mover.
+			posicao = c.Posicao
 		}
 	}
 

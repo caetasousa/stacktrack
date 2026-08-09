@@ -226,7 +226,7 @@ func (r *Colunas) ListarDoBoard(ctx context.Context, boardID string) ([]coluna.C
 			lista = append(lista, *c)
 		}
 	}
-	ordenarPorPosicao(lista, func(c coluna.Coluna) (float64, string) { return c.Posicao, c.ID })
+	ordenarPorPosicao(lista, func(c coluna.Coluna) (string, float64, string) { return c.Chave, c.Posicao, c.ID })
 	return lista, nil
 }
 
@@ -316,7 +316,7 @@ func (r *Cards) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card,
 			lista = append(lista, *c)
 		}
 	}
-	ordenarPorPosicao(lista, func(c card.Card) (float64, string) { return c.Posicao, c.ID })
+	ordenarPorPosicao(lista, func(c card.Card) (string, float64, string) { return c.Chave, c.Posicao, c.ID })
 	return lista, nil
 }
 
@@ -352,10 +352,27 @@ func (r *Cards) Quantidade() int { return len(r.porID) }
 // ordenarPorPosicao ordena por posição com desempate por id, igual ao
 // ORDER BY posicao, id do repositório de verdade — sem o desempate a ordem de
 // duas posições iguais varia entre execuções e o teste fica intermitente.
-func ordenarPorPosicao[T any](lista []T, chave func(T) (float64, string)) {
+// ordenarPorPosicao reproduz o ORDER BY do repositório de verdade:
+//
+//	ORDER BY chave COLLATE "C" NULLS FIRST, posicao, id
+//
+// ⚠️ A ordem principal é a CHAVE, não a posição — e o nome desta função ficou
+// do tempo em que era o contrário. O fake precisa ordenar igual ao banco: com
+// ele ordenando por posição enquanto o SQL ordena por chave, todo teste de
+// usecase validaria uma ordem que produção não produz. Foi assim que um defeito
+// real passou — a posição legada esgotava e o card ia parar em outro lugar, e
+// nenhum teste em memória percebia.
+func ordenarPorPosicao[T any](lista []T, chave func(T) (string, float64, string)) {
 	sort.Slice(lista, func(i, j int) bool {
-		pi, idi := chave(lista[i])
-		pj, idj := chave(lista[j])
+		ki, pi, idi := chave(lista[i])
+		kj, pj, idj := chave(lista[j])
+		// NULLS FIRST: a linha que o backfill ainda não alcançou vem antes.
+		if (ki == "") != (kj == "") {
+			return ki == ""
+		}
+		if ki != kj {
+			return ki < kj
+		}
 		if pi != pj {
 			return pi < pj
 		}

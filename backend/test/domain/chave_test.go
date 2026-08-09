@@ -252,3 +252,17 @@ func TestOSorteioNaoAlongaAChave(t *testing.T) {
 		}
 	}
 }
+
+// O desperdício que custava caro: entre "bq" e "c" cabem "br".."bz", e estender
+// para três caracteres gastaria uma letra POR inserção — a chave crescia no
+// ritmo do uso, em vez de crescer só quando o espaço acabava.
+func TestNaoEstendeAChaveQuandoAindaCabeNoComprimentoAtual(t *testing.T) {
+	k := entre(t, "bq", "c")
+
+	if len(k) != 2 {
+		t.Errorf("chave = %q (%d caracteres), esperado 2 — havia folga em \"br\"..\"bz\"", k, len(k))
+	}
+	if k <= "bq" || k >= "c" {
+		t.Errorf("chave = %q, fora do intervalo", k)
+	}
+}

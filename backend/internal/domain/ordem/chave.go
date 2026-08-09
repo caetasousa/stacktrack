@@ -163,9 +163,20 @@ func entreDuas(a, b string) string {
 		return a[:comum] + string(sorteioEntre(a[comum]+1, b[comum]-1))
 	}
 
-	// Caracteres vizinhos no alfabeto: não há letra entre eles, então a chave
-	// ESTENDE `a`. Qualquer coisa que comece com `a` continua menor que `b`,
-	// porque elas já divergiram num caractere anterior.
+	// Caracteres vizinhos no alfabeto ("bq" e "c"): não cabe letra entre eles na
+	// posição em que divergem, então a chave nova tem de manter o prefixo de `a`
+	// até ali — e QUALQUER coisa com esse prefixo já é menor que `b`, porque `b`
+	// diverge para cima justamente nessa posição.
+	//
+	// Isso deixa duas saídas, e escolher a errada custa caro. Estender `a` sempre
+	// funciona, mas gasta um caractere POR INSERÇÃO: entre "bq" e "c" produziria
+	// "bq?", depois "bq??", e a chave crescia uma letra de cada vez. Se ainda
+	// existe sufixo depois do ponto de divergência, dá para crescer DENTRO do
+	// comprimento atual: entre "bq" e "c" cabem "br".."bz", e só quando esse
+	// espaço acaba é que a chave precisa de mais um caractere.
+	if comum < len(a)-1 {
+		return depoisDe(a)
+	}
 	return a + string(sorteioEntre(menor+1, maior))
 }
 

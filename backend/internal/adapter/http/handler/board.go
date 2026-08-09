@@ -387,7 +387,8 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// — dizer "erro interno" mandaria a pessoa procurar um problema que não é
 	// dela, e encheria o log de erro por um caminho previsto.
 	case errors.Is(err, ordem.ErrForaDeOrdem),
-		errors.Is(err, ordem.ErrChaveInvalida):
+		errors.Is(err, ordem.ErrChaveInvalida),
+		errors.Is(err, ordem.ErrChaveLonga):
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):
 		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())

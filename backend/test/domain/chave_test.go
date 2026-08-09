@@ -3,6 +3,7 @@ package domain_test
 import (
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 
 	"stacktrack/internal/domain/ordem"
@@ -55,38 +56,79 @@ func TestEntreDuasLetrasVizinhasCabeUmaChaveMaior(t *testing.T) {
 	}
 }
 
-// A PROPRIEDADE QUE DEFINE A FASE 9, e o contraste direto com o float: inserir
-// sempre no mesmo ponto nunca esgota. Com double precision isto falharia em
-// algumas dezenas de tentativas (ver TestDividirOMesmoIntervaloAcabaEsgotando).
-func TestInserirMilVezesNoMesmoPontoNuncaEsgota(t *testing.T) {
-	anterior, proximo := "b", "c"
+// A PROPRIEDADE QUE DEFINE A FASE 9, e o contraste direto com o float:
+// reordenar sempre no mesmo ponto continua funcionando por centenas de vezes.
+// Com double precision isto falhava em algumas dezenas de tentativas — o teto
+// medido era 52, e ele era alcançável.
+//
+// Estes testes já afirmaram "mil vezes nunca esgota", e isso era FALSO: só
+// passava porque o domínio ignorava o tamanho da coluna. Contra o VARCHAR(200)
+// de verdade, os quatro padrões esgotam perto de 750. O número honesto é esse,
+// e ele está aqui embaixo em vez de numa promessa que o banco não sustenta.
+//
+// Quando o teto chega, o erro tem de ser o PREVISTO (ErrChaveLonga, que vira
+// 409) — nunca uma chave fora de ordem, que corromperia o quadro em silêncio.
+func TestReordenarNoMesmoPontoAguentaCentenasDeVezes(t *testing.T) {
+	// O piso que se exige de cada padrão. Não é o teto medido: cravar o número
+	// exato faria o teste quebrar a cada ajuste no sorteio, que é aleatório de
+	// propósito. É o "muito mais que o float aguentava" que importa.
+	const piso = 600
 
-	for i := 0; i < 1000; i++ {
-		k, err := ordem.ChaveEntre(anterior, proximo)
-		if err != nil {
-			t.Fatalf("na inserção %d: %v", i, err)
-		}
-		if !(k > anterior && k < proximo) {
-			t.Fatalf("na inserção %d: %q não está entre %q e %q", i, k, anterior, proximo)
-		}
-		// Aperta sempre o mesmo intervalo — o pior caso possível.
-		proximo = k
+	casos := []struct {
+		nome string
+		// passo devolve o próximo par de vizinhos a partir da chave gerada.
+		passo func(k string, anterior, proximo string) (string, string)
+	}{
+		{"apertando o intervalo pela direita", func(k, a, p string) (string, string) { return a, k }},
+		{"sempre logo depois do mesmo item", func(k, a, p string) (string, string) { return k, p }},
+		{"sempre no topo da lista", func(k, a, p string) (string, string) { return "", k }},
+		{"sempre no fim da lista", func(k, a, p string) (string, string) { return k, "" }},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			anterior, proximo := "b", "c"
+			if caso.nome == "sempre no topo da lista" {
+				anterior, proximo = "", ordem.ChaveInicial
+			}
+			if caso.nome == "sempre no fim da lista" {
+				anterior, proximo = ordem.ChaveInicial, ""
+			}
+
+			for i := 1; i <= 2000; i++ {
+				k, err := ordem.ChaveEntre(anterior, proximo)
+				if errors.Is(err, ordem.ErrChaveLonga) {
+					if i <= piso {
+						t.Fatalf("esgotou na inserção %d, antes do piso de %d", i, piso)
+					}
+					return // esgotou onde é aceitável, e com o erro certo
+				}
+				if err != nil {
+					t.Fatalf("na inserção %d, erro inesperado: %v", i, err)
+				}
+				if anterior != "" && k <= anterior {
+					t.Fatalf("na inserção %d: %q não vem depois de %q", i, k, anterior)
+				}
+				if proximo != "" && k >= proximo {
+					t.Fatalf("na inserção %d: %q não vem antes de %q", i, k, proximo)
+				}
+				anterior, proximo = caso.passo(k, anterior, proximo)
+			}
+		})
 	}
 }
 
-// E o outro pior caso: sempre logo DEPOIS do mesmo item.
-func TestInserirMilVezesLogoDepoisNuncaEsgota(t *testing.T) {
-	anterior, proximo := "b", "c"
+// O desperdício que custava caro: entre "bq" e "c" cabem "br".."bz", e estender
+// para três caracteres gastaria uma letra POR inserção. Era o que fazia o padrão
+// "sempre logo depois" esgotar em 199 em vez de perto de 750.
+func TestNaoEstendeAChaveQuandoAindaCabeNoComprimentoAtual(t *testing.T) {
+	k := entre(t, "bq", "c")
 
-	for i := 0; i < 1000; i++ {
-		k, err := ordem.ChaveEntre(anterior, proximo)
-		if err != nil {
-			t.Fatalf("na inserção %d: %v", i, err)
-		}
-		if !(k > anterior && k < proximo) {
-			t.Fatalf("na inserção %d: %q não está entre %q e %q", i, k, anterior, proximo)
-		}
-		anterior = k
+	if len(k) != 2 {
+		t.Errorf("chave = %q (%d caracteres), esperado 2 — havia folga em \"br\"..\"bz\"", k, len(k))
+	}
+	if k <= "bq" || k >= "c" {
+		t.Errorf("chave = %q, fora do intervalo", k)
 	}
 }
 
@@ -114,38 +156,6 @@ func TestNenhumaChaveGeradaTerminaNoMenorCaractere(t *testing.T) {
 		if k[len(k)-1] == 'a' {
 			t.Errorf("a chave %q termina no menor caractere — quebra a invariante", k)
 		}
-	}
-}
-
-// Inserir no topo mil vezes também nunca esgota — é o caso que a invariante
-// existe para proteger.
-func TestInserirMilVezesNoTopoNuncaEsgota(t *testing.T) {
-	primeira := ordem.ChaveInicial
-
-	for i := 0; i < 1000; i++ {
-		k, err := ordem.ChaveEntre("", primeira)
-		if err != nil {
-			t.Fatalf("na inserção %d: %v", i, err)
-		}
-		if k >= primeira {
-			t.Fatalf("na inserção %d: %q não vem antes de %q", i, k, primeira)
-		}
-		primeira = k
-	}
-}
-
-func TestInserirMilVezesNoFimNuncaEsgota(t *testing.T) {
-	ultima := ordem.ChaveInicial
-
-	for i := 0; i < 1000; i++ {
-		k, err := ordem.ChaveEntre(ultima, "")
-		if err != nil {
-			t.Fatalf("na inserção %d: %v", i, err)
-		}
-		if k <= ultima {
-			t.Fatalf("na inserção %d: %q não vem depois de %q", i, k, ultima)
-		}
-		ultima = k
 	}
 }
 
@@ -253,16 +263,40 @@ func TestOSorteioNaoAlongaAChave(t *testing.T) {
 	}
 }
 
-// O desperdício que custava caro: entre "bq" e "c" cabem "br".."bz", e estender
-// para três caracteres gastaria uma letra POR inserção — a chave crescia no
-// ritmo do uso, em vez de crescer só quando o espaço acabava.
-func TestNaoEstendeAChaveQuandoAindaCabeNoComprimentoAtual(t *testing.T) {
-	k := entre(t, "bq", "c")
+// "Infinitamente" é verdade no papel; na coluna VARCHAR(200) não é.
+//
+// Quando a chave calculada não couber, o domínio precisa dizer isso — se ele se
+// calar, quem reclama é o driver do Postgres, e um erro previsto vira 500.
+func TestChaveQueNaoCabeNaColunaEhRecusadaPeloDominio(t *testing.T) {
+	// Duas chaves vizinhas e já no teto: qualquer coisa entre elas teria de
+	// estender, e estender passaria do limite.
+	a := strings.Repeat("n", ordem.TamanhoMaximo)
+	b := strings.Repeat("n", ordem.TamanhoMaximo-1) + "o"
 
-	if len(k) != 2 {
-		t.Errorf("chave = %q (%d caracteres), esperado 2 — havia folga em \"br\"..\"bz\"", k, len(k))
+	if _, err := ordem.ChaveEntre(a, b); !errors.Is(err, ordem.ErrChaveLonga) {
+		t.Errorf("erro = %v, esperado ErrChaveLonga", err)
 	}
-	if k <= "bq" || k >= "c" {
-		t.Errorf("chave = %q, fora do intervalo", k)
+}
+
+// E o teto não pode cortar quem ainda cabe: no limite exato a chave passa.
+func TestChaveNoLimiteExatoAindaPassa(t *testing.T) {
+	// Entre "b" e "n" cabe um caractere só — bem longe do teto.
+	k, err := ordem.ChaveEntre("b", "n")
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if len(k) > ordem.TamanhoMaximo {
+		t.Errorf("chave de %d caracteres passou do teto de %d", len(k), ordem.TamanhoMaximo)
+	}
+}
+
+// O teto do domínio e o da coluna são o mesmo número, e é o teste de
+// integração (chave_cabe_na_coluna_test.go) que pergunta isso ao banco. Aqui
+// fica só a âncora: se alguém mudar a constante, este teste lembra que existe
+// uma migration do outro lado.
+func TestOTetoEhOTamanhoDaColunaDaMigration(t *testing.T) {
+	if ordem.TamanhoMaximo != 200 {
+		t.Errorf("TamanhoMaximo = %d: mude também o VARCHAR de cards.chave e "+
+			"colunas.chave, numa migration nova", ordem.TamanhoMaximo)
 	}
 }

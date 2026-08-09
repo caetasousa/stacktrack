@@ -22,6 +22,17 @@ import (
 // O preço é que a chave cresce quando se insere sempre no mesmo ponto. É um
 // preço bom: um caractere a mais por colisão, contra um erro que a pessoa não
 // tem como resolver pela interface.
+//
+// "Infinitamente" é verdade no papel, e o papel não é onde isto roda: a coluna
+// é VARCHAR(200). Medido contra a API de verdade, a chave cresce ~0,27
+// caractere por movimento no MESMO ponto — 400 movimentos produziram 109
+// caracteres —, então o teto real fica perto de 730 movimentos consecutivos no
+// mesmo lugar. É 14 vezes o que o float aguentava, e continua sendo um teto.
+// TamanhoMaximo existe para que ele apareça como 409 do domínio e não como
+// erro de VARCHAR vindo do driver, que viraria 500. Se um dia isso for
+// alcançado de verdade, a resposta não é uma coluna mais larga (adia o mesmo
+// problema): é redistribuir as chaves da coluna, aceitando de propósito a
+// reescrita em massa que este esquema evita no caso comum.
 
 // alfabeto é a ordem em que os caracteres valem. Só minúsculas de propósito:
 //
@@ -51,6 +62,18 @@ var ErrChaveInvalida = errors.New("chave de ordenação inválida")
 // ErrForaDeOrdem é retornado quando os vizinhos informados não estão em ordem —
 // o anterior deveria vir antes do próximo.
 var ErrForaDeOrdem = errors.New("os vizinhos informados estão fora de ordem")
+
+// TamanhoMaximo é o comprimento máximo de uma chave, e ele NÃO é uma escolha
+// do domínio: é o tamanho da coluna (VARCHAR(200) em V18). Estão amarrados de
+// propósito — um domínio que gerasse chave maior que a coluna transformaria uma
+// regra de negócio em erro de driver, e o teste
+// test/repository/chave_cabe_na_coluna_test.go trava os dois juntos.
+const TamanhoMaximo = 200
+
+// ErrChaveLonga é retornado quando a chave calculada não caberia na coluna.
+// Acontece só depois de centenas de movimentos consecutivos exatamente no mesmo
+// ponto de uma lista; ver o comentário do topo para o que fazer nesse dia.
+var ErrChaveLonga = errors.New("a lista foi reordenada vezes demais neste ponto")
 
 // sorteioEntre devolve um caractere aleatório no intervalo FECHADO [de, ate].
 //
@@ -91,8 +114,10 @@ func chaveValida(k string) bool {
 // ChaveEntre devolve uma chave que fica ENTRE as duas informadas.
 //
 // Vazio significa ponta: anterior vazio é o topo da lista, próximo vazio é o
-// fim. Ao contrário de Entre, isto não tem como faltar espaço — o único erro
-// possível é entrada inválida.
+// fim.
+//
+// Erra por entrada inválida, por vizinhos fora de ordem, ou — só no extremo
+// descrito no topo do arquivo — por a chave não caber mais na coluna.
 func ChaveEntre(anterior, proximo string) (string, error) {
 	if anterior != "" && !chaveValida(anterior) {
 		return "", ErrChaveInvalida
@@ -101,21 +126,26 @@ func ChaveEntre(anterior, proximo string) (string, error) {
 		return "", ErrChaveInvalida
 	}
 
+	var nova string
 	switch {
 	case anterior == "" && proximo == "":
 		// Lista vazia: a chave nasce no meio do alfabeto, com uma folga
 		// sorteada, para preservar margem dos dois lados.
-		return string(sorteioEntre(meio-2, meio+2)), nil
+		nova = string(sorteioEntre(meio-2, meio+2))
 	case anterior == "":
-		return antesDe(proximo), nil
+		nova = antesDe(proximo)
 	case proximo == "":
-		return depoisDe(anterior), nil
+		nova = depoisDe(anterior)
+	case anterior >= proximo:
+		return "", ErrForaDeOrdem
+	default:
+		nova = entreDuas(anterior, proximo)
 	}
 
-	if anterior >= proximo {
-		return "", ErrForaDeOrdem
+	if len(nova) > TamanhoMaximo {
+		return "", ErrChaveLonga
 	}
-	return entreDuas(anterior, proximo), nil
+	return nova, nil
 }
 
 // antesDe devolve uma chave menor que a informada.
@@ -170,10 +200,11 @@ func entreDuas(a, b string) string {
 	//
 	// Isso deixa duas saídas, e escolher a errada custa caro. Estender `a` sempre
 	// funciona, mas gasta um caractere POR INSERÇÃO: entre "bq" e "c" produziria
-	// "bq?", depois "bq??", e a chave crescia uma letra de cada vez. Se ainda
-	// existe sufixo depois do ponto de divergência, dá para crescer DENTRO do
-	// comprimento atual: entre "bq" e "c" cabem "br".."bz", e só quando esse
-	// espaço acaba é que a chave precisa de mais um caractere.
+	// "bq?", depois "bq??", e a chave crescia uma letra de cada vez — 199
+	// inserções e ela não cabia mais na coluna. Se ainda existe sufixo depois do
+	// ponto de divergência, dá para crescer DENTRO do comprimento atual: entre
+	// "bq" e "c" cabem "br".."bz", e só quando esse espaço acaba é que a chave
+	// precisa de mais um caractere.
 	if comum < len(a)-1 {
 		return depoisDe(a)
 	}
@@ -186,6 +217,9 @@ func entreDuas(a, b string) string {
 func NormalizarChave(k string) (string, error) {
 	k = strings.TrimSpace(k)
 	if !chaveValida(k) {
+		return "", ErrChaveInvalida
+	}
+	if len(k) > TamanhoMaximo {
 		return "", ErrChaveInvalida
 	}
 	return k, nil

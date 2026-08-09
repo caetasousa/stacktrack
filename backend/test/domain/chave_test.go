@@ -19,14 +19,20 @@ func entre(t *testing.T, anterior, proximo string) string {
 	return k
 }
 
-func TestChaveDaListaVaziaEOMeioDoAlfabeto(t *testing.T) {
-	if k := entre(t, "", ""); k != ordem.ChaveInicial {
-		t.Errorf("chave = %q, esperado %q", k, ordem.ChaveInicial)
-	}
-	// Começar no meio, e não em "a", é o que preserva margem para quem for
-	// inserido ANTES do primeiro item.
-	if ordem.ChaveInicial <= "b" {
-		t.Errorf("a chave inicial %q deixa pouca margem à esquerda", ordem.ChaveInicial)
+// A chave da lista vazia nasce PERTO do meio do alfabeto, e não em "a": é isso
+// que preserva margem para quem for inserido antes do primeiro item.
+//
+// "Perto", e não exatamente no meio, porque há um sorteio — ver o teste da
+// colisão mais abaixo.
+func TestChaveDaListaVaziaNasceLongeDasPontas(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		k := entre(t, "", "")
+		if len(k) != 1 {
+			t.Fatalf("chave = %q, esperado um caractere só", k)
+		}
+		if k <= "e" || k >= "u" {
+			t.Errorf("chave = %q, esperado perto do meio do alfabeto", k)
+		}
 	}
 }
 
@@ -34,14 +40,18 @@ func TestChaveDaListaVaziaEOMeioDoAlfabeto(t *testing.T) {
 // mais longa. O plano ilustrava com "entre a e b cabe an"; "a" não é chave
 // válida aqui (termina no menor caractere), então o exemplo equivalente é
 // entre "b" e "c".
+//
+// A afirmação é de PROPRIEDADE, e não de valor exato: com o sorteio que evita
+// colisão, o caractere final varia. Exigir "bn" travaria o teste num detalhe de
+// implementação em vez de na regra — e a regra é "fica entre os dois".
 func TestEntreDuasLetrasVizinhasCabeUmaChaveMaior(t *testing.T) {
 	k := entre(t, "b", "c")
 
 	if !(k > "b" && k < "c") {
 		t.Fatalf("chave = %q, esperado entre 'b' e 'c'", k)
 	}
-	if k != "bn" {
-		t.Errorf("chave = %q, esperado 'bn'", k)
+	if len(k) != 2 || k[0] != 'b' {
+		t.Errorf("chave = %q, esperado estender 'b' em um caractere", k)
 	}
 }
 
@@ -207,4 +217,38 @@ func TestOCrescimentoDaChaveEModesto(t *testing.T) {
 		t.Errorf("depois de 100 inserções no mesmo ponto a chave tem %d caracteres", len(proximo))
 	}
 	t.Logf("100 inserções no mesmo ponto: chave de %d caracteres (%q)", len(proximo), proximo)
+}
+
+// A COLISÃO, que é o motivo de o sorteio existir.
+//
+// Duas pessoas arrastam um card para o mesmo lugar ao mesmo tempo: as duas
+// enxergam os mesmos vizinhos e pedem a chave do mesmo intervalo. Sem sorteio,
+// as duas recebiam a MESMA chave.
+//
+// O empate em si é tolerável — ninguém pediu uma ordem entre esses dois. O
+// estrago vem depois: não existe chave ENTRE duas iguais, então arrastar
+// qualquer coisa entre elas passava a falhar, que é justamente o tipo de
+// impedimento que a fase 9 existe para remover.
+func TestChavesDoMesmoIntervaloRaramenteColidem(t *testing.T) {
+	const tentativas = 200
+	vistas := map[string]int{}
+	for i := 0; i < tentativas; i++ {
+		vistas[entre(t, "b", "n")]++
+	}
+
+	if len(vistas) < 5 {
+		t.Errorf("%d tentativas produziram só %d chaves distintas — o sorteio não está espalhando",
+			tentativas, len(vistas))
+	}
+	t.Logf("%d tentativas -> %d chaves distintas", tentativas, len(vistas))
+}
+
+// E o sorteio não pode custar tamanho: ele acontece DENTRO da folga que já
+// existia, então a chave não fica mais longa por causa dele.
+func TestOSorteioNaoAlongaAChave(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		if k := entre(t, "b", "n"); len(k) != 1 {
+			t.Fatalf("chave = %q, esperado um caractere — havia folga de sobra", k)
+		}
+	}
 }

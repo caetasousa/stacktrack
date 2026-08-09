@@ -2,6 +2,7 @@ package ordem
 
 import (
 	"errors"
+	"math/rand/v2"
 	"strings"
 )
 
@@ -51,6 +52,24 @@ var ErrChaveInvalida = errors.New("chave de ordenação inválida")
 // o anterior deveria vir antes do próximo.
 var ErrForaDeOrdem = errors.New("os vizinhos informados estão fora de ordem")
 
+// sorteioEntre devolve um caractere aleatório no intervalo FECHADO [de, ate].
+//
+// Sortear, em vez de pegar sempre o do meio, é o que evita COLISÃO entre duas
+// inserções simultâneas no mesmo ponto. Sem isso, duas pessoas arrastando um
+// card para o mesmo lugar ao mesmo tempo calculam a MESMA chave — e o estrago
+// não é o empate em si (a ordem entre eles é arbitrária de qualquer forma, já
+// que ninguém pediu uma), e sim o que vem depois: arrastar algo ENTRE os dois
+// passa a ser impossível, porque não existe chave entre duas iguais.
+//
+// E é de graça: o sorteio acontece DENTRO do espaço que já existia, então a
+// chave não fica um caractere mais longa por causa dele.
+func sorteioEntre(de, ate byte) byte {
+	if ate <= de {
+		return de
+	}
+	return de + byte(rand.IntN(int(ate-de)+1))
+}
+
 // A INVARIANTE que sustenta tudo: nenhuma chave termina com o menor caractere.
 //
 // É ela que garante que SEMPRE cabe alguém antes de qualquer item. Sem ela,
@@ -84,7 +103,9 @@ func ChaveEntre(anterior, proximo string) (string, error) {
 
 	switch {
 	case anterior == "" && proximo == "":
-		return ChaveInicial, nil
+		// Lista vazia: a chave nasce no meio do alfabeto, com uma folga
+		// sorteada, para preservar margem dos dois lados.
+		return string(sorteioEntre(meio-2, meio+2)), nil
 	case anterior == "":
 		return antesDe(proximo), nil
 	case proximo == "":
@@ -105,21 +126,21 @@ func ChaveEntre(anterior, proximo string) (string, error) {
 func antesDe(k string) string {
 	ultimo := k[len(k)-1]
 	if ultimo > menor+1 {
-		return k[:len(k)-1] + string(ultimo-1)
+		return k[:len(k)-1] + string(sorteioEntre(menor+1, ultimo-1))
 	}
 	// Decrementar cairia no menor caractere, que a invariante proíbe no fim.
 	// Estender é sempre seguro: prefixo + "an" é menor que prefixo + "b".
-	return k[:len(k)-1] + string(menor) + string(meio)
+	return k[:len(k)-1] + string(menor) + string(sorteioEntre(menor+1, maior))
 }
 
 // depoisDe devolve uma chave maior que a informada.
 func depoisDe(k string) string {
 	ultimo := k[len(k)-1]
 	if ultimo < maior {
-		return k[:len(k)-1] + string(ultimo+1)
+		return k[:len(k)-1] + string(sorteioEntre(ultimo+1, maior))
 	}
 	// Já está no maior caractere: estender é o que sempre cabe.
-	return k + string(meio)
+	return k + string(sorteioEntre(menor+1, maior))
 }
 
 // entreDuas devolve uma chave estritamente entre duas chaves ordenadas.
@@ -136,16 +157,16 @@ func entreDuas(a, b string) string {
 		return a + antesDe(b[comum:])
 	}
 
-	distancia := int(b[comum]) - int(a[comum])
-	if distancia > 1 {
-		// Cabe um caractere inteiro entre os dois — é o caso barato.
-		return a[:comum] + string(a[comum]+byte(distancia/2))
+	if int(b[comum])-int(a[comum]) > 1 {
+		// Cabe um caractere inteiro entre os dois — é o caso barato, e o
+		// sorteio acontece dentro dessa folga.
+		return a[:comum] + string(sorteioEntre(a[comum]+1, b[comum]-1))
 	}
 
 	// Caracteres vizinhos no alfabeto: não há letra entre eles, então a chave
 	// ESTENDE `a`. Qualquer coisa que comece com `a` continua menor que `b`,
 	// porque elas já divergiram num caractere anterior.
-	return a + string(meio)
+	return a + string(sorteioEntre(menor+1, maior))
 }
 
 // NormalizarChave devolve a chave em forma canônica, ou erro se ela não

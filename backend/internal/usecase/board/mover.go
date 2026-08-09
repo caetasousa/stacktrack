@@ -64,7 +64,7 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 
 	// A CHAVE é o que manda na ordem. Ela vem PRIMEIRO de propósito: é a que
 	// pode recusar o movimento por motivo real (vizinho inválido).
-	chave, err := uc.chaveEntreCards(ctx, vizinhos)
+	chave, err := uc.chaveEntreCards(ctx, destino.ID, vizinhos)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (uc *CardUseCase) Mover(ctx context.Context, cardID, usuarioID, colunaDesti
 // como ponta: é o comportamento seguro durante o expand, porque colocar o card
 // entre uma chave e um vazio produziria uma ordem que não corresponde ao que a
 // tela mostrava.
-func (uc *CardUseCase) chaveEntreCards(ctx context.Context, vizinhos Vizinhos) (string, error) {
+func (uc *CardUseCase) chaveEntreCards(ctx context.Context, colunaID string, vizinhos Vizinhos) (string, error) {
 	anterior, err := uc.chaveDoCard(ctx, vizinhos.AnteriorID)
 	if err != nil {
 		return "", err
@@ -115,6 +115,17 @@ func (uc *CardUseCase) chaveEntreCards(ctx context.Context, vizinhos Vizinhos) (
 	proximo, err := uc.chaveDoCard(ctx, vizinhos.ProximoID)
 	if err != nil {
 		return "", err
+	}
+
+	// SEM VIZINHO NENHUM significa "solto no espaço vazio abaixo dos cards", e
+	// isso quer dizer NO FIM — não no meio de uma lista vazia. É a mesma regra
+	// que posicaoEntreCards aplica, e esquecê-la aqui fazia o card pousar num
+	// lugar que ninguém pediu, dependendo do sorteio da chave.
+	if anterior == "" && proximo == "" {
+		anterior, err = uc.cards.UltimaChave(ctx, colunaID)
+		if err != nil {
+			return "", err
+		}
 	}
 	return ordem.ChaveEntre(anterior, proximo)
 }
@@ -209,7 +220,7 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 		}
 	}
 
-	chave, err := uc.chaveEntreColunas(ctx, vizinhos)
+	chave, err := uc.chaveEntreColunas(ctx, c.BoardID, vizinhos)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +235,7 @@ func (uc *ColunaUseCase) Mover(ctx context.Context, colunaID, usuarioID string, 
 }
 
 // chaveEntreColunas faz para colunas o que chaveEntreCards faz para cards.
-func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, vizinhos Vizinhos) (string, error) {
+func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, boardID string, vizinhos Vizinhos) (string, error) {
 	anterior, err := uc.chaveDaColuna(ctx, vizinhos.AnteriorID)
 	if err != nil {
 		return "", err
@@ -232,6 +243,13 @@ func (uc *ColunaUseCase) chaveEntreColunas(ctx context.Context, vizinhos Vizinho
 	proximo, err := uc.chaveDaColuna(ctx, vizinhos.ProximoID)
 	if err != nil {
 		return "", err
+	}
+	// Sem vizinha nenhuma é NO FIM — ver chaveEntreCards.
+	if anterior == "" && proximo == "" {
+		anterior, err = uc.colunas.UltimaChave(ctx, boardID)
+		if err != nil {
+			return "", err
+		}
 	}
 	return ordem.ChaveEntre(anterior, proximo)
 }

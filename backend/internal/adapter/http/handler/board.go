@@ -382,6 +382,13 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// esta chamada. A tela recarrega o card em vez de insistir.
 	case errors.Is(err, dcard.ErrConflito):
 		responderErro(w, http.StatusConflict, err.Error())
+	// Vizinhos fora de ordem, ou chave malformada vinda do banco. É 409 e não
+	// 500: o estado é que não comporta a escrita, e a tela resolve recarregando
+	// — dizer "erro interno" mandaria a pessoa procurar um problema que não é
+	// dela, e encheria o log de erro por um caminho previsto.
+	case errors.Is(err, ordem.ErrForaDeOrdem),
+		errors.Is(err, ordem.ErrChaveInvalida):
+		responderErro(w, http.StatusConflict, err.Error())
 	// ErrSemEspaco era o esgotamento da precisão do float. Desde a fase 9 quem
 	// ordena é a chave textual, e o esgotamento do float legado não aborta mais
 	// o movimento — este caso virou rede de segurança, e deve deixar de existir

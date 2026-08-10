@@ -190,6 +190,38 @@ lugar errado.
 Sem paralelismo (`workers: 1`), pelo mesmo motivo do teste em Go: cadastro e
 login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 
+### O quadro no celular
+
+`e2e/celular.spec.ts` roda o mesmo navegador com `devices['Pixel 5']` — tela
+estreita e, o que importa, `hasTouch`. É o que faz o Playwright emitir eventos
+de TOQUE em vez de mouse.
+
+Existe porque o quadro estava inteiramente quebrado no celular com a suíte toda
+verde: tocar num card não abria nada. Eram **três** defeitos independentes, e
+cada um sozinho já bastava — nenhum deles alcançável com mouse:
+
+| Caso | O que prova |
+|---|---|
+| um toque no card abre o modal | o clique sintetizado pelo toque vem sem coordenada, e o guarda de "isto foi arraste?" media por ela |
+| o modal aberto por toque não se fecha sozinho | um toque gera DOIS cliques, e o segundo caía no fundo escuro que acabara de cobrir o card |
+| arrastar o dedo pela lista não levanta o card | com o arraste começando no primeiro contato, rolar a coluna movia cards |
+| arrastar o dedo pela alça da coluna rola o quadro | o mesmo, na zona de fora — o gesto lateral reordenava o quadro |
+
+Dois detalhes que fizeram a diferença entre um teste que prova e um que só passa:
+
+- **a verificação acontece com o dedo ainda na tela.** A classe do item no ar
+  some no `touchEnd`, então uma versão que só olhasse no fim passava com o
+  defeito de volta. Foi assim que a primeira tentativa deixou o mutante vivo;
+- **o alvo do arraste da coluna é a alça `⠿`, não o cabeçalho.** A biblioteca se
+  recusa a arrastar quando o toque começa num elemento com `value`, e `<button>`
+  tem — mirar o título testava um ponto onde o defeito não podia aparecer.
+
+Os gestos de arraste vão pelo CDP (`Input.dispatchTouchEvent`): a API pública do
+Playwright sabe tocar, não sabe arrastar o dedo.
+
+As quatro correções foram verificadas por mutação — desfeitas uma a uma, cada
+uma derruba o seu teste.
+
 ## 7. Integração contra Postgres real (Testcontainers)
 
 `backend/test/repository/`, atrás da build tag `integracao` porque exige Docker:
@@ -287,13 +319,16 @@ cliente.
 
 ## O que ainda não existe
 
-### Arrastar e soltar sob o Playwright
+### Arrastar e soltar com mouse, sob o Playwright
 
-A suíte de ponta a ponta cobre criação e propagação, mas **ainda não o arraste**
-— que é justamente onde os dois defeitos históricos moravam. Automatizar o
-`svelte-dnd-action` exige uma sequência de `mouse.down/move/up` com passos
+A suíte de ponta a ponta cobre criação, propagação e — desde `celular.spec.ts` —
+o que o toque NÃO deve arrastar. Falta o arraste que dá certo: pegar um card e
+soltá-lo em outra coluna, com mouse. É onde moravam os dois defeitos históricos
+(a alça da coluna e a cor do card).
+
+Automatizar isso exige uma sequência de `mouse.down/move/up` com passos
 intermediários, e um teste de arraste mal calibrado falha por motivo errado com
 frequência suficiente para virar ruído.
 
-É o próximo caso a escrever, e o candidato natural para o teste de duas abas
-completo: uma pessoa arrasta, a outra vê o card mudar de coluna.
+É o candidato natural para o teste de duas abas completo: uma pessoa arrasta, a
+outra vê o card mudar de coluna.

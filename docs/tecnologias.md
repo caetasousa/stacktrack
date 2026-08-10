@@ -194,6 +194,19 @@ que faz pegar num card mover só o card.
 existe no gesto seguinte. Foi assim que uma "alça" de arrastar coluna nunca
 funcionou, sem nenhum teste reclamar.
 
+⚠️ **`delayTouchStart` não é ajuste fino, é o que torna a biblioteca usável no
+celular.** No padrão (`false`) o arraste começa no primeiro contato do dedo, e
+aí não existe gesto de rolagem: arrastar para ver o resto da coluna levanta um
+card, e o gesto lateral que percorre o quadro reordena as colunas. Com uma
+espera, o toque curto continua sendo toque e o arraste vira toque-e-segure — o
+gesto que todo aplicativo de celular usa. Ver `ESPERA_DE_TOQUE_MS` em
+[`src/lib/arrastar.ts`](../frontend/src/lib/arrastar.ts).
+
+⚠️ A biblioteca **se recusa a iniciar arraste quando o toque começa num elemento
+com `value`** — e `<button>` tem, mesmo vazio. Vale saber nas duas direções: é
+por isso que os botões do cabeçalho da coluna não disparam arraste sem querer, e
+é a razão de um teste que mira o título da coluna nunca chegar perto do arraste.
+
 📚 [svelte-dnd-action](https://github.com/isaacHagoel/svelte-dnd-action) — a API
 📝 [Exemplos ao vivo da própria biblioteca](https://svelte-dnd-action-examples.vercel.app/) — inclusive as zonas aninhadas, que é o caso deste projeto
 
@@ -266,6 +279,26 @@ invisível para quem reconecta.
 📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
 📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real
 📝 [Exponential backoff and jitter (AWS Builders' Library)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — por que o jitter importa quando cinquenta clientes reconectam juntos
+
+### O toque não é um clique pequeno
+
+Três defeitos que só existiam no celular vieram do mesmo lugar: o navegador
+SINTETIZA eventos de mouse a partir do toque, e a síntese não é fiel.
+
+- o `click` sintetizado chega **sem `clientX`/`clientY`**. Qualquer conta feita
+  com eles dá `NaN`, e comparação com `NaN` é sempre falsa — um guarda de
+  "isto foi arraste?" que medisse pelo clique reprovaria todo toque;
+- um toque gera **dois** cliques, o sintetizado e o de compatibilidade. Se o
+  primeiro abre algo que cobre a tela, o segundo cai no que abriu;
+- "fechar ao clicar fora" precisa exigir que o **aperto** tenha começado fora, e
+  não só que o clique termine fora. Vale além do celular: sem isso, selecionar
+  texto dentro de um modal e soltar o mouse fora fecha o modal.
+
+Ver [`src/lib/arrastar.ts`](../frontend/src/lib/arrastar.ts) e o fundo do
+[`ModalDoCard.svelte`](../frontend/src/lib/components/ModalDoCard.svelte).
+
+📚 [MDN — eventos de toque e compatibilidade com mouse](https://developer.mozilla.org/en-US/docs/Web/API/Touch_events/Supporting_both_TouchEvent_and_MouseEvent)
+📝 [Pointer events (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events) — a API que unifica os dois, e a saída para não depender da síntese
 
 ### Chave de ordenação textual
 

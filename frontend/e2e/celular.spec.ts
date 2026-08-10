@@ -180,3 +180,55 @@ test('arrastar o dedo pela alça da coluna rola o quadro, não reordena', async 
 	expect(await ordem()).toBe(antes);
 	await contexto.close();
 });
+
+// A confirmação de ações destrutivas é um MODAL do produto, não o `confirm()`
+// do navegador — que o Playwright nem veria sem um handler de `dialog`, e que
+// no celular aparece colado ao topo, longe do polegar.
+//
+// O que este teste tranca não é a aparência: é que cancelar realmente CANCELA.
+// Uma confirmação que sempre segue em frente é pior que nenhuma.
+test('apagar um card pede confirmação, e cancelar não apaga', async ({ browser }) => {
+	const contexto = await abaDe(browser, ana);
+	const pagina = await contexto.newPage();
+	await pagina.goto(`/painel/quadros/${quadroId}`);
+
+	// O card é criado AQUI, e não no cenário compartilhado: este é o único teste
+	// que apaga alguma coisa, e consumir um card dos outros o deixaria instável
+	// na retentativa — que já encontraria o card apagado.
+	const titulo = `Descartável ${Date.now()}`;
+	const campoNovo = pagina.getByLabel('Título do novo card').first();
+	await campoNovo.fill(titulo);
+	await campoNovo.press('Enter');
+
+	const card = pagina.locator('li', { hasText: titulo });
+	await expect(card).toBeVisible();
+
+	// Se algo escapar para o `confirm()` do navegador, o teste falha em vez de
+	// passar por acidente: sem handler o Playwright dispensa o diálogo nativo
+	// com "cancelar", e o card sobreviveria pelo motivo errado.
+	let nativoApareceu = false;
+	pagina.on('dialog', async (d) => {
+		nativoApareceu = true;
+		await d.dismiss();
+	});
+
+	// Escopado ao card certo. `.first()` solto pegaria o botão do primeiro card
+	// da coluna, e o teste apagaria outra coisa enquanto passava.
+	await card.getByLabel('Apagar card').tap();
+
+	const confirmacao = pagina.getByRole('alertdialog');
+	await expect(confirmacao).toBeVisible();
+	await expect(confirmacao.getByText(/Comentários, checklists e anexos/)).toBeVisible();
+
+	await confirmacao.getByRole('button', { name: 'Cancelar' }).tap();
+	await expect(confirmacao).toBeHidden();
+	await expect(card).toBeVisible();
+
+	// E confirmar apaga de verdade.
+	await card.getByLabel('Apagar card').tap();
+	await pagina.getByRole('alertdialog').getByRole('button', { name: 'Apagar o card' }).tap();
+	await expect(card).toBeHidden();
+
+	expect(nativoApareceu).toBe(false);
+	await contexto.close();
+});

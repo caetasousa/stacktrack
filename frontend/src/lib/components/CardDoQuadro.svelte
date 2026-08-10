@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmar } from '$lib/confirmar.svelte';
 	// Um card na coluna. Mostra o RESUMO do que carrega — barras de etiqueta,
 	// prazo, progresso de checklist e contagem de anexos — e abre o modal no
 	// clique, que é onde tudo isso pode ser mexido.
@@ -49,7 +50,12 @@
 
 	async function apagar(evento: MouseEvent) {
 		evento.stopPropagation();
-		if (!confirm(`Apagar o card "${card.titulo}"?`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar o card "${card.titulo}"?`,
+			detalhe: 'Comentários, checklists e anexos vão junto.',
+			acao: 'Apagar o card'
+		});
+		if (!ok) return;
 		try {
 			await apagarCard(card.id);
 			await aoMudar();

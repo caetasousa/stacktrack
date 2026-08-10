@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmar } from '$lib/confirmar.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { apagarBoard, criarBoard } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
@@ -28,7 +29,12 @@
 	}
 
 	async function apagar(id: string, nome: string) {
-		if (!confirm(`Apagar "${nome}"? As colunas e os cards vão junto.`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar "${nome}"?`,
+			detalhe: 'As colunas e os cards deste quadro vão junto.',
+			acao: 'Apagar o quadro'
+		});
+		if (!ok) return;
 		erro = '';
 		try {
 			await apagarBoard(id);

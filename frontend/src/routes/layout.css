@@ -205,6 +205,25 @@ html {
 		cursor: not-allowed;
 	}
 
+	/* O botão que APAGA. Vermelho fixo nos dois temas, como o .botao: o
+	   --negativo da paleta é para texto e borda, e com texto branco por cima
+	   dá 3,76:1 — reprova em AA. Este dá 6,57:1. */
+	.botao-perigo {
+		width: 100%;
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-sm);
+		background-color: #b42318;
+		color: #ffffff;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		box-shadow: var(--sombra-xs);
+	}
+
+	.botao-perigo:hover {
+		background-color: #912018;
+	}
+
 	.botao-secundario {
 		width: 100%;
 		padding: 0.5rem 1rem;

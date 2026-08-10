@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { confirmar } from '$lib/confirmar.svelte';
 	// O modal do card: descrição em markdown, etiquetas, prazo, checklists e
 	// anexos. É onde cabe o que não cabe no card da coluna.
 	import { ApiError } from '$lib/api/client';
@@ -119,7 +120,8 @@
 	}
 
 	async function removerComentario(id: string) {
-		if (!confirm('Apagar este comentário?')) return;
+		const ok = await confirmar({ titulo: 'Apagar este comentário?', acao: 'Apagar' });
+		if (!ok) return;
 		try {
 			await apagarComentario(id);
 			await recarregar();
@@ -403,7 +405,12 @@
 	}
 
 	async function removerChecklist(checklistId: string, titulo: string) {
-		if (!confirm(`Apagar a checklist "${titulo}"? Os itens vão junto.`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar a checklist "${titulo}"?`,
+			detalhe: 'Os itens dela vão junto.',
+			acao: 'Apagar a checklist'
+		});
+		if (!ok) return;
 		try {
 			await apagarChecklist(checklistId);
 			await recarregar();
@@ -441,7 +448,8 @@
 	}
 
 	async function removerAnexo(anexoId: string, nome: string) {
-		if (!confirm(`Apagar o anexo "${nome}"?`)) return;
+		const ok = await confirmar({ titulo: `Apagar o anexo "${nome}"?`, acao: 'Apagar o anexo' });
+		if (!ok) return;
 		try {
 			await apagarAnexo(anexoId);
 			await recarregar();

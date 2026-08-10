@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmar } from '$lib/confirmar.svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import {
 		apagarBoard,
@@ -285,7 +286,12 @@
 	}
 
 	async function apagar() {
-		if (!confirm(`Apagar "${data.quadro.titulo}"? As colunas e os cards vão junto.`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar "${data.quadro.titulo}"?`,
+			detalhe: 'As colunas e os cards deste quadro vão junto.',
+			acao: 'Apagar o quadro'
+		});
+		if (!ok) return;
 		try {
 			await apagarBoard(data.quadro.id);
 			await goto('/painel');
@@ -324,7 +330,12 @@
 	}
 
 	async function removerEtiquetaDoQuadro(etiquetaId: string, nome: string) {
-		if (!confirm(`Apagar a etiqueta "${nome}"? Ela some de todos os cards.`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar a etiqueta "${nome}"?`,
+			detalhe: 'Ela some de todos os cards que a usam.',
+			acao: 'Apagar a etiqueta'
+		});
+		if (!ok) return;
 		try {
 			await apagarEtiqueta(etiquetaId);
 			await recarregar();

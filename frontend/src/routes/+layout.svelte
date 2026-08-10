@@ -5,6 +5,7 @@
 	import { sessao } from '$lib/stores/session.svelte';
 	import { tema } from '$lib/stores/tema.svelte';
 	import SeletorTema from '$lib/components/SeletorTema.svelte';
+	import DialogoDeConfirmacao from '$lib/components/DialogoDeConfirmacao.svelte';
 
 	let { children } = $props();
 
@@ -55,6 +56,10 @@
 	<main class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-12">
 		{@render children()}
 	</main>
+
+	<!-- Um só diálogo de confirmação para o aplicativo inteiro. Ver
+	     $lib/confirmar.svelte.ts. -->
+	<DialogoDeConfirmacao />
 
 	<footer class="border-t border-hairline">
 		<div

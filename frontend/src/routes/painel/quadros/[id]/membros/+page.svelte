@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmar } from '$lib/confirmar.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { ApiError } from '$lib/api/client';
 	import type { Papel } from '$lib/api/boards';
@@ -78,7 +79,12 @@
 	}
 
 	async function remover(usuarioId: string, nome: string) {
-		if (!confirm(`Remover ${nome} do quadro?`)) return;
+		const ok = await confirmar({
+			titulo: `Remover ${nome} do quadro?`,
+			detalhe: 'A pessoa perde o acesso na hora. O que ela escreveu fica.',
+			acao: 'Remover'
+		});
+		if (!ok) return;
 		try {
 			await removerMembro(data.quadro.id, usuarioId);
 			await recarregar();
@@ -88,7 +94,12 @@
 	}
 
 	async function revogar(conviteId: string, alvo: string) {
-		if (!confirm(`Revogar o convite de ${alvo}? O link deixa de funcionar.`)) return;
+		const ok = await confirmar({
+			titulo: `Revogar o convite de ${alvo}?`,
+			detalhe: 'O link enviado deixa de funcionar.',
+			acao: 'Revogar'
+		});
+		if (!ok) return;
 		try {
 			await revogarConvite(data.quadro.id, conviteId);
 			recemCriado = null;

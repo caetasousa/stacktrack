@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmar } from '$lib/confirmar.svelte';
 	// Uma coluna do quadro: título editável, os cards e o formulário de card
 	// novo no pé.
 	import {
@@ -77,7 +78,12 @@
 	}
 
 	async function apagar() {
-		if (!confirm(`Apagar a coluna "${coluna.titulo}"? Os cards dela vão junto.`)) return;
+		const ok = await confirmar({
+			titulo: `Apagar a coluna "${coluna.titulo}"?`,
+			detalhe: 'Os cards dela vão junto.',
+			acao: 'Apagar a coluna'
+		});
+		if (!ok) return;
 		try {
 			await apagarColuna(coluna.id);
 			await aoMudar();

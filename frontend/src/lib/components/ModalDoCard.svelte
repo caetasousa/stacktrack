@@ -413,15 +413,31 @@
 
 	// O input date precisa de AAAA-MM-DD; a API devolve ISO completo.
 	const prazoParaInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
+
+	// Ver o comentário do fundo, abaixo: fechar depende de onde o gesto COMEÇOU.
+	let apertouNoFundo = $state(false);
 </script>
 
 <!-- Escurece o fundo e fecha no clique fora ou no Esc. -->
 <svelte:window onkeydown={(e) => e.key === 'Escape' && aoFechar()} />
 
+<!-- Fechar exige que o APERTO tenha começado no fundo, e não só que o clique
+     tenha terminado nele. Duas coisas dependem disso:
+
+     1. no celular, um toque no card gera DOIS cliques (o sintetizado a partir
+        do toque e o de compatibilidade). O primeiro abria este modal e o
+        segundo, já com o fundo por cima do card, fechava no mesmo gesto —
+        tocar num card não abria nada;
+     2. no desktop, selecionar texto DENTRO do modal e soltar o mouse fora
+        fechava o modal e perdia a edição em andamento. -->
 <div
 	class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
 	role="presentation"
-	onclick={(e) => e.target === e.currentTarget && aoFechar()}
+	onpointerdown={(e) => (apertouNoFundo = e.target === e.currentTarget)}
+	onclick={(e) => {
+		if (apertouNoFundo && e.target === e.currentTarget) aoFechar();
+		apertouNoFundo = false;
+	}}
 >
 	<div
 		class="w-full max-w-2xl rounded-lg border border-hairline bg-surface shadow-flutuante"

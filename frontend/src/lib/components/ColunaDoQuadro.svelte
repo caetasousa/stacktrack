@@ -18,6 +18,7 @@
 		cliqueSemArraste,
 		DURACAO_MS,
 		enfeitarArrastado,
+		ESPERA_DE_TOQUE_MS,
 		TIPO_CARD
 	} from '$lib/arrastar';
 	import CardDoQuadro from './CardDoQuadro.svelte';
@@ -189,6 +190,7 @@
 			type: TIPO_CARD,
 			flipDurationMs: DURACAO_MS,
 			dragDisabled: !podeEditar || arrasteTravado,
+			delayTouchStart: ESPERA_DE_TOQUE_MS,
 			// Sem estilo inline: a classe usa os tokens do tema, e o amarelo
 			// padrão da biblioteca não pertence a esta paleta.
 			dropTargetStyle: {},

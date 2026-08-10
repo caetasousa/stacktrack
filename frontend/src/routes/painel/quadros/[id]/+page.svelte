@@ -24,6 +24,7 @@
 		CLASSES_ALVO,
 		DURACAO_MS,
 		enfeitarArrastado,
+		ESPERA_DE_TOQUE_MS,
 		TIPO_COLUNA,
 		vizinhosDe
 	} from '$lib/arrastar';
@@ -596,6 +597,7 @@
 				type: TIPO_COLUNA,
 				flipDurationMs: DURACAO_MS,
 				dragDisabled: !podeEditar || filtrando,
+				delayTouchStart: ESPERA_DE_TOQUE_MS,
 				dropTargetStyle: {},
 				dropTargetClasses: CLASSES_ALVO,
 				transformDraggedElement: enfeitarArrastado

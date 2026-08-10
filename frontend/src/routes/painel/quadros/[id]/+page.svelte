@@ -357,7 +357,7 @@
 				{data.quadro.colunas.length === 1 ? 'coluna' : 'colunas'}
 			</p>
 		</div>
-		<div class="flex shrink-0 flex-wrap items-center gap-3 text-xs text-mute">
+		<div class="flex flex-wrap items-center gap-3 text-xs text-mute">
 			<!-- Quem está no quadro agora. A lista vem do mapa de conexões do
 			     hub, não do banco: é estado que só existe enquanto a aba está
 			     aberta. -->

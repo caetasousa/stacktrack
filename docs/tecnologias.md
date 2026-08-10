@@ -280,6 +280,33 @@ invisível para quem reconecta.
 📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real
 📝 [Exponential backoff and jitter (AWS Builders' Library)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — por que o jitter importa quando cinquenta clientes reconectam juntos
 
+### Confirmação de ações destrutivas
+
+Não há `confirm()` no projeto. Toda pergunta do tipo "tem certeza?" passa por
+[`src/lib/confirmar.svelte.ts`](../frontend/src/lib/confirmar.svelte.ts), que
+devolve uma **promessa** e alimenta um diálogo único montado no layout raiz.
+
+O `confirm()` do navegador funcionava; saiu por três razões. Ele **bloqueia a
+thread** — nada na tela se atualiza enquanto a caixa está aberta, num quadro que
+existe para se atualizar sozinho. A aparência é do sistema operacional, e o
+texto não pode distinguir o que apaga uma coluna inteira do que apaga um item.
+E no celular ele aparece colado ao topo do navegador, longe do polegar.
+
+A forma de promessa é o que manteve os pontos de chamada com uma linha só —
+`if (!(await confirmar({ ... }))) return;`. Hospedar um diálogo por tela
+quebraria cada ação em duas metades e espalharia estado de interface por todo
+componente que apaga alguma coisa.
+
+Duas decisões dentro do diálogo:
+
+- **o foco vai para Cancelar**, não para a ação. Um Enter perdido, ou o segundo
+  toque de quem apertou duas vezes, cancela em vez de apagar;
+- **o vermelho do botão não é o `--negativo` da paleta.** Com texto branco por
+  cima ele dá 3,76:1 e reprova em AA — o mesmo problema que o laranja da marca
+  já tinha. `.botao-perigo` usa um tom mais escuro, 6,57:1.
+
+📚 [WAI-ARIA — alertdialog](https://www.w3.org/WAI/ARIA/apg/patterns/alertdialog/) — o papel que o diálogo usa, e por quê
+
 ### O toque não é um clique pequeno
 
 Três defeitos que só existiam no celular vieram do mesmo lugar: o navegador

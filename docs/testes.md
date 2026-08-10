@@ -173,6 +173,7 @@ armazenamento independentes, então duas contas convivem no mesmo navegador:
 | a queda aparece e volta sozinha | a tela não mente sobre ter parado de se atualizar |
 | o avatar aparece e some | presença entrando e saindo, sem recarregar |
 | quem grava por último é avisado | o 409 do bloqueio otimista, com o texto preservado |
+| o comentário do outro aparece no card aberto | o modal também é tempo real — ele nasceu mudo na fase 11 |
 
 Contas, quadro e convite são semeados **pela API**, não pela tela: um teste de
 tempo real que quebra porque o botão de cadastro mudou de rótulo aponta para o
@@ -206,6 +207,7 @@ cada um sozinho já bastava — nenhum deles alcançável com mouse:
 | o modal aberto por toque não se fecha sozinho | um toque gera DOIS cliques, e o segundo caía no fundo escuro que acabara de cobrir o card |
 | arrastar o dedo pela lista não levanta o card | com o arraste começando no primeiro contato, rolar a coluna movia cards |
 | arrastar o dedo pela alça da coluna rola o quadro | o mesmo, na zona de fora — o gesto lateral reordenava o quadro |
+| apagar um card pede confirmação, e cancelar não apaga | o diálogo do produto no lugar do `confirm()`, e um `page.on('dialog')` que reprova se algo escapar para o nativo |
 
 Dois detalhes que fizeram a diferença entre um teste que prova e um que só passa:
 

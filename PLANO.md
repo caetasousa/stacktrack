@@ -571,6 +571,30 @@ outro navegador sem F5. O filtro "meus cards" esconde o resto e sobrevive ao rec
 > campos que o DTO declarava mas o conversor não copiava — um deles chegando
 > como `null` e quebrando a tela em tempo de execução. Os três estão trancados
 > por teste de handler.
+>
+> **A fase nasceu muda, e isso só apareceu ao medir.** O quadro se atualizava
+> sozinho, mas o modal do card carregava os dados UMA vez, na abertura: duas
+> pessoas no mesmo card não viam o comentário uma da outra, e o histórico aberto
+> congelava. A recarga que o evento dispara atualiza o quadro ATRÁS do modal, e
+> o modal tem dados próprios — comentários, histórico, anexos — que o `GET` do
+> quadro nem traz.
+>
+> O conserto é um contador (`pulso`) que a página incrementa a cada rajada de
+> mudanças alheias; o modal relê o card quando ele muda. Relê SEMPRE, sem olhar
+> de que card era o evento: filtrar exigiria um caminho por tipo para saber onde
+> procurar o id no payload, que é exatamente o que a fase 12 pesa antes de fazer.
+>
+> Duas armadilhas de Svelte 5 no caminho, ambas caçadas pelo teste:
+>
+> - ler `pulso` dentro do efeito do `cardId` torna aquele efeito dependente
+>   dele, e cada mudança alheia reiniciava o modal inteiro — fechando o
+>   histórico aberto. `untrack` resolve, e é o que declara a intenção;
+> - a versão do bloqueio otimista passou a ser **congelada na abertura do
+>   editor**. Antes era `card.version` na hora de gravar, o que só funcionava
+>   por acidente: nada relia o card durante a edição. Com o modal ao vivo, a
+>   versão fresca chegaria a tempo de o servidor ACEITAR a gravação, apagando em
+>   silêncio o que a outra pessoa acabou de escrever — o defeito exato que o
+>   bloqueio existe para impedir.
 
 **Conceito novo:** o primeiro fluxo **append-only** do projeto, e o primeiro em que recarregar o
 quadro inteiro por um evento fica evidentemente errado — um comentário chegando não deveria
@@ -620,6 +644,15 @@ traz, que é a tela poder divergir do banco **em silêncio**.
 Hoje todo evento que não é presença cai numa recarga do quadro. A escolha foi deliberada e está
 certa para uma primeira versão: recarregar é sempre correto. O preço é que o servidor manda o tipo
 e o payload de cada evento, e o cliente joga os dois fora.
+
+> ⚠️ **O custo foi MEDIDO, e ele ainda não justifica a fase.** O `GET` do quadro com um card são
+> 554 bytes, e um comentário gera exatamente uma requisição — a janela de 150ms já junta rajadas.
+> O que realmente doía era outra coisa, e foi consertado sem tocar nesta fase: o modal do card não
+> escutava evento nenhum (ver o fecho da fase 11).
+>
+> O argumento que sobra para a 12 não é tráfego, é o teto de requisições por sessão ser consumido
+> pelo movimento dos OUTROS num quadro grande. Vale refazer a medição com dezenas de cards e várias
+> pessoas antes de aceitar o risco de a tela divergir do banco em silêncio.
 
 **Entrega:**
 - Um caminho de aplicação por tipo de evento, sobre o `$state`

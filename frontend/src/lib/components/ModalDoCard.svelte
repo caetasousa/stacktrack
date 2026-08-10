@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	// O modal do card: descrição em markdown, etiquetas, prazo, checklists e
 	// anexos. É onde cabe o que não cabe no card da coluna.
 	import { ApiError } from '$lib/api/client';
@@ -37,6 +38,7 @@
 		etiquetasDoQuadro,
 		podeEditar,
 		podeAdministrar = false,
+		pulso = 0,
 		aoFechar,
 		aoMudar
 	}: {
@@ -45,6 +47,11 @@
 		podeEditar: boolean;
 		// Só o dono apaga comentário alheio — a mesma regra do servidor.
 		podeAdministrar?: boolean;
+		// Sobe a cada mudança feita por OUTRA pessoa no quadro. É o que tira o
+		// modal do mudo: sem isto ele carregava o card uma vez, na abertura, e
+		// nunca mais — duas pessoas no mesmo card não viam o comentário uma da
+		// outra, embora o quadro atrás do modal se atualizasse.
+		pulso?: number;
 		aoFechar: () => void;
 		aoMudar: () => Promise<void>;
 	} = $props();
@@ -142,6 +149,10 @@
 	async function alternarHistorico() {
 		historicoAberto = !historicoAberto;
 		if (!historicoAberto || atividade.length > 0) return;
+		await recarregarHistorico();
+	}
+
+	async function recarregarHistorico() {
 		carregandoHistorico = true;
 		try {
 			atividade = (await atividadeDoCard(cardId)).atividade;
@@ -224,7 +235,32 @@
 		// até a próxima abertura.
 		atividade = [];
 		historicoAberto = false;
+		// `untrack` porque este efeito é do CARD, não do pulso. Sem ele, ler
+		// `pulso` aqui torna o efeito dependente dele — e cada mudança de outra
+		// pessoa reiniciaria o modal inteiro, fechando o histórico que estava
+		// aberto e descartando o que ele já tinha carregado.
+		ultimoPulso = untrack(() => pulso);
 		carregar();
+	});
+
+	// Mudança de outra pessoa: relê o card.
+	//
+	// Relê SEMPRE, sem olhar de que card era o evento. Filtrar exigiria um
+	// caminho por tipo de evento para saber onde procurar o id no payload — que é
+	// exatamente o que a fase 12 pesa antes de fazer, porque um caminho errado
+	// deixa a tela discordando do banco em silêncio. Reler é sempre correto, e a
+	// página já junta rajadas de eventos numa só chamada.
+	//
+	// `ultimoPulso` é um `let` comum de propósito: se fosse `$state`, escrever
+	// nele aqui dentro reagendaria este mesmo efeito.
+	let ultimoPulso = untrack(() => pulso);
+	$effect(() => {
+		if (pulso === ultimoPulso) return;
+		ultimoPulso = pulso;
+		carregar();
+		// O histórico só é relido se estiver aberto — ele é carregado sob demanda
+		// justamente por não interessar na maioria das aberturas.
+		if (historicoAberto) recarregarHistorico();
 	});
 
 	function abrirEdicaoDeTitulo() {

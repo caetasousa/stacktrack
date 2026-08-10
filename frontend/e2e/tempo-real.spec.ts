@@ -167,6 +167,42 @@ test('cada um vê o avatar do outro, e ele some quando a aba fecha', async ({ br
 	await expect(avatares).toHaveCount(2);
 });
 
+// O modal do card também é tempo real — e não era.
+//
+// O quadro se atualizava, mas o modal carregava o card UMA vez, na abertura, e
+// nunca mais. Duas pessoas no mesmo card não viam o comentário uma da outra, e
+// o histórico aberto congelava. É o fluxo que a fase 11 criou e que nasceu mudo.
+test('com o card aberto nos dois, o comentário de um aparece no outro', async () => {
+	const titulo = `Conversa ${Date.now()}`;
+
+	const campoNovo = telaAna.getByLabel('Título do novo card').first();
+	await campoNovo.fill(titulo);
+	await campoNovo.press('Enter');
+	await expect(telaBruno.getByText(titulo)).toBeVisible();
+
+	await telaAna.getByText(titulo).click();
+	await telaBruno.getByText(titulo).click();
+	await expect(telaAna.getByRole('dialog')).toBeVisible();
+	await expect(telaBruno.getByRole('dialog')).toBeVisible();
+
+	// O histórico de bruno fica ABERTO: ele também tem de acompanhar, e é a
+	// parte que congelava sem nenhum aviso.
+	await telaBruno.getByRole('button', { name: /histórico/i }).click();
+
+	await telaAna.getByPlaceholder(/coment/i).fill('reparou nisto?');
+	await telaAna
+		.getByRole('button', { name: /comentar/i })
+		.first()
+		.click();
+
+	// Sem nenhum reload chamado pelo teste.
+	await expect(telaBruno.getByText('reparou nisto?')).toBeVisible();
+	await expect(telaBruno.getByText(/comentou/i).first()).toBeVisible();
+
+	await telaAna.getByRole('button', { name: 'Fechar' }).first().click();
+	await telaBruno.getByRole('button', { name: 'Fechar' }).first().click();
+});
+
 // O caso que o bloqueio otimista existe para resolver: dois editando o mesmo
 // card, e o trabalho de um não pode sumir em silêncio.
 test('quem grava por último recebe o aviso em vez de sobrescrever', async () => {
@@ -191,6 +227,16 @@ test('quem grava por último recebe o aviso em vez de sobrescrever', async () =>
 	// .first() porque o título passa a aparecer em dois lugares: no card do
 	// quadro e no modal aberto por cima dele.
 	await expect(telaAna.getByText('Texto da ana').first()).toBeVisible();
+
+	// A espera que faz este teste PROVAR alguma coisa.
+	//
+	// A tela de bruno precisa ter recebido a mudança antes de ele gravar: é aí
+	// que o modal dele relê o card e ganha uma versão nova. Sem isto o teste
+	// passava por corrida — bruno gravava antes de o evento chegar, e o 409 vinha
+	// de a versão dele estar velha por acaso, não por o editor tê-la congelado.
+	// Verificado: sem esta linha, trocar `versaoEmEdicao` pela versão fresca
+	// mantinha a suíte verde.
+	await expect(telaBruno.getByText('Texto da ana').first()).toBeVisible();
 
 	// Bruno grava depois, com a versão que ele viu — e é recusado.
 	await telaBruno.getByLabel('Título', { exact: true }).fill('Texto do bruno');

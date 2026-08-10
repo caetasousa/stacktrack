@@ -125,6 +125,11 @@
 	const JANELA_DE_RECARGA = 150;
 	let recargaAgendada: ReturnType<typeof setTimeout> | null = null;
 
+	// Sobe a cada rajada de mudanças de outras pessoas. O modal do card escuta:
+	// recarregar a página atualiza o quadro ATRÁS do modal, e o modal tem dados
+	// próprios (comentários, histórico, anexos) que o GET do quadro não traz.
+	let pulso = $state(0);
+
 	// Junta eventos próximos numa recarga só.
 	//
 	// Sem isto, cada evento vira um GET do quadro inteiro — e são dois os
@@ -137,6 +142,7 @@
 		if (recargaAgendada) return;
 		recargaAgendada = setTimeout(() => {
 			recargaAgendada = null;
+			pulso++;
 			recarregar();
 		}, JANELA_DE_RECARGA);
 	}
@@ -639,6 +645,7 @@
 		etiquetasDoQuadro={data.quadro.etiquetas}
 		{podeEditar}
 		{podeAdministrar}
+		{pulso}
 		aoFechar={() => (cardAberto = null)}
 		aoMudar={recarregar}
 	/>

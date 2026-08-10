@@ -60,6 +60,14 @@
 	// "Sem descrição." não tinha pista nenhuma de como escrever uma.
 	let editandoTitulo = $state(false);
 	let editandoDescricao = $state(false);
+	// A versão que estava na tela quando o editor foi aberto.
+	//
+	// Não é `card.version` na hora de gravar: com o modal recebendo mudanças ao
+	// vivo, o card se atualiza embaixo de quem está escrevendo, e mandar a versão
+	// FRESCA faria o servidor aceitar a gravação — apagando em silêncio o que a
+	// outra pessoa acabou de escrever. É justamente o que o bloqueio otimista
+	// existe para impedir.
+	let versaoEmEdicao = $state(0);
 	let titulo = $state('');
 	let descricao = $state('');
 	let tituloDaChecklist = $state('');
@@ -222,12 +230,14 @@
 	function abrirEdicaoDeTitulo() {
 		if (!podeEditar || !card) return;
 		titulo = card.titulo;
+		versaoEmEdicao = card.version;
 		editandoTitulo = true;
 	}
 
 	function abrirEdicaoDeDescricao() {
 		if (!podeEditar || !card) return;
 		descricao = card.descricao;
+		versaoEmEdicao = card.version;
 		editandoDescricao = true;
 	}
 
@@ -254,7 +264,7 @@
 	// texto apagar o dela.
 	async function gravarTexto(novoTitulo: string, novaDescricao: string, aoConcluir: () => void) {
 		try {
-			await editarCard(cardId, novoTitulo, novaDescricao, card?.cor ?? '', card?.version ?? 0);
+			await editarCard(cardId, novoTitulo, novaDescricao, card?.cor ?? '', versaoEmEdicao);
 			aoConcluir();
 			conflito = false;
 			await recarregar();

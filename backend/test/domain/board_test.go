@@ -171,3 +171,120 @@ func TestCardRecusaTextoLongoDemais(t *testing.T) {
 		t.Error("descrição longa demais devia ser recusada")
 	}
 }
+
+// --- arquivar (fase 13) -----------------------------------------------------
+
+// cardValido e colunaValida montam o sujeito dos testes de arquivamento, cujo
+// assunto não é a validação de título.
+func cardValido(t *testing.T) *card.Card {
+	t.Helper()
+	c, err := card.Novo("id-1", "col-1", "Migração", "", "", ordem.ChaveInicial)
+	if err != nil {
+		t.Fatalf("montar card: %v", err)
+	}
+	return c
+}
+
+func colunaValida(t *testing.T) *coluna.Coluna {
+	t.Helper()
+	c, err := coluna.Nova("col-1", "b-1", "A fazer", "", ordem.ChaveInicial)
+	if err != nil {
+		t.Fatalf("montar coluna: %v", err)
+	}
+	return c
+}
+
+//
+// Arquivar existe porque apagar é definitivo: o DELETE de um card leva por
+// cascata comentários, checklists, anexos, responsáveis e etiquetas aplicadas,
+// e não há de onde trazer nada de volta.
+
+func TestArquivarTiraOCardDoQuadroSemPerderOndeEleEstava(t *testing.T) {
+	c := cardValido(t)
+	colunaAntes, chaveAntes := c.ColunaID, c.Chave
+
+	if err := c.Arquivar(); err != nil {
+		t.Fatalf("arquivar: %v", err)
+	}
+
+	if !c.Arquivado() {
+		t.Error("o card devia estar arquivado")
+	}
+	// O que faz desarquivar devolver ao MESMO lugar, e não ao fim da coluna.
+	if c.ColunaID != colunaAntes || c.Chave != chaveAntes {
+		t.Errorf("arquivar mexeu na posição: coluna %q→%q, chave %q→%q",
+			colunaAntes, c.ColunaID, chaveAntes, c.Chave)
+	}
+}
+
+func TestDesarquivarDevolveOCardAoQuadro(t *testing.T) {
+	c := cardValido(t)
+	_ = c.Arquivar()
+
+	if err := c.Desarquivar(); err != nil {
+		t.Fatalf("desarquivar: %v", err)
+	}
+	if c.Arquivado() {
+		t.Error("o card devia ter voltado ao quadro")
+	}
+}
+
+// Duas pessoas arquivando o mesmo card: a segunda merece saber que não foi ela.
+func TestArquivarDuasVezesEhRecusado(t *testing.T) {
+	c := cardValido(t)
+	_ = c.Arquivar()
+
+	if err := c.Arquivar(); err != card.ErrJaArquivado {
+		t.Errorf("erro = %v, esperado ErrJaArquivado", err)
+	}
+}
+
+func TestDesarquivarOQueNaoEstaArquivadoEhRecusado(t *testing.T) {
+	c := cardValido(t)
+
+	if err := c.Desarquivar(); err != card.ErrNaoArquivado {
+		t.Errorf("erro = %v, esperado ErrNaoArquivado", err)
+	}
+}
+
+// A version sobe: arquivar é uma escrita no card como qualquer outra, e o
+// bloqueio otimista precisa enxergá-la. Sem isto, quem tinha o card aberto
+// gravaria por cima de um card que já saiu do quadro.
+func TestArquivarESubirAVersao(t *testing.T) {
+	c := cardValido(t)
+	antes := c.Version
+
+	_ = c.Arquivar()
+	if c.Version != antes+1 {
+		t.Errorf("version = %d, esperado %d", c.Version, antes+1)
+	}
+
+	_ = c.Desarquivar()
+	if c.Version != antes+2 {
+		t.Errorf("version = %d, esperado %d", c.Version, antes+2)
+	}
+}
+
+// A coluna arquivada NÃO arquiva os cards dela. Ver o comentário do campo em
+// domain/coluna: o contrário obrigaria o desarquivamento a adivinhar quais
+// cards já estavam fora do quadro antes.
+func TestArquivarColunaEDesarquivarDeVolta(t *testing.T) {
+	col := colunaValida(t)
+
+	if err := col.Arquivar(); err != nil {
+		t.Fatalf("arquivar: %v", err)
+	}
+	if !col.Arquivada() {
+		t.Fatal("a coluna devia estar arquivada")
+	}
+	if err := col.Arquivar(); err != coluna.ErrJaArquivada {
+		t.Errorf("erro = %v, esperado ErrJaArquivada", err)
+	}
+
+	if err := col.Desarquivar(); err != nil {
+		t.Fatalf("desarquivar: %v", err)
+	}
+	if err := col.Desarquivar(); err != coluna.ErrNaoArquivada {
+		t.Errorf("erro = %v, esperado ErrNaoArquivada", err)
+	}
+}

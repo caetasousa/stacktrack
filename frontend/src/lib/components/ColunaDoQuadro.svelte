@@ -4,6 +4,7 @@
 	// novo no pé.
 	import {
 		apagarColuna,
+		arquivarColuna,
 		criarCard,
 		renomearColuna,
 		type Card,
@@ -74,6 +75,16 @@
 			await aoMudar();
 		} catch (e) {
 			aoFalhar(e instanceof ApiError ? e.message : 'não foi possível renomear a coluna');
+		}
+	}
+
+	// Ver o comentário equivalente em CardDoQuadro: arquivar não pergunta.
+	async function arquivar() {
+		try {
+			await arquivarColuna(coluna.id);
+			await aoMudar();
+		} catch (e) {
+			aoFalhar(e instanceof ApiError ? e.message : 'não foi possível arquivar a coluna');
 		}
 	}
 
@@ -176,9 +187,18 @@
 				</span>
 				{#if podeEditar}
 					<button
+						{...cliqueSemArraste(arquivar)}
+						class="cursor-pointer text-xs text-mute hover:text-ink"
+						aria-label="Arquivar coluna"
+						title="Arquivar — sai do quadro com os cards, e pode voltar"
+					>
+						🗄
+					</button>
+					<button
 						{...cliqueSemArraste(apagar)}
 						class="cursor-pointer text-xs text-mute hover:text-negativo"
 						aria-label="Apagar coluna"
+						title="Apagar de vez — os cards vão junto"
 					>
 						×
 					</button>

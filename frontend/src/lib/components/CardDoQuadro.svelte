@@ -3,7 +3,7 @@
 	// Um card na coluna. Mostra o RESUMO do que carrega — barras de etiqueta,
 	// prazo, progresso de checklist e contagem de anexos — e abre o modal no
 	// clique, que é onde tudo isso pode ser mexido.
-	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
+	import { apagarCard, arquivarCard, type Card, type Etiqueta } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 	import { cliqueSemArraste } from '$lib/arrastar';
 	import { iniciais } from '$lib/iniciais';
@@ -47,6 +47,18 @@
 	// O card é clicável E arrastável. Sem o limiar de distância, soltar depois
 	// de arrastar abriria o modal em cima do movimento que a pessoa fez.
 	const clique = cliqueSemArraste(() => aoAbrirCard(card.id));
+
+	// Arquivar é o caminho REVERSÍVEL, e por isso vem antes do apagar no card:
+	// apagar leva comentários, checklists e anexos, e não tem volta.
+	async function arquivar(evento: MouseEvent) {
+		evento.stopPropagation();
+		try {
+			await arquivarCard(card.id);
+			await aoMudar();
+		} catch (e) {
+			aoFalhar(e instanceof ApiError ? e.message : 'não foi possível arquivar o card');
+		}
+	}
 
 	async function apagar(evento: MouseEvent) {
 		evento.stopPropagation();
@@ -114,10 +126,23 @@
 			</div>
 		{/if}
 		{#if podeEditar}
+			<!-- Arquivar não pergunta nada: ele é desfazível, e a tela de
+			     arquivados é o desfazer. Confirmar o que tem volta ensina a
+			     dispensar o diálogo sem ler — e aí o de apagar, que importa,
+			     também passa batido. -->
+			<button
+				onclick={arquivar}
+				class="cursor-pointer text-xs text-mute hover:text-ink"
+				aria-label="Arquivar card"
+				title="Arquivar — sai do quadro e pode voltar"
+			>
+				🗄
+			</button>
 			<button
 				onclick={apagar}
 				class="cursor-pointer text-xs text-mute hover:text-negativo"
 				aria-label="Apagar card"
+				title="Apagar de vez — leva comentários, checklists e anexos"
 			>
 				×
 			</button>

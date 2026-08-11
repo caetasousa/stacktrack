@@ -420,6 +420,7 @@
 				</button>
 			{/if}
 			<a href="/painel/quadros/{data.quadro.id}/membros" class="hover:text-ink">Membros</a>
+			<a href="/painel/quadros/{data.quadro.id}/arquivados" class="hover:text-ink">Arquivados</a>
 			{#if podeAdministrar}
 				<button
 					onclick={() => ((titulo = data.quadro.titulo), (renomeando = true))}

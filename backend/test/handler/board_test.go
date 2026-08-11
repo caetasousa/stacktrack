@@ -43,6 +43,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	etiquetas := memoria.NovasEtiquetas()
 	checklists := memoria.NovasChecklists()
 	anexos := memoria.NovosAnexos()
+	armazem := memoria.NovoArmazem()
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
@@ -66,9 +67,9 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		false, nil, identidade,
 	)
 	boardHandler := handler.NovoBoardHandler(
-		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
-		ucboard.NovoColunaUseCase(membros, colunas),
-		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
+		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
+		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
 		identidade,
 	)
 	extrasHandler := handler.NovoExtrasHandler(

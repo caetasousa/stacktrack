@@ -343,6 +343,42 @@ type Anexos struct {
 	ErroForcado error
 }
 
+// CaminhosDeArquivoDoCard, ...DaColuna e ...DoBoard reproduzem as consultas que
+// o repositório de verdade usa para limpar o VOLUME ao apagar. Só TipoArquivo:
+// link não ocupa disco.
+func (r *Anexos) CaminhosDeArquivoDoCard(ctx context.Context, cardID string) ([]string, error) {
+	return r.caminhos(func(a *anexo.Anexo) bool { return a.CardID == cardID }), nil
+}
+
+func (r *Anexos) CaminhosDeArquivoDaColuna(ctx context.Context, colunaID string) ([]string, error) {
+	return r.caminhos(func(a *anexo.Anexo) bool {
+		c, ok := r.cards.porID[a.CardID]
+		return ok && c.ColunaID == colunaID
+	}), nil
+}
+
+func (r *Anexos) CaminhosDeArquivoDoBoard(ctx context.Context, boardID string) ([]string, error) {
+	return r.caminhos(func(a *anexo.Anexo) bool {
+		c, ok := r.cards.porID[a.CardID]
+		if !ok {
+			return false
+		}
+		col, ok := r.colunas.porID[c.ColunaID]
+		return ok && col.BoardID == boardID
+	}), nil
+}
+
+func (r *Anexos) caminhos(pertence func(*anexo.Anexo) bool) []string {
+	lista := make([]string, 0)
+	for _, a := range r.porID {
+		if a.Tipo == anexo.TipoArquivo && a.Caminho != "" && pertence(a) {
+			lista = append(lista, a.Caminho)
+		}
+	}
+	sort.Strings(lista)
+	return lista
+}
+
 // NovosAnexos cria o repositório em memória vazio.
 func NovosAnexos() *Anexos {
 	return &Anexos{porID: make(map[string]*anexo.Anexo)}

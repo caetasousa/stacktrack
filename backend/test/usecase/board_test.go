@@ -27,6 +27,7 @@ type quadro struct {
 	responsaveis *memoria.Responsaveis
 	comentarios  *memoria.Comentarios
 	atividades   *memoria.Atividades
+	armazem      *memoria.Armazem
 	quadros      *ucboard.QuadroUseCase
 	coluna       *ucboard.ColunaUseCase
 	card         *ucboard.CardUseCase
@@ -44,6 +45,9 @@ func novoQuadro() *quadro {
 	responsaveis := memoria.NovosResponsaveis()
 	comentarios := memoria.NovosComentarios()
 	atividades := memoria.NovasAtividades()
+	// O armazém entra até nos testes que não mexem em anexo: apagar limpa o
+	// volume, e sem ele o card apagado deixaria arquivo para trás.
+	armazem := memoria.NovoArmazem()
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
@@ -61,9 +65,10 @@ func novoQuadro() *quadro {
 		responsaveis: responsaveis,
 		comentarios:  comentarios,
 		atividades:   atividades,
-		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
-		coluna:       ucboard.NovoColunaUseCase(membros, colunas),
-		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios),
+		armazem:      armazem,
+		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		coluna:       ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
+		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
 	}
 }
 

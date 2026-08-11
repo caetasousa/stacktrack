@@ -23,6 +23,53 @@ func NovoAnexoPostgres(pool *pgxpool.Pool) *AnexoPostgres {
 
 const camposAnexo = `id, card_id, tipo, nome, url, caminho, tamanho, mime, criado_por, criado_em`
 
+// CaminhosDeArquivoDoCard, ...DaColuna e ...DoBoard devolvem os arquivos em
+// disco que serão órfãos quando aquilo for apagado.
+//
+// Existem porque o `ON DELETE CASCADE` limpa a TABELA e não o volume: apagar um
+// card levava as linhas de `anexos` junto e deixava os arquivos no disco para
+// sempre, sem nenhuma linha que os referenciasse. Quem chama coleta os caminhos
+// ANTES do DELETE — depois dele não há mais de onde tirá-los.
+//
+// Só TipoArquivo: link não ocupa disco.
+func (r *AnexoPostgres) CaminhosDeArquivoDoCard(ctx context.Context, cardID string) ([]string, error) {
+	return r.caminhos(ctx,
+		`SELECT caminho FROM anexos WHERE card_id = $1 AND tipo = 'arquivo' AND caminho IS NOT NULL`, cardID)
+}
+
+func (r *AnexoPostgres) CaminhosDeArquivoDaColuna(ctx context.Context, colunaID string) ([]string, error) {
+	return r.caminhos(ctx,
+		`SELECT a.caminho FROM anexos a
+		 JOIN cards c ON c.id = a.card_id
+		 WHERE c.coluna_id = $1 AND a.tipo = 'arquivo' AND a.caminho IS NOT NULL`, colunaID)
+}
+
+func (r *AnexoPostgres) CaminhosDeArquivoDoBoard(ctx context.Context, boardID string) ([]string, error) {
+	return r.caminhos(ctx,
+		`SELECT a.caminho FROM anexos a
+		 JOIN cards c   ON c.id = a.card_id
+		 JOIN colunas l ON l.id = c.coluna_id
+		 WHERE l.board_id = $1 AND a.tipo = 'arquivo' AND a.caminho IS NOT NULL`, boardID)
+}
+
+func (r *AnexoPostgres) caminhos(ctx context.Context, sql string, arg any) ([]string, error) {
+	linhas, err := r.db.Query(ctx, sql, arg)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	lista := make([]string, 0)
+	for linhas.Next() {
+		var caminho string
+		if err := linhas.Scan(&caminho); err != nil {
+			return nil, err
+		}
+		lista = append(lista, caminho)
+	}
+	return lista, linhas.Err()
+}
+
 // Salvar persiste um anexo novo.
 func (r *AnexoPostgres) Salvar(ctx context.Context, a *anexo.Anexo) error {
 	_, err := r.db.Exec(ctx,

@@ -139,6 +139,13 @@ type repositorioAnexo interface {
 	Apagar(ctx context.Context, id string) error
 	// ContarPorCardDoBoard devolve quantos anexos cada card do quadro tem.
 	ContarPorCardDoBoard(ctx context.Context, boardID string) (map[string]int, error)
+	// Caminhos dos arquivos que ficarão órfãos ao apagar. O ON DELETE CASCADE
+	// limpa a tabela e NÃO o volume: sem isto, apagar um card deixava os
+	// arquivos anexados no disco para sempre, sem nenhuma linha apontando para
+	// eles. Quem chama coleta ANTES do DELETE.
+	CaminhosDeArquivoDoCard(ctx context.Context, cardID string) ([]string, error)
+	CaminhosDeArquivoDaColuna(ctx context.Context, colunaID string) ([]string, error)
+	CaminhosDeArquivoDoBoard(ctx context.Context, boardID string) ([]string, error)
 }
 
 // armazemDeArquivos guarda e devolve o conteúdo dos anexos. É porta porque o

@@ -26,6 +26,8 @@ type QuadroUseCase struct {
 	anexos       repositorioAnexo
 	responsaveis RepositorioResponsavel
 	comentarios  RepositorioComentario
+	// armazem existe só para a LIMPEZA do disco ao apagar. Ver limpeza.go.
+	armazem armazemDeArquivos
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
@@ -39,11 +41,12 @@ func NovoQuadroUseCase(
 	anexos repositorioAnexo,
 	responsaveis RepositorioResponsavel,
 	comentarios RepositorioComentario,
+	armazem armazemDeArquivos,
 ) *QuadroUseCase {
 	return &QuadroUseCase{
 		boards: boards, membros: membros, colunas: colunas, cards: cards,
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos,
-		responsaveis: responsaveis, comentarios: comentarios,
+		responsaveis: responsaveis, comentarios: comentarios, armazem: armazem,
 	}
 }
 
@@ -208,7 +211,17 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
-	return uc.boards.Apagar(ctx, boardID)
+	// Antes do DELETE, enquanto os anexos de todos os cards do quadro ainda
+	// existem. Ver limpeza.go.
+	orfaos, err := uc.anexos.CaminhosDeArquivoDoBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	if err := uc.boards.Apagar(ctx, boardID); err != nil {
+		return err
+	}
+	descartarArquivos(ctx, uc.armazem, orfaos)
+	return nil
 }
 
 // agrupar distribui os cards nas colunas a que pertencem, preservando a ordem

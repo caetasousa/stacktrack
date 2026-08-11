@@ -30,7 +30,10 @@ type extras struct {
 
 func novoExtras() *extras {
 	q := novoQuadro()
-	armazem := memoria.NovoArmazem()
+	// O MESMO armazém do quadro, e não um segundo: apagar um card limpa o
+	// volume, e com dois armazéns o teste anexaria num e conferiria o outro —
+	// verde sem provar nada.
+	armazem := q.armazem
 
 	return &extras{
 		quadro:      q,

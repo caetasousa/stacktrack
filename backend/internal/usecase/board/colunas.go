@@ -15,11 +15,20 @@ type ColunaUseCase struct {
 	eventos
 	membros RepositorioMembro
 	colunas RepositorioColuna
+	// anexos e armazem existem só para a LIMPEZA do disco ao apagar: o cascata
+	// do schema leva as linhas de anexo junto e não toca no volume.
+	anexos  repositorioAnexo
+	armazem armazemDeArquivos
 }
 
 // NovoColunaUseCase cria uma instância de ColunaUseCase com as dependências injetadas.
-func NovoColunaUseCase(membros RepositorioMembro, colunas RepositorioColuna) *ColunaUseCase {
-	return &ColunaUseCase{membros: membros, colunas: colunas}
+func NovoColunaUseCase(
+	membros RepositorioMembro,
+	colunas RepositorioColuna,
+	anexos repositorioAnexo,
+	armazem armazemDeArquivos,
+) *ColunaUseCase {
+	return &ColunaUseCase{membros: membros, colunas: colunas, anexos: anexos, armazem: armazem}
 }
 
 // Criar acrescenta uma coluna no fim do quadro. Exige papel de edição.
@@ -80,9 +89,19 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 	if err != nil {
 		return err
 	}
-	return uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
+	// Antes do DELETE, enquanto os anexos dos cards desta coluna ainda existem.
+	orfaos, err := uc.anexos.CaminhosDeArquivoDaColuna(ctx, colunaID)
+	if err != nil {
+		return err
+	}
+
+	if err := uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
 		DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo},
-		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) })
+		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) }); err != nil {
+		return err
+	}
+	descartarArquivos(ctx, uc.armazem, orfaos)
+	return nil
 }
 
 // carregarComAcessoDeEdicao busca a coluna e confere o acesso ao quadro DELA —

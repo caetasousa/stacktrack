@@ -29,6 +29,8 @@ type CardUseCase struct {
 	anexos       repositorioAnexo
 	responsaveis RepositorioResponsavel
 	comentarios  RepositorioComentario
+	// armazem existe só para a LIMPEZA do disco ao apagar. Ver limpeza.go.
+	armazem armazemDeArquivos
 }
 
 // NovoCardUseCase cria uma instância de CardUseCase com as dependências injetadas.
@@ -41,10 +43,12 @@ func NovoCardUseCase(
 	anexos repositorioAnexo,
 	responsaveis RepositorioResponsavel,
 	comentarios RepositorioComentario,
+	armazem armazemDeArquivos,
 ) *CardUseCase {
 	return &CardUseCase{
 		membros: membros, colunas: colunas, cards: cards,
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos, responsaveis: responsaveis, comentarios: comentarios,
+		armazem: armazem,
 	}
 }
 
@@ -197,12 +201,24 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 	if err != nil {
 		return err
 	}
+	// Os caminhos são coletados ANTES do DELETE: depois dele as linhas de
+	// `anexos` já foram pela cascata, e não há mais de onde tirá-los. Ver
+	// limpeza.go.
+	orfaos, err := uc.anexos.CaminhosDeArquivoDoCard(ctx, cardID)
+	if err != nil {
+		return err
+	}
+
 	// O título vai no evento porque o card não estará mais lá para respondê-lo:
 	// "apagou um card" é bem menos útil que "apagou Migração", e depois do
 	// DELETE não há de onde tirar o nome.
-	return uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
 		DadosDoCard{CardID: cardID, Titulo: c.Titulo},
-		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) })
+		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) }); err != nil {
+		return err
+	}
+	descartarArquivos(ctx, uc.armazem, orfaos)
+	return nil
 }
 
 // chaveNoFimDaColuna devolve a chave de um item acrescentado no fim.

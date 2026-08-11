@@ -132,3 +132,44 @@ test('apagar de vez, a partir do arquivo, pede confirmação', async ({ browser 
 	await expect(linha).toBeHidden();
 	await contexto.close();
 });
+
+// O defeito que os outros testes não pegam: o controle existia, tinha o
+// aria-label certo, respondia ao clique — e era INVISÍVEL, porque o emoji 🗄
+// não tem glifo em toda fonte e o navegador pinta um retângulo vazio no lugar.
+// Selecionar por aria-label enxerga o que o olho não vê.
+//
+// Este teste pergunta o que a tela DESENHA: o ícone é um SVG (que não depende
+// de fonte nenhuma), ele tem tamanho, e o botão tem área de toque de verdade.
+test('o controle de arquivar é visível e clicável, e não depende de fonte', async ({ browser }) => {
+	const contexto = await abaDe(browser, ana);
+	const tela = await contexto.newPage();
+	await tela.goto(`/painel/quadros/${quadroId}`);
+	await expect(tela.getByText('Fica no quadro')).toBeVisible();
+
+	const arquivar = tela.getByRole('button', { name: 'Arquivar card' }).first();
+	await expect(arquivar).toBeVisible();
+
+	// SVG, e não texto: um glifo ausente vira caixa vazia sem falhar nada.
+	await expect(arquivar.locator('svg')).toBeVisible();
+
+	const icone = await arquivar.locator('svg').boundingBox();
+	if (!icone || icone.width < 8 || icone.height < 8) {
+		throw new Error(
+			`o ícone desenhou ${icone?.width}x${icone?.height} — pequeno demais para ser visto`
+		);
+	}
+
+	// Alvo de toque: o mínimo confortável no celular, e o que separa arquivar
+	// de apagar, que fica ao lado.
+	const botao = await arquivar.boundingBox();
+	if (!botao || botao.width < 20 || botao.height < 20) {
+		throw new Error(`o botão mede ${botao?.width}x${botao?.height} — alvo pequeno demais`);
+	}
+
+	// E os dois vizinhos não se confundem: arquivar não pode ser o mesmo
+	// elemento que apagar.
+	const apagar = tela.getByRole('button', { name: 'Apagar card' }).first();
+	await expect(apagar).toBeVisible();
+
+	await contexto.close();
+});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import IconeArquivar from './IconeArquivar.svelte';
 	import { confirmar } from '$lib/confirmar.svelte';
 	// Uma coluna do quadro: título editável, os cards e o formulário de card
 	// novo no pé.
@@ -188,15 +189,15 @@
 				{#if podeEditar}
 					<button
 						{...cliqueSemArraste(arquivar)}
-						class="cursor-pointer text-xs text-mute hover:text-ink"
+						class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-mute hover:bg-surface-elevated hover:text-ink"
 						aria-label="Arquivar coluna"
 						title="Arquivar — sai do quadro com os cards, e pode voltar"
 					>
-						🗄
+						<IconeArquivar class="size-3.5" />
 					</button>
 					<button
 						{...cliqueSemArraste(apagar)}
-						class="cursor-pointer text-xs text-mute hover:text-negativo"
+						class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-base leading-none text-mute hover:bg-surface-elevated hover:text-negativo"
 						aria-label="Apagar coluna"
 						title="Apagar de vez — os cards vão junto"
 					>

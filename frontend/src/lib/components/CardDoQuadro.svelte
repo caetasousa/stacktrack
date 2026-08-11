@@ -1,4 +1,5 @@
 <script lang="ts">
+	import IconeArquivar from './IconeArquivar.svelte';
 	import { confirmar } from '$lib/confirmar.svelte';
 	// Um card na coluna. Mostra o RESUMO do que carrega — barras de etiqueta,
 	// prazo, progresso de checklist e contagem de anexos — e abre o modal no
@@ -132,15 +133,15 @@
 			     também passa batido. -->
 			<button
 				onclick={arquivar}
-				class="cursor-pointer text-xs text-mute hover:text-ink"
+				class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-mute hover:bg-surface-elevated hover:text-ink"
 				aria-label="Arquivar card"
 				title="Arquivar — sai do quadro e pode voltar"
 			>
-				🗄
+				<IconeArquivar class="size-3.5" />
 			</button>
 			<button
 				onclick={apagar}
-				class="cursor-pointer text-xs text-mute hover:text-negativo"
+				class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-base leading-none text-mute hover:bg-surface-elevated hover:text-negativo"
 				aria-label="Apagar card"
 				title="Apagar de vez — leva comentários, checklists e anexos"
 			>

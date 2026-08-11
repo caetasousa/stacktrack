@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -266,6 +267,99 @@ func (h *BoardHandler) ApagarCard(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ArquivarCard tira o card do quadro sem apagá-lo. Devolve o card atualizado.
+//
+// 409 quando ele já está arquivado — o que acontece quando duas pessoas
+// arquivam o mesmo card, e é informação, não erro interno.
+func (h *BoardHandler) ArquivarCard(w http.ResponseWriter, r *http.Request) {
+	h.mudarArquivamentoDoCard(w, r, h.cards.ArquivarCard, "erro ao arquivar card")
+}
+
+// DesarquivarCard devolve o card ao quadro, na coluna e posição em que estava.
+func (h *BoardHandler) DesarquivarCard(w http.ResponseWriter, r *http.Request) {
+	h.mudarArquivamentoDoCard(w, r, h.cards.DesarquivarCard, "erro ao desarquivar card")
+}
+
+func (h *BoardHandler) mudarArquivamentoDoCard(
+	w http.ResponseWriter, r *http.Request,
+	acao func(ctx context.Context, cardID, usuarioID string) (*dcard.Card, error),
+	mensagem string,
+) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	c, err := acao(r.Context(), chi.URLParam(r, "cardID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, mensagem, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraCardResponse(*c))
+}
+
+// ArquivarColuna tira a coluna do quadro. Os cards dela saem da tela junto, mas
+// não são arquivados: voltam com ela.
+func (h *BoardHandler) ArquivarColuna(w http.ResponseWriter, r *http.Request) {
+	h.mudarArquivamentoDaColuna(w, r, h.colunas.ArquivarColuna, "erro ao arquivar coluna")
+}
+
+// DesarquivarColuna devolve a coluna ao quadro, na posição em que estava.
+func (h *BoardHandler) DesarquivarColuna(w http.ResponseWriter, r *http.Request) {
+	h.mudarArquivamentoDaColuna(w, r, h.colunas.DesarquivarColuna, "erro ao desarquivar coluna")
+}
+
+func (h *BoardHandler) mudarArquivamentoDaColuna(
+	w http.ResponseWriter, r *http.Request,
+	acao func(ctx context.Context, colunaID, usuarioID string) (*dcoluna.Coluna, error),
+	mensagem string,
+) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	c, err := acao(r.Context(), chi.URLParam(r, "colunaID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, mensagem, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.ColunaResponse{
+		ID: c.ID, BoardID: c.BoardID, Titulo: c.Titulo, Cor: string(c.Cor),
+		Cards: []dto.CardResponse{},
+	})
+}
+
+// Arquivados devolve o que saiu do quadro e pode voltar. Basta participar: ver
+// o arquivo é leitura.
+func (h *BoardHandler) Arquivados(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	arquivados, err := h.quadros.ListarArquivados(r.Context(), chi.URLParam(r, "boardID"), usuarioID)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao listar arquivados", err)
+		return
+	}
+
+	cards := make([]dto.CardArquivadoResponse, 0, len(arquivados.Cards))
+	for _, c := range arquivados.Cards {
+		cards = append(cards, dto.CardArquivadoResponse{
+			ID: c.ID, ColunaID: c.ColunaID, Coluna: arquivados.ColunaDe[c.ID],
+			Titulo: c.Titulo, Cor: string(c.Cor), ArquivadoEm: *c.ArquivadoEm,
+		})
+	}
+	colunas := make([]dto.ColunaArquivadaResponse, 0, len(arquivados.Colunas))
+	for _, c := range arquivados.Colunas {
+		colunas = append(colunas, dto.ColunaArquivadaResponse{
+			ID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor), ArquivadoEm: *c.ArquivadoEm,
+		})
+	}
+	responderJSON(w, http.StatusOK, dto.ArquivadosResponse{Cards: cards, Colunas: colunas})
+}
+
 // usuario extrai o id de quem está autenticado. Responde 401 e devolve false
 // quando o middleware de autenticação não pôs identidade no contexto — o que
 // só acontece se a rota for montada fora dele.
@@ -388,7 +482,14 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// dela, e encheria o log de erro por um caminho previsto.
 	case errors.Is(err, ordem.ErrForaDeOrdem),
 		errors.Is(err, ordem.ErrChaveInvalida),
-		errors.Is(err, ordem.ErrChaveLonga):
+		errors.Is(err, ordem.ErrChaveLonga),
+		// Arquivar duas vezes, ou desarquivar o que está no quadro: o estado é
+		// que não comporta a operação. 409 e não 500 — a tela resolve
+		// recarregando, e quase sempre é outra pessoa que chegou primeiro.
+		errors.Is(err, dcard.ErrJaArquivado),
+		errors.Is(err, dcard.ErrNaoArquivado),
+		errors.Is(err, dcoluna.ErrJaArquivada),
+		errors.Is(err, dcoluna.ErrNaoArquivada):
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):
 		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())

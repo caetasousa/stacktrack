@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"stacktrack/internal/adapter/http/handler"
@@ -97,6 +98,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Get("/", boardHandler.Listar)
 			r.Post("/", boardHandler.Criar)
 			r.Get("/{boardID}", boardHandler.Detalhar)
+			r.Get("/{boardID}/arquivados", boardHandler.Arquivados)
 			r.Patch("/{boardID}", boardHandler.Renomear)
 			r.Delete("/{boardID}", boardHandler.Apagar)
 			r.Post("/{boardID}/colunas", boardHandler.CriarColuna)
@@ -109,11 +111,15 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		})
 		r.Route("/colunas/{colunaID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.RenomearColuna)
+			r.Patch("/arquivar", boardHandler.ArquivarColuna)
+			r.Patch("/desarquivar", boardHandler.DesarquivarColuna)
 			r.Delete("/", boardHandler.ApagarColuna)
 			r.Post("/cards", boardHandler.CriarCard)
 		})
 		r.Route("/cards/{cardID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.EditarCard)
+			r.Patch("/arquivar", boardHandler.ArquivarCard)
+			r.Patch("/desarquivar", boardHandler.DesarquivarCard)
 			r.Delete("/", boardHandler.ApagarCard)
 			r.Get("/", boardHandler.DetalharCard)
 			r.Get("/atividade", extrasHandler.Atividade)
@@ -384,5 +390,124 @@ func TestEditarCardDevolveVersaoIncrementada(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &c)
 	if c.Titulo != "Definitivo" || c.Version != 2 {
 		t.Errorf("card = %+v, esperado version 2", c)
+	}
+}
+
+// --- arquivar, pela borda HTTP ----------------------------------------------
+//
+// A camada que na fase 11 pegou três defeitos que nenhuma outra pegou: um erro
+// de domínio sem tradução vira 500, e campo que o conversor não copia sai nulo.
+
+func TestArquivarCardTiraDoQuadroEApareceNosArquivados(t *testing.T) {
+	api := montarAPIDeQuadro()
+	cookie, _ := api.conta(t, "Ana", "ana-arq@exemplo.com")
+	boardID := api.criarQuadro(t, cookie, "Estudos")
+	colunaID := idDoCorpo(t, chamar(api, http.MethodPost, "/boards/"+boardID+"/colunas", `{"titulo":"A fazer"}`, cookie))
+	cardID := idDoCorpo(t, chamar(api, http.MethodPost, "/colunas/"+colunaID+"/cards", `{"titulo":"Migração"}`, cookie))
+
+	rec := chamar(api, http.MethodPatch, "/cards/"+cardID+"/arquivar", "", cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("arquivar: %d %s", rec.Code, rec.Body)
+	}
+
+	// Saiu do quadro.
+	var detalhe struct {
+		Colunas []struct {
+			Cards []struct{ ID string } `json:"cards"`
+		} `json:"colunas"`
+	}
+	json.Unmarshal(chamar(api, http.MethodGet, "/boards/"+boardID, "", cookie).Body.Bytes(), &detalhe)
+	if len(detalhe.Colunas) != 1 || len(detalhe.Colunas[0].Cards) != 0 {
+		t.Errorf("o card arquivado continua no quadro: %+v", detalhe)
+	}
+
+	// E entrou no arquivo, com a coluna de origem pelo NOME — o campo que um
+	// conversor esquecido deixaria vazio sem quebrar nada visível no servidor.
+	var arquivados struct {
+		Cards []struct {
+			ID          string `json:"id"`
+			Titulo      string `json:"titulo"`
+			Coluna      string `json:"coluna"`
+			ArquivadoEm string `json:"arquivadoEm"`
+		} `json:"cards"`
+		Colunas []struct{ ID string } `json:"colunas"`
+	}
+	corpo := chamar(api, http.MethodGet, "/boards/"+boardID+"/arquivados", "", cookie)
+	if corpo.Code != http.StatusOK {
+		t.Fatalf("arquivados: %d %s", corpo.Code, corpo.Body)
+	}
+	if err := json.Unmarshal(corpo.Body.Bytes(), &arquivados); err != nil {
+		t.Fatalf("corpo não é JSON: %s", corpo.Body)
+	}
+	if len(arquivados.Cards) != 1 {
+		t.Fatalf("arquivados = %d card(s): %s", len(arquivados.Cards), corpo.Body)
+	}
+	a := arquivados.Cards[0]
+	if a.ID != cardID || a.Titulo != "Migração" {
+		t.Errorf("card arquivado = %+v", a)
+	}
+	if a.Coluna != "A fazer" {
+		t.Errorf("coluna de origem = %q — o conversor não copiou o nome", a.Coluna)
+	}
+	if a.ArquivadoEm == "" {
+		t.Error("arquivadoEm veio vazio — a tela não teria como ordenar")
+	}
+
+	// E volta.
+	if rec := chamar(api, http.MethodPatch, "/cards/"+cardID+"/desarquivar", "", cookie); rec.Code != http.StatusOK {
+		t.Fatalf("desarquivar: %d %s", rec.Code, rec.Body)
+	}
+	json.Unmarshal(chamar(api, http.MethodGet, "/boards/"+boardID, "", cookie).Body.Bytes(), &detalhe)
+	if len(detalhe.Colunas[0].Cards) != 1 {
+		t.Error("o card não voltou ao quadro")
+	}
+}
+
+// Arquivar duas vezes é 409, e não 500: o estado é que não comporta a operação,
+// e quase sempre é outra pessoa que chegou primeiro.
+func TestArquivarDuasVezesResponde409(t *testing.T) {
+	api := montarAPIDeQuadro()
+	cookie, _ := api.conta(t, "Ana", "ana-409@exemplo.com")
+	boardID := api.criarQuadro(t, cookie, "Estudos")
+	colunaID := idDoCorpo(t, chamar(api, http.MethodPost, "/boards/"+boardID+"/colunas", `{"titulo":"A fazer"}`, cookie))
+	cardID := idDoCorpo(t, chamar(api, http.MethodPost, "/colunas/"+colunaID+"/cards", `{"titulo":"Migração"}`, cookie))
+
+	chamar(api, http.MethodPatch, "/cards/"+cardID+"/arquivar", "", cookie)
+	if rec := chamar(api, http.MethodPatch, "/cards/"+cardID+"/arquivar", "", cookie); rec.Code != http.StatusConflict {
+		t.Errorf("segundo arquivar = %d, esperado 409: %s", rec.Code, rec.Body)
+	}
+	if rec := chamar(api, http.MethodPatch, "/colunas/"+colunaID+"/desarquivar", "", cookie); rec.Code != http.StatusConflict {
+		t.Errorf("desarquivar coluna ativa = %d, esperado 409: %s", rec.Code, rec.Body)
+	}
+}
+
+// Quem não participa não arquiva nem vê o arquivo — 404, e não 403, que
+// confirmaria que o quadro existe.
+func TestArquivarEmQuadroAlheioResponde404(t *testing.T) {
+	api := montarAPIDeQuadro()
+	cookieAna, _ := api.conta(t, "Ana", "ana-alheio@exemplo.com")
+	cookieBob, _ := api.conta(t, "Bob", "bob-alheio@exemplo.com")
+	boardID := api.criarQuadro(t, cookieAna, "Estudos")
+	colunaID := idDoCorpo(t, chamar(api, http.MethodPost, "/boards/"+boardID+"/colunas", `{"titulo":"A fazer"}`, cookieAna))
+	cardID := idDoCorpo(t, chamar(api, http.MethodPost, "/colunas/"+colunaID+"/cards", `{"titulo":"Migração"}`, cookieAna))
+
+	if rec := chamar(api, http.MethodPatch, "/cards/"+cardID+"/arquivar", "", cookieBob); rec.Code != http.StatusNotFound {
+		t.Errorf("arquivar card alheio = %d, esperado 404", rec.Code)
+	}
+	if rec := chamar(api, http.MethodGet, "/boards/"+boardID+"/arquivados", "", cookieBob); rec.Code != http.StatusNotFound {
+		t.Errorf("arquivados de quadro alheio = %d, esperado 404", rec.Code)
+	}
+}
+
+// Listas vazias saem como [] e não como null: `null.length` quebra a tela em
+// tempo de execução, e foi assim que a fase 11 caiu.
+func TestArquivadosVaziosSaemComoArray(t *testing.T) {
+	api := montarAPIDeQuadro()
+	cookie, _ := api.conta(t, "Ana", "ana-vazio@exemplo.com")
+	boardID := api.criarQuadro(t, cookie, "Estudos")
+
+	rec := chamar(api, http.MethodGet, "/boards/"+boardID+"/arquivados", "", cookie)
+	if corpo := rec.Body.String(); !strings.Contains(corpo, `"cards":[]`) || !strings.Contains(corpo, `"colunas":[]`) {
+		t.Errorf("corpo = %s, esperado listas vazias como []", corpo)
 	}
 }

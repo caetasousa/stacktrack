@@ -222,11 +222,35 @@ func (r *Colunas) ListarDoBoard(ctx context.Context, boardID string) ([]coluna.C
 	}
 	lista := make([]coluna.Coluna, 0)
 	for _, c := range r.porID {
-		if c.BoardID == boardID {
+		// O filtro do arquivamento é copiado do SQL de propósito. Um fake que
+		// divergisse do repositório de verdade já deixou um defeito passar
+		// neste arquivo — ver o comentário de ordenarPorChave.
+		if c.BoardID == boardID && !c.Arquivada() {
 			lista = append(lista, *c)
 		}
 	}
 	ordenarPorChave(lista, func(c coluna.Coluna) (string, string) { return c.Chave, c.ID })
+	return lista, nil
+}
+
+// ListarArquivadasDoBoard devolve as colunas fora do quadro, da mais recente
+// para a mais antiga — a mesma ordem do ORDER BY arquivado_em DESC.
+func (r *Colunas) ListarArquivadasDoBoard(ctx context.Context, boardID string) ([]coluna.Coluna, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]coluna.Coluna, 0)
+	for _, c := range r.porID {
+		if c.BoardID == boardID && c.Arquivada() {
+			lista = append(lista, *c)
+		}
+	}
+	sort.Slice(lista, func(i, j int) bool {
+		if lista[i].ArquivadoEm.Equal(*lista[j].ArquivadoEm) {
+			return lista[i].ID < lista[j].ID
+		}
+		return lista[i].ArquivadoEm.After(*lista[j].ArquivadoEm)
+	})
 	return lista, nil
 }
 
@@ -299,11 +323,35 @@ func (r *Cards) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card,
 	lista := make([]card.Card, 0)
 	for _, c := range r.porID {
 		col, ok := r.colunas.porID[c.ColunaID]
-		if ok && col.BoardID == boardID {
+		// Os dois filtros do SQL: o card arquivado sai, e o card ativo de uma
+		// COLUNA arquivada sai junto com ela — senão ele ficaria órfão na tela.
+		if ok && col.BoardID == boardID && !c.Arquivado() && !col.Arquivada() {
 			lista = append(lista, *c)
 		}
 	}
 	ordenarPorChave(lista, func(c card.Card) (string, string) { return c.Chave, c.ID })
+	return lista, nil
+}
+
+// ListarArquivadosDoBoard devolve os cards fora do quadro, do mais recente para
+// o mais antigo. A coluna arquivada NÃO entra: os cards dela continuam ativos.
+func (r *Cards) ListarArquivadosDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]card.Card, 0)
+	for _, c := range r.porID {
+		col, ok := r.colunas.porID[c.ColunaID]
+		if ok && col.BoardID == boardID && c.Arquivado() {
+			lista = append(lista, *c)
+		}
+	}
+	sort.Slice(lista, func(i, j int) bool {
+		if lista[i].ArquivadoEm.Equal(*lista[j].ArquivadoEm) {
+			return lista[i].ID < lista[j].ID
+		}
+		return lista[i].ArquivadoEm.After(*lista[j].ArquivadoEm)
+	})
 	return lista, nil
 }
 

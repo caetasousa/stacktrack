@@ -177,6 +177,9 @@ type RepositorioColuna interface {
 	// UltimaChave devolve a maior chave em uso no quadro, ou vazio quando o
 	// quadro não tem coluna nenhuma.
 	UltimaChave(ctx context.Context, boardID string) (string, error)
+	// ListarArquivadasDoBoard devolve as colunas fora do quadro, da mais
+	// recentemente arquivada para a mais antiga.
+	ListarArquivadasDoBoard(ctx context.Context, boardID string) ([]coluna.Coluna, error)
 }
 
 type RepositorioCard interface {
@@ -187,6 +190,9 @@ type RepositorioCard interface {
 	// numa consulta só — buscar coluna a coluna seria um N+1 que cresce com o
 	// tamanho do quadro.
 	ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error)
+	// ListarArquivadosDoBoard devolve os cards fora do quadro, do mais
+	// recentemente arquivado para o mais antigo.
+	ListarArquivadosDoBoard(ctx context.Context, boardID string) ([]card.Card, error)
 	Apagar(ctx context.Context, id string) error
 	// UltimaChave devolve a maior chave em uso na coluna, ou vazio.
 	UltimaChave(ctx context.Context, colunaID string) (string, error)

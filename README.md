@@ -114,13 +114,18 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/boards/{id}` | Renomeia ou apaga o quadro. Só o dono. |
 | `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
 | `POST` | `/boards/{id}/colunas` | Cria uma coluna no fim do quadro (201). |
+| `GET` | `/boards/{id}/arquivados` | O que saiu do quadro e pode voltar: cards (com o nome da coluna de origem) e colunas. Basta **participar** — ver o arquivo é leitura. |
 | `PATCH`/`DELETE` | `/colunas/{id}` | Renomeia (título e cor) ou apaga a coluna e os cards dela. |
 | `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, **pelos vizinhos**. |
+| `PATCH` | `/colunas/{id}/arquivar` | Tira a coluna do quadro. Os cards dela saem da tela junto, mas **não** são arquivados: voltam com ela. **409** se já estiver arquivada. |
+| `PATCH` | `/colunas/{id}/desarquivar` | Devolve a coluna ao quadro, na posição em que estava. **409** se não estiver arquivada. |
 | `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
 | `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
 | `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
 | `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
+| `PATCH` | `/cards/{id}/arquivar` | Tira o card do quadro sem apagá-lo. **409** se ele já estiver arquivado — outra pessoa chegou primeiro. |
+| `PATCH` | `/cards/{id}/desarquivar` | Devolve o card à coluna e à posição em que estava. **409** se ele não estiver arquivado. |
 | `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida por email. |
 | `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
 | `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). |

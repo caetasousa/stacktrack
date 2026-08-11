@@ -175,6 +175,26 @@ armazenamento independentes, então duas contas convivem no mesmo navegador:
 | quem grava por último é avisado | o 409 do bloqueio otimista, com o texto preservado |
 | o comentário do outro aparece no card aberto | o modal também é tempo real — ele nasceu mudo na fase 11 |
 
+### Arquivar
+
+`e2e/arquivar.spec.ts` — o caminho de volta, que é a razão de a fase 13 existir:
+arquivar tira do quadro, o arquivo mostra de que coluna o card veio, devolver o
+põe no mesmo lugar, e apagar de vez (o único sem volta) é o único que pergunta.
+
+Do lado do backend, a fase é testada em três camadas porque cada uma responde
+uma pergunta diferente:
+
+| camada | o que só ela prova |
+|---|---|
+| `test/domain` | as regras: arquivar duas vezes é recusado, e a posição não se perde |
+| `test/usecase` | a autorização (leitor não arquiva, mas lê o arquivo) e o evento próprio |
+| `test/repository` (integração) | **o filtro no SQL** — quatro filtros, os quatro mutados, cada um derruba o seu teste |
+
+O terceiro é o que importa aqui: arquivar não muda uma regra, muda TODA leitura,
+e um `SELECT` esquecido faz o card arquivado reaparecer no quadro. Fakes em
+memória não pegariam — eles copiam a struct e não têm SQL onde esquecer um
+filtro.
+
 Contas, quadro e convite são semeados **pela API**, não pela tela: um teste de
 tempo real que quebra porque o botão de cadastro mudou de rótulo aponta para o
 lugar errado.

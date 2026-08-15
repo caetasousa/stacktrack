@@ -66,7 +66,9 @@
 			class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-mute"
 		>
 			<span>stacktrack — quadro colaborativo em tempo real.</span>
-			<span>Projeto de estudo · Go + SvelteKit</span>
+			<a href="https://github.com/caetasousa/stacktrack" rel="noreferrer" class="hover:text-ink"
+				>Código aberto no GitHub</a
+			>
 		</div>
 	</footer>
 </div>

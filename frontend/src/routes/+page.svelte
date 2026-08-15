@@ -1,159 +1,137 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { ApiError } from '$lib/api/client';
-	import { verificarProcesso, verificarProntidao } from '$lib/api/saude';
+	import IconeRecurso from '$lib/components/IconeRecurso.svelte';
+	import PreviaDoQuadro from '$lib/components/PreviaDoQuadro.svelte';
 	import { sessao } from '$lib/stores/session.svelte';
 
-	type Estado = 'checando' | 'ok' | 'falha';
-
-	let processo = $state<Estado>('checando');
-	let prontidao = $state<Estado>('checando');
-	let detalhe = $state('');
-
-	// A checagem roda no navegador, não no SSR: dentro do container `web`,
-	// localhost:8080 seria o próprio container, não a API.
-	onMount(async () => {
-		try {
-			await verificarProcesso();
-			processo = 'ok';
-		} catch (e) {
-			processo = 'falha';
-			detalhe = e instanceof Error ? e.message : String(e);
-			return;
-		}
-
-		try {
-			await verificarProntidao();
-			prontidao = 'ok';
-		} catch (e) {
-			prontidao = 'falha';
-			detalhe = e instanceof ApiError ? e.message : 'não foi possível checar o banco';
-		}
-	});
-
-	const rotulos: Record<Estado, string> = {
-		checando: 'checando…',
-		ok: 'no ar',
-		falha: 'fora do ar'
-	};
-
-	function cor(estado: Estado) {
-		if (estado === 'ok') return 'text-positivo';
-		if (estado === 'falha') return 'text-negativo';
-		return 'text-mute';
-	}
-
-	// O que já existe é afirmação; o que não existe leva o selo da fase em
-	// que chega. Prometer na home o que o produto não faz é a forma mais
-	// barata de perder a confiança de quem testa.
+	// Só o que o produto FAZ HOJE. A versão anterior desta lista trazia selos de
+	// "fase 4", "fase 5" e "fase 6" em recursos que já estavam no ar havia muito
+	// tempo — o roteiro interno vazando para a página e vendendo o produto por
+	// menos do que ele é. Roteiro mora no PLANO.md.
 	const recursos = [
 		{
-			titulo: 'Quadros e colunas',
-			texto: 'Monte o fluxo do jeito que a equipe trabalha, com as etapas que fizerem sentido.',
-			fase: null
+			icone: 'tempo-real',
+			titulo: 'Todo mundo vê na hora',
+			texto:
+				'Uma pessoa move um card e ele se move na tela das outras, sem recarregar. Quem cai e volta recebe o que perdeu enquanto esteve fora.'
 		},
 		{
-			titulo: 'Papéis por quadro',
-			texto: 'Dono, editor e leitor — checados no servidor, em toda operação.',
-			fase: null
+			icone: 'presenca',
+			titulo: 'Quem está junto, agora',
+			texto:
+				'O avatar de cada pessoa aparece no quadro que ela abriu, e some quando ela sai. Dá para saber com quem se está trabalhando.'
 		},
 		{
-			titulo: 'Sessão segura',
-			texto: 'Cookie HttpOnly, senha em Argon2id e o token guardado só como hash.',
-			fase: null
+			icone: 'arrastar',
+			titulo: 'Arrastar sem atropelar',
+			texto:
+				'Mover um card reescreve uma linha, não a coluna inteira. Duas pessoas arrastando ao mesmo tempo não desfazem o trabalho uma da outra.'
 		},
 		{
-			titulo: 'Arrastar e soltar',
-			texto: 'Ordenação fracionária: mover um card escreve uma linha, não renumera a coluna.',
-			fase: 'fase 4'
+			icone: 'conversa',
+			titulo: 'Conversa e histórico no card',
+			texto:
+				'Comentários em markdown, e o registro de quem moveu de onde para onde, quem renomeou o quê e quando.'
 		},
 		{
-			titulo: 'Tempo real',
-			texto: 'WebSocket: você arrasta aqui e o card se move na tela de quem estiver junto.',
-			fase: 'fase 5'
+			icone: 'organizacao',
+			titulo: 'Etiquetas, prazos e responsáveis',
+			texto:
+				'Checklists, anexos, cores e data de entrega. O filtro responde "o que é meu?" sem sair do quadro.'
 		},
 		{
-			titulo: 'Presença',
-			texto: 'Quem está com o quadro aberto agora, e quem está editando qual card.',
-			fase: 'fase 6'
+			icone: 'papeis',
+			titulo: 'Papéis conferidos no servidor',
+			texto:
+				'Dono, editor e leitor. Convite por email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
 		}
-	];
+	] as const;
 </script>
 
-<svelte:head><title>stacktrack</title></svelte:head>
+<svelte:head>
+	<title>stacktrack — quadro Kanban colaborativo em tempo real</title>
+	<meta
+		name="description"
+		content="Quadro Kanban em que várias pessoas movem cards ao mesmo tempo e todas veem na hora, sem recarregar a página."
+	/>
+</svelte:head>
 
-<section class="flex flex-col items-center gap-5 py-10 text-center">
-	<span
-		class="inline-flex items-center gap-2 rounded-full border border-hairline-strong bg-surface py-1 pr-3 pl-1 text-xs"
-	>
-		<em class="rounded-full bg-accent-suave px-2 py-0.5 font-semibold text-accent-texto not-italic">
-			Fase 2
-		</em>
-		quadro, colunas e cards
-	</span>
-
-	<h1 class="max-w-2xl text-4xl font-semibold tracking-tight text-balance text-ink sm:text-5xl">
-		O quadro que todo mundo vê mudar na hora
-	</h1>
-
-	<p class="max-w-xl text-sm leading-relaxed text-mute">
-		Kanban colaborativo escrito em Go e SvelteKit. Projeto de estudo, código aberto, sem conta paga
-		— o tempo real chega na fase 5.
-	</p>
-
-	<div class="mt-1 flex flex-wrap justify-center gap-3">
-		{#if sessao.usuario}
-			<a href="/painel" class="botao w-auto px-5">Ir para o painel</a>
-		{:else}
-			<a href="/cadastro" class="botao w-auto px-5">Criar conta</a>
-			<a href="/login" class="botao-secundario w-auto px-5">Entrar</a>
-		{/if}
-	</div>
-
-	<p class="flex flex-wrap justify-center gap-2 text-xs text-mute">
-		<span>Grátis para sempre</span><span aria-hidden="true">·</span><span>Código aberto</span><span
-			aria-hidden="true">·</span
-		><span>Sem cartão</span>
-	</p>
-</section>
-
+<!-- Duas colunas a partir de lg: o texto conduz, a prévia mostra. Em telas
+     estreitas a prévia vai para baixo do CTA, porque a decisão de criar conta
+     não deve depender de rolar. -->
 <section
-	class="grid gap-px overflow-hidden rounded-lg border border-hairline bg-hairline sm:grid-cols-3"
-	aria-label="Estado da infraestrutura"
+	class="grid items-center gap-10 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:py-8"
 >
-	<div class="bg-surface p-4">
-		<b class="block text-lg font-semibold tracking-tight {cor(processo)}">{rotulos[processo]}</b>
-		<span class="text-xs text-mute">API · /health</span>
-	</div>
-	<div class="bg-surface p-4">
-		<b class="block text-lg font-semibold tracking-tight {cor(prontidao)}">{rotulos[prontidao]}</b>
-		<span class="text-xs text-mute">Banco · /ready</span>
-	</div>
-	<div class="bg-surface p-4">
-		<b class="block text-lg font-semibold tracking-tight text-ink">6</b>
-		<span class="text-xs text-mute">migrations aplicadas</span>
-	</div>
-</section>
+	<div class="flex flex-col items-start gap-5">
+		<h1 class="max-w-xl text-4xl font-semibold tracking-tight text-balance text-ink sm:text-5xl">
+			O quadro que todo mundo vê mudar na hora
+		</h1>
 
-{#if detalhe}
-	<p class="mt-4 text-xs text-negativo">{detalhe}</p>
-{/if}
+		<p class="max-w-lg text-base leading-relaxed text-body">
+			Kanban colaborativo de verdade: várias pessoas no mesmo quadro, cada movimento aparecendo na
+			tela das outras no instante em que acontece.
+		</p>
+
+		<div class="mt-1 flex flex-wrap gap-3">
+			{#if sessao.usuario}
+				<a href="/painel" class="botao w-auto px-5">Ir para o painel</a>
+			{:else}
+				<a href="/cadastro" class="botao w-auto px-5">Criar conta</a>
+				<a href="/login" class="botao-secundario w-auto px-5">Entrar</a>
+			{/if}
+		</div>
+
+		<p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-mute">
+			<span>Grátis</span><span aria-hidden="true">·</span><span>Sem cartão</span><span
+				aria-hidden="true">·</span
+			><span>Código aberto</span>
+		</p>
+	</div>
+
+	<PreviaDoQuadro />
+</section>
 
 <section class="mt-14">
-	<h2 class="text-xs font-semibold tracking-widest text-mute uppercase">O que já dá para fazer</h2>
+	<h2 class="text-xs font-semibold tracking-widest text-mute uppercase">O que o quadro faz</h2>
 
-	<ul class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+	<ul
+		class="mt-6 grid gap-px overflow-hidden rounded-lg border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-3"
+	>
 		{#each recursos as recurso (recurso.titulo)}
-			<li class="rounded-lg border border-hairline bg-surface p-5">
-				<span class="mb-3 block size-8 rounded-md bg-accent-suave"></span>
-				<b class="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
-					{recurso.titulo}
-					{#if recurso.fase}
-						<span class="chip chip-neutro text-[0.6875rem]">{recurso.fase}</span>
-					{/if}
-				</b>
-				<small class="mt-1.5 block text-xs leading-relaxed text-mute">{recurso.texto}</small>
+			<li class="flex flex-col gap-2.5 bg-surface p-6">
+				<span
+					class="flex size-9 items-center justify-center rounded-md bg-accent-suave text-accent-texto"
+				>
+					<IconeRecurso nome={recurso.icone} />
+				</span>
+				<b class="text-sm font-semibold text-ink">{recurso.titulo}</b>
+				<small class="text-[0.8125rem] leading-relaxed text-mute">{recurso.texto}</small>
 			</li>
 		{/each}
 	</ul>
 </section>
+
+<!-- A faixa de segurança fica ao lado dos recursos, e não misturada a eles: é o
+     tipo de coisa que ninguém procura, mas que decide a adoção de quem procura. -->
+<section
+	class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-hairline bg-surface px-6 py-5"
+>
+	<b class="text-xs font-semibold tracking-widest text-mute uppercase">Por baixo</b>
+	<span class="text-[0.8125rem] text-body">Senhas em Argon2id</span>
+	<span class="text-[0.8125rem] text-body">Sessão em cookie HttpOnly</span>
+	<span class="text-[0.8125rem] text-body">Token guardado só como hash</span>
+	<span class="text-[0.8125rem] text-body">Edição concorrente sem sobrescrita</span>
+</section>
+
+{#if !sessao.usuario}
+	<section
+		class="mt-14 flex flex-col items-center gap-4 rounded-lg border border-hairline bg-surface px-6 py-12 text-center"
+	>
+		<h2 class="max-w-md text-2xl font-semibold tracking-tight text-balance text-ink">
+			Crie um quadro e chame a equipe
+		</h2>
+		<p class="max-w-md text-sm leading-relaxed text-mute">
+			A conta leva menos de um minuto. O convite vai por email e a pessoa entra direto no quadro.
+		</p>
+		<a href="/cadastro" class="botao mt-1 w-auto px-6">Criar conta</a>
+	</section>
+{/if}

@@ -3,6 +3,13 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- Não havia favicon nenhum: a aba ficava com o ícone em branco do
+		     navegador, que é o que mais denuncia um produto pela metade. -->
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/icone-180.png" />
+		<!-- A cor da barra do navegador no celular. É a laranja da marca nos dois
+		     temas: o quadrado do monograma também é. -->
+		<meta name="theme-color" content="#ef6820" />
 		<!-- Tema antes da primeira pintura. O data-theme acima é o padrão para
 		     quem está sem JavaScript; o script sobrescreve com a preferência
 		     salva. Externo, não inline, para passar na CSP script-src 'self'. -->

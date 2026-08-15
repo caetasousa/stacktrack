@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { sessao } from '$lib/stores/session.svelte';
 	import { tema } from '$lib/stores/tema.svelte';
+	import Logo from '$lib/components/Logo.svelte';
 	import SeletorTema from '$lib/components/SeletorTema.svelte';
 	import DialogoDeConfirmacao from '$lib/components/DialogoDeConfirmacao.svelte';
 
@@ -25,9 +26,8 @@
 <div class="flex min-h-screen flex-col bg-canvas font-sans text-body">
 	<header class="border-b border-hairline bg-surface">
 		<div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-			<a href="/" class="flex items-center gap-2 text-sm font-semibold tracking-tight text-ink">
-				<span class="inline-block size-5 rounded-sm bg-accent"></span>
-				stacktrack
+			<a href="/" aria-label="stacktrack — início" class="flex items-center">
+				<Logo comNome />
 			</a>
 
 			<nav class="flex items-center gap-2 text-sm">

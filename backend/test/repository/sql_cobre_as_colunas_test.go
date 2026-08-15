@@ -34,15 +34,90 @@ func TestTodaColunaDasMigrationsApareceNoSQLDoRepositorio(t *testing.T) {
 		t.Fatal("nenhuma tabela encontrada nas migrations — o caminho deve estar errado")
 	}
 	sql := fonteDosRepositorios(t)
+	orfas := orfasDeclaradas(t)
+	usadas := map[string]bool{}
 
 	for tabela, colunas := range tabelas {
 		for _, coluna := range colunas {
-			if !mencionada(sql, coluna) {
-				t.Errorf("a coluna %s.%s existe no banco mas não aparece em nenhum SQL de "+
-					"internal/adapter/repository: o dado nunca é gravado nem lido", tabela, coluna)
+			chave := tabela + "." + coluna
+			if mencionada(sql, coluna) {
+				if orfas[chave] {
+					t.Errorf("%s está declarada como ÓRFÃ, mas aparece no SQL do repositório.\n"+
+						"Ou o código voltou a usá-la — e a declaração deve sair —, ou a\n"+
+						"declaração está no arquivo errado.", chave)
+				}
+				continue
+			}
+			if orfas[chave] {
+				usadas[chave] = true
+				continue
+			}
+			t.Errorf("a coluna %s existe no banco mas não aparece em nenhum SQL de "+
+				"internal/adapter/repository: o dado nunca é gravado nem lido", chave)
+		}
+	}
+
+	// Declaração que sobra é autorização esquecida — a mesma regra do guard de
+	// expand/contract. Se a coluna não existe mais, a linha `-- ORFA:` some com
+	// a necessidade dela.
+	for chave := range orfas {
+		if !usadas[chave] {
+			t.Errorf("%s está declarada como ÓRFÃ e não existe mais nas migrations: remova a declaração", chave)
+		}
+	}
+}
+
+// declaracaoDeOrfas é o arquivo que lista as colunas deliberadamente sem SQL.
+//
+// NÃO é uma migration, e o motivo é caro: a primeira tentativa pôs a declaração
+// como comentário DENTRO da V20, e o Flyway recusou subir. Ele guarda o checksum
+// de cada migration aplicada e valida na partida — editar o arquivo, ainda que
+// só para acrescentar um comentário, muda o checksum e derruba o start. Migration
+// aplicada é imutável inclusive nos comentários.
+//
+// `.md` é ignorado pelo Flyway, que só recolhe o que casa com `V*.sql`.
+const declaracaoDeOrfas = "COLUNAS-ORFAS.md"
+
+// orfasDeclaradas lê as colunas declaradas como deliberadamente sem SQL, nas
+// linhas `- ORFA: tabela.coluna, ...` de migrations/COLUNAS-ORFAS.md.
+//
+// Existe para o intervalo entre DESISTIR de uma funcionalidade e APAGAR a
+// coluna dela, que são obrigatoriamente dois deploys: enquanto a versão
+// anterior ainda estiver no ar — e é para onde um rollback volta —, a coluna
+// precisa continuar existindo no banco. Nesse meio-tempo ela é exatamente o que
+// este guard caça: coluna que ninguém lê nem escreve.
+//
+// A diferença entre uma órfã declarada e o defeito que o guard existe para
+// pegar é uma frase escrita por alguém. Sem a declaração as duas são idênticas
+// — e foi assim que `cards.prazo` e `boards.fundo` passaram despercebidas.
+func orfasDeclaradas(t *testing.T) map[string]bool {
+	t.Helper()
+
+	caminho := filepath.Join("..", "..", "migrations", declaracaoDeOrfas)
+	conteudo, err := os.ReadFile(caminho)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]bool{}
+		}
+		t.Fatalf("erro ao ler %s: %v", caminho, err)
+	}
+
+	orfas := map[string]bool{}
+	for _, linha := range strings.Split(string(conteudo), "\n") {
+		linha = strings.TrimSpace(linha)
+		// O traço da lista markdown é opcional na leitura, para a declaração
+		// poder ser lida como texto e como dado sem duas grafias.
+		linha = strings.TrimPrefix(linha, "- ")
+		if !strings.HasPrefix(linha, "ORFA:") {
+			continue
+		}
+		for _, item := range strings.Split(strings.TrimPrefix(linha, "ORFA:"), ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				orfas[item] = true
 			}
 		}
 	}
+	return orfas
 }
 
 // colunasDasMigrations devolve, por tabela, as colunas que as migrations criam.

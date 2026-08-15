@@ -368,7 +368,27 @@
 		</form>
 	{:else}
 		<div>
-			<h1 class="text-xl font-semibold tracking-tight text-ink">{data.quadro.titulo}</h1>
+			<!-- "Voltar" ficava no fim da fileira de ações, com o mesmo peso de
+			     "Apagar". Voltar é navegação, e navegação se lê ANTES do título. -->
+			<a
+				href="/painel"
+				class="inline-flex items-center gap-1 text-xs text-mute transition-colors hover:text-ink"
+			>
+				<svg
+					class="size-3"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M15 5l-7 7 7 7" />
+				</svg>
+				Seus quadros
+			</a>
+			<h1 class="mt-1 text-2xl font-semibold tracking-tight text-ink">{data.quadro.titulo}</h1>
 			<p class="mt-0.5 text-sm text-mute">
 				{data.quadro.colunas.length}
 				{data.quadro.colunas.length === 1 ? 'coluna' : 'colunas'}
@@ -403,31 +423,50 @@
 					{conexao.situacao === 'conectando' ? 'conectando' : 'reconectando'}
 				</span>
 			{/if}
+			<!-- Daqui para a direita são AÇÕES; à esquerda, o estado do quadro. O
+			     traço separa os dois, que antes se misturavam numa fileira só. -->
+			<span class="hidden h-4 w-px bg-hairline-strong sm:block" aria-hidden="true"></span>
+
 			{#if podeEditar}
 				<button
-					onclick={() => (criandoColuna = !criandoColuna)}
-					class="botao w-auto px-3 py-1 text-xs"
-					aria-expanded={criandoColuna}
-				>
-					+ Nova coluna
-				</button>
-				<button
 					onclick={() => (painelDeAjustes = !painelDeAjustes)}
-					class="cursor-pointer hover:text-ink"
+					class="cursor-pointer rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
 					aria-expanded={painelDeAjustes}
 				>
 					Ajustes
 				</button>
 			{/if}
-			<a href="/painel/quadros/{data.quadro.id}/membros" class="hover:text-ink">Membros</a>
+			<a
+				href="/painel/quadros/{data.quadro.id}/membros"
+				class="rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
+			>
+				Membros
+			</a>
 			{#if podeAdministrar}
 				<button
 					onclick={() => ((titulo = data.quadro.titulo), (renomeando = true))}
-					class="cursor-pointer hover:text-ink">Renomear</button
+					class="cursor-pointer rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
+					>Renomear</button
 				>
-				<button onclick={apagar} class="cursor-pointer hover:text-negativo">Apagar</button>
+				<!-- Apagar é o único que não tem volta, e por isso é o único que sai
+				     do agrupamento: separado por traço e com hover vermelho, para não
+				     ser vizinho indistinguível de "Renomear". -->
+				<span class="h-4 w-px bg-hairline-strong" aria-hidden="true"></span>
+				<button
+					onclick={apagar}
+					class="cursor-pointer rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-negativo"
+					>Apagar</button
+				>
 			{/if}
-			<a href="/painel" class="hover:text-ink">Voltar</a>
+			{#if podeEditar}
+				<button
+					onclick={() => (criandoColuna = !criandoColuna)}
+					class="botao ml-1 w-auto px-3 py-1.5 text-xs"
+					aria-expanded={criandoColuna}
+				>
+					+ Nova coluna
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>

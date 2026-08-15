@@ -150,6 +150,33 @@ A tentação era marcar o passo como `continue-on-error` para a esteira ficar
 verde. Isso teria publicado as sete em produção — que é exatamente o que o passo
 existe para impedir.
 
+### Caso 1b — as mesmas sete viraram oito, e a correção foi a mesma linha
+
+Meses depois o `govulncheck` reprovou de novo: **nove achados**, com o toolchain
+em 1.26.5. O rastro assustava — `crypto/tls` a partir do `ListenAndServe`,
+`encoding/xml` a partir de um `Scan` do pgx, `encoding/asn1` a partir do
+`Close` do pool.
+
+Oito dos nove eram a mesma causa de sempre: a stdlib da 1.26.5, corrigida na
+1.26.6. `go 1.26.6` no `go.mod` zerou os oito.
+
+O nono não tem conserto por atualização, e é o mais interessante:
+
+```
+GO-2026-5932  golang.org/x/crypto  →  Fixed in: N/A
+```
+
+É o aviso de que `golang.org/x/crypto/openpgp` não tem manutenção. O `x/crypto`
+está no nosso grafo pelo **argon2** (hash de senha), `blake2b` e `sha3` — o
+`openpgp` não entra no binário, e por isso o govulncheck o classifica como
+*module*, não como alcançável. Não há versão que resolva: a correção é não
+importar aquele subpacote, o que já é o caso. O `exit 0` do govulncheck
+confirma — achado de módulo não reprova a esteira.
+
+A lição que se repete: **o rastro de chamadas assusta mais que a causa**. Ler
+"seu ListenAndServe alcança um bug de TLS" sugere um problema de arquitetura;
+era o número numa linha do `go.mod`.
+
 ### Caso 2 — Flyway: a correção é *remover*, não atualizar
 
 A imagem oficial do Flyway embarca centenas de MB de drivers para vinte e tantos

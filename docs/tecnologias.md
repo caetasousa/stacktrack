@@ -12,10 +12,13 @@ referência a um arquivo real — e onde aprofundar.
 A linguagem escolhida pelo eixo do projeto: goroutines e canais são o assunto da
 fase 5, e o resto do stack existe para chegar até lá.
 
-O toolchain é fixado em `go.mod` (`go 1.26.5`). Não é decoração: seis das sete
-vulnerabilidades que o `govulncheck` acusou antes do primeiro deploy eram da
-biblioteca padrão, e a correção foi subir essa linha. Ver
-[entrega-continua.md](entrega-continua.md), em "Casos reais deste projeto".
+O toolchain é fixado em `go.mod` (`go 1.26.6`). Não é decoração, e já foi a
+correção **duas vezes**: seis das sete vulnerabilidades que o `govulncheck`
+acusou antes do primeiro deploy eram da biblioteca padrão, e depois outras oito
+de uma vez. Nos dois casos nenhuma linha de código nosso mudou — o CI instala a
+versão que esta linha diz (`go-version-file: backend/go.mod`), então ela é o
+botão. Ver [entrega-continua.md](entrega-continua.md), em "Casos reais deste
+projeto".
 
 📚 [How to Write Go Code](https://go.dev/doc/code) — módulos e layout
 📝 [Effective Go](https://go.dev/doc/effective_go) — o guia de estilo com exemplo em cada seção

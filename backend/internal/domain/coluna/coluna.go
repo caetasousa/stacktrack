@@ -14,13 +14,6 @@ import (
 // pergunta não participa do quadro dela.
 var ErrNaoEncontrada = errors.New("coluna não encontrada")
 
-var (
-	// ErrJaArquivada é retornado ao arquivar uma coluna que já está arquivada.
-	ErrJaArquivada = errors.New("a coluna já está arquivada")
-	// ErrNaoArquivada é retornado ao desarquivar uma coluna que não está arquivada.
-	ErrNaoArquivada = errors.New("a coluna não está arquivada")
-)
-
 // Coluna é uma etapa do fluxo dentro de um quadro.
 type Coluna struct {
 	ID      string
@@ -30,44 +23,9 @@ type Coluna struct {
 	// significado à etapa — verde no começo, amarelo no meio, azul no fim.
 	Cor cor.Cor
 	// Chave é a ordenação. Ver o comentário equivalente em domain/card.
-	Chave string
-	// ArquivadoEm é nil enquanto a coluna está no quadro. Ver o comentário
-	// equivalente em domain/card.
-	//
-	// Arquivar a coluna NÃO arquiva os cards dela: eles continuam com
-	// `arquivado_em` nulo e voltam junto quando ela volta. Arquivar em cascata
-	// pareceria mais arrumado e seria pior — desarquivar a coluna teria de
-	// adivinhar quais cards já estavam arquivados ANTES, e devolveria ao quadro
-	// cards que alguém tinha tirado de lá de propósito.
-	ArquivadoEm  *time.Time
+	Chave        string
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
-}
-
-// Arquivada informa se a coluna saiu do quadro.
-func (c *Coluna) Arquivada() bool { return c.ArquivadoEm != nil }
-
-// Arquivar tira a coluna do quadro sem apagá-la, junto com os cards dela.
-// Erra com ErrJaArquivada se ela já estiver fora.
-func (c *Coluna) Arquivar() error {
-	if c.Arquivada() {
-		return ErrJaArquivada
-	}
-	agora := time.Now()
-	c.ArquivadoEm = &agora
-	c.AtualizadoEm = agora
-	return nil
-}
-
-// Desarquivar devolve a coluna ao quadro, na posição em que estava, com os
-// cards que ela tinha. Erra com ErrNaoArquivada se ela não estiver arquivada.
-func (c *Coluna) Desarquivar() error {
-	if !c.Arquivada() {
-		return ErrNaoArquivada
-	}
-	c.ArquivadoEm = nil
-	c.AtualizadoEm = time.Now()
-	return nil
 }
 
 // DefinirCor troca a cor da coluna. Cor vazia volta ao visual padrão.

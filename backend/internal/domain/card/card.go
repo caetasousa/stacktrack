@@ -37,10 +37,6 @@ var (
 	// ErrNaoEncontrado é retornado quando o card não existe — ou quando quem
 	// pergunta não participa do quadro dele.
 	ErrNaoEncontrado = errors.New("card não encontrado")
-	// ErrJaArquivado é retornado ao arquivar um card que já está arquivado.
-	ErrJaArquivado = errors.New("o card já está arquivado")
-	// ErrNaoArquivado é retornado ao desarquivar um card que não está arquivado.
-	ErrNaoArquivado = errors.New("o card não está arquivado")
 )
 
 // Card é uma tarefa dentro de uma coluna.
@@ -64,45 +60,9 @@ type Card struct {
 	// lateral — as etiquetas já ocupam o topo do card.
 	Cor cor.Cor
 	// Prazo é nil quando o card não tem data de entrega — o caso normal.
-	Prazo *time.Time
-	// ArquivadoEm é nil enquanto o card está no quadro.
-	//
-	// É o instante, e não um booleano: responde tudo o que um booleano
-	// responderia e ainda permite ordenar a tela de arquivados pelo mais
-	// recente. O card arquivado guarda a Chave e a ColunaID que tinha — é o que
-	// faz desarquivar devolvê-lo ao mesmo lugar, e não ao fim da coluna.
-	ArquivadoEm  *time.Time
+	Prazo        *time.Time
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
-}
-
-// Arquivado informa se o card saiu do quadro.
-func (c *Card) Arquivado() bool { return c.ArquivadoEm != nil }
-
-// Arquivar tira o card do quadro sem apagá-lo. Erra com ErrJaArquivado se ele
-// já estiver fora — o que acontece quando duas pessoas arquivam o mesmo card, e
-// dizer isso é melhor que fingir que a segunda também arquivou.
-func (c *Card) Arquivar() error {
-	if c.Arquivado() {
-		return ErrJaArquivado
-	}
-	agora := time.Now()
-	c.ArquivadoEm = &agora
-	c.Version++
-	c.AtualizadoEm = agora
-	return nil
-}
-
-// Desarquivar devolve o card ao quadro, na coluna e na posição em que estava.
-// Erra com ErrNaoArquivado se ele não estiver arquivado.
-func (c *Card) Desarquivar() error {
-	if !c.Arquivado() {
-		return ErrNaoArquivado
-	}
-	c.ArquivadoEm = nil
-	c.Version++
-	c.AtualizadoEm = time.Now()
-	return nil
 }
 
 // DefinirPrazo marca a data de entrega do card. Passar nil limpa o prazo.

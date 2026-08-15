@@ -677,7 +677,42 @@ risco sem receber o benefício.
 
 ---
 
-### Fase 13 — Arquivar, com desfazer ✅
+### Fase 13 — Arquivar, com desfazer ❌ retirada
+
+> **Foi feita inteira e depois RETIRADA, por decisão de produto.** O texto
+> abaixo é o plano original, mantido porque o assunto pode voltar.
+>
+> O que sobrou no repositório, e não é esquecimento:
+>
+> - **`V20` continua no `migrations/`.** O Flyway é forward-only e guarda o
+>   checksum do que aplicou; apagar um arquivo já aplicado faz a validação
+>   falhar no próximo start. A migration rodou em produção — o que já aconteceu
+>   não se desfaz apagando o texto.
+> - **As colunas `arquivado_em` continuam no banco**, sem ninguém que as leia ou
+>   escreva. Elas são exatamente o que o guard de SQL caça, então passaram a ser
+>   declaradas em `migrations/COLUNAS-ORFAS.md`, e o guard aprendeu a diferença
+>   entre uma órfã deliberada e o defeito que ele existe para pegar. A
+>   declaração não é permanente: ele reprova se a coluna sumir e a linha ficar, e
+>   reprova também se o código voltar a usá-la sem a linha sair.
+>
+> ⚠️ **A declaração quase foi parar dentro da V20, e isso derrubaria o deploy.**
+> O Flyway guarda o checksum de cada migration aplicada e valida na partida:
+> acrescentar UM COMENTÁRIO a um arquivo já aplicado muda o checksum e o start
+> falha com `Migration checksum mismatch`. Aconteceu aqui, na stack local, antes
+> de virar commit. Migration aplicada é imutável inclusive nos comentários — daí
+> a declaração morar num `.md`, que o Flyway não recolhe.
+>
+> ⏳ **Falta o contract — `V21`, e ele é do PRÓXIMO deploy.** Derrubar as colunas
+> no mesmo deploy que retira o código quebraria a versão que está no ar durante
+> a janela de publicação, que é também para onde um rollback volta: ela lê e
+> escreve `arquivado_em` em todo SELECT e INSERT de card e coluna. A mesma
+> doutrina da fase 9, agora na direção contrária — ali uma coluna nascia, aqui
+> uma morre, e nos dois casos são dois deploys.
+>
+> **O que a fase deixou de bom, e fica:** a correção do vazamento de anexos no
+> disco (o `ON DELETE CASCADE` limpava a tabela e não o volume), que apareceu ao
+> levantar os motivos desta fase e não tem relação com arquivar.
+
 
 **Conceito novo:** exclusão reversível, e o ciclo expand/contract numa coluna nova que **não tem
 contract** — ela nasce anulável e assim fica.
@@ -691,7 +726,7 @@ não há como recuperar. O Trello arquiva.
 - Tela de arquivados do quadro, com desarquivar
 - Apagar de vez continua existindo, só do dono, e a partir da tela de arquivados
 
-**Migrations:** `V20__adiciona_arquivado_em_em_cards_e_colunas.sql` (o plano dizia V17; aquele número já era do `card_id` em `board_events`)
+**Migrations:** `V17__adiciona_arquivado_em_em_cards_e_colunas.sql`
 
 **A armadilha:** **todo** `SELECT` existente precisa passar a filtrar, e um esquecido faz o card
 arquivado reaparecer no quadro. É exatamente o tipo de defeito que os fakes em memória não pegam —
@@ -699,35 +734,6 @@ e é onde os testes de repositório contra Postgres real da fase 8 pagam o inves
 
 **Pronto quando:** arquivar um card o tira do quadro nos dois navegadores, ele aparece na tela de
 arquivados, e desarquivar o devolve à mesma coluna e posição.
-
-> **Feita.** O caso mais fácil do ciclo expand/contract, e o primeiro que NÃO tem contract: a coluna
-> nasce anulável e assim fica, porque `NULL` já é o estado verdadeiro de toda linha existente. Nada
-> de backfill. É `TIMESTAMPTZ` e não `BOOLEAN` porque "quando" responde tudo o que "se" responderia,
-> e ainda ordena a tela. Os índices são **parciais**: não crescem com o arquivo morto.
->
-> Quatro decisões que valem mais que o código:
->
-> - **arquivar uma COLUNA não arquiva os cards dela.** Pareceria mais arrumado e seria pior:
->   desarquivar teria de adivinhar quais cards já estavam fora do quadro de propósito. Eles somem da
->   tela por serem de uma coluna arquivada, e voltam junto com ela;
-> - **`BuscarPorID` não filtra.** É por ele que passam o desarquivamento e toda verificação de
->   acesso; filtrar ali faria desarquivar responder 404, sem saída;
-> - **`UltimaChave` conta os arquivados.** O card arquivado guarda a chave que tinha para voltar ao
->   mesmo lugar, e ignorá-la faria um card novo nascer com a mesma — os dois disputariam a posição
->   ao voltar, desempatados pelo id, que não significa nada para quem olha;
-> - **arquivar não pergunta; apagar de vez, sim.** Confirmar o que tem volta ensina a dispensar o
->   diálogo sem ler, e aí o de apagar — que importa — também passa batido.
->
-> ⚠️ **O guard decidiu a granularidade do commit.** Tentei commitar a migration sozinha e
-> `TestTodaColunaDasMigrationsApareceNoSQLDoRepositorio` reprovou: *"a coluna cards.arquivado_em
-> existe no banco mas não aparece em nenhum SQL"*. É o guard que nasceu de `cards.prazo` e
-> `boards.fundo`, e ele obriga schema, domínio e repositório a andarem juntos.
->
-> 🩹 **Um vazamento apareceu ao justificar a fase, e foi consertado junto.** O `ON DELETE CASCADE`
-> limpa a TABELA `anexos` e não toca no volume: apagar um card removia as linhas dos anexos dele e
-> deixava os **arquivos no disco para sempre**, sem nenhuma linha que os referenciasse. Valia para
-> card, coluna e quadro. Agora os caminhos são coletados ANTES do DELETE — depois dele não há de
-> onde tirá-los — e descartados depois que ele dá certo.
 
 ---
 

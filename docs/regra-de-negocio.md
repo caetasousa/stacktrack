@@ -203,32 +203,6 @@ tinham, e só o deploy seguinte apertou a coluna e derrubou a `posicao`
 
 ---
 
-## Arquivar, e o que realmente se perde ao apagar
-
-Apagar um card é **definitivo**, e leva por cascata cinco tabelas: comentários,
-checklists, anexos, responsáveis e etiquetas aplicadas. Não há de onde trazer
-nada de volta.
-
-Arquivar tira do quadro sem tirar do banco. O card guarda a coluna e a chave que
-tinha, e é isso que separa **desfazer** de **criar de novo**: ele volta ao mesmo
-lugar, não ao fim da coluna.
-
-**Arquivar uma coluna não arquiva os cards dela.** Eles somem da tela por serem
-de uma coluna arquivada, e voltam junto quando ela volta. Arquivar em cascata
-pareceria mais arrumado e seria pior: desarquivar teria de adivinhar quais cards
-já estavam fora do quadro de propósito, e devolveria ao quadro cards que alguém
-tinha tirado de lá.
-
-**Arquivar não pergunta nada. Apagar de vez, sim.** Confirmar o que tem volta
-ensina a dispensar o diálogo sem ler — e aí o de apagar, que é o que importa,
-também passa batido. Apagar de vez só existe a partir da tela de arquivados, e é
-o único caminho que avisa que não tem desfazer.
-
-**Ver o arquivo é leitura**: quem só lê o quadro pode consultá-lo. Arquivar e
-devolver exigem papel de edição, como qualquer escrita.
-
----
-
 ## Duas pessoas no mesmo card
 
 Editar não é primeiro-a-chegar nem último-a-vencer: é **quem gravou primeiro

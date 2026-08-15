@@ -23,14 +23,6 @@ const (
 	CardAlterado   Tipo = "card.alterado"
 	CardApagado    Tipo = "card.apagado"
 	CardMovido     Tipo = "card.movido"
-	// Arquivar e desarquivar são eventos PRÓPRIOS, e não card.alterado: o
-	// histórico do card precisa poder dizer "tirou do quadro", que é uma frase
-	// diferente de "editou". E para quem está com o quadro aberto o efeito
-	// também é outro — o card some da tela, não muda de texto.
-	CardArquivado      Tipo = "card.arquivado"
-	CardDesarquivado   Tipo = "card.desarquivado"
-	ColunaArquivada    Tipo = "coluna.arquivada"
-	ColunaDesarquivada Tipo = "coluna.desarquivada"
 
 	// O que pende de um card ou do quadro. A tela recarrega em vez de aplicar
 	// diferença: são mudanças menos frequentes, e o custo de manter trinta

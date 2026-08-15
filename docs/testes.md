@@ -175,26 +175,6 @@ armazenamento independentes, então duas contas convivem no mesmo navegador:
 | quem grava por último é avisado | o 409 do bloqueio otimista, com o texto preservado |
 | o comentário do outro aparece no card aberto | o modal também é tempo real — ele nasceu mudo na fase 11 |
 
-### Arquivar
-
-`e2e/arquivar.spec.ts` — o caminho de volta, que é a razão de a fase 13 existir:
-arquivar tira do quadro, o arquivo mostra de que coluna o card veio, devolver o
-põe no mesmo lugar, e apagar de vez (o único sem volta) é o único que pergunta.
-
-Do lado do backend, a fase é testada em três camadas porque cada uma responde
-uma pergunta diferente:
-
-| camada | o que só ela prova |
-|---|---|
-| `test/domain` | as regras: arquivar duas vezes é recusado, e a posição não se perde |
-| `test/usecase` | a autorização (leitor não arquiva, mas lê o arquivo) e o evento próprio |
-| `test/repository` (integração) | **o filtro no SQL** — quatro filtros, os quatro mutados, cada um derruba o seu teste |
-
-O terceiro é o que importa aqui: arquivar não muda uma regra, muda TODA leitura,
-e um `SELECT` esquecido faz o card arquivado reaparecer no quadro. Fakes em
-memória não pegariam — eles copiam a struct e não têm SQL onde esquecer um
-filtro.
-
 Contas, quadro e convite são semeados **pela API**, não pela tela: um teste de
 tempo real que quebra porque o botão de cadastro mudou de rótulo aponta para o
 lugar errado.
@@ -263,7 +243,36 @@ eventos da fase 7: ordem do `seq`, o intervalo do `Desde`, o payload
 sobrevivendo ao JSONB, e o `ON DELETE CASCADE` levando a história junto com o
 quadro.
 
+### O guard da coluna sem SQL, e a órfã declarada
+
+`sql_cobre_as_colunas_test.go` cobra que toda coluna criada nas migrations
+apareça em algum SQL do repositório. É grosseiro de propósito — não sabe se ela
+está no INSERT mas falta no UPDATE —, e mesmo assim é o guard que fecha o buraco
+por onde `cards.prazo` e `boards.fundo` passaram.
+
+Existe um caso legítimo de coluna sem SQL, e ele aparece quando uma
+funcionalidade é **retirada**: entre parar de usar a coluna e derrubá-la vão
+dois deploys, e no meio-tempo ela fica no banco sem ninguém que a leia. A
+declaração vive em `backend/migrations/COLUNAS-ORFAS.md`:
+
+```
+- ORFA: cards.arquivado_em, colunas.arquivado_em
+```
+
+⚠️ **E ela não pode morar dentro da migration.** Foi a primeira tentativa: o
+Flyway guarda o checksum de cada migration aplicada e valida na partida, então
+acrescentar um comentário a um arquivo já aplicado muda o checksum e derruba o
+start com `Migration checksum mismatch`. Migration aplicada é imutável inclusive
+nos comentários. O `.md` existe por isso — o Flyway só recolhe `V*.sql`.
+
+A diferença entre uma órfã deliberada e o defeito é uma frase escrita por
+alguém — e por isso a declaração é cobrada nos **três** sentidos: sem ela a
+coluna acusa; se a coluna sumir e a linha ficar, acusa; e se o código voltar a
+usar a coluna sem a linha sair, acusa também. Uma autorização que sobra é a que
+ninguém relê no dia do acidente.
+
 ### O guard de expand/contract
+
 
 `compatibilidade_schema_test.go` aplica as migrations até a **penúltima**,
 fotografa o schema, aplica a última e compara. Reprova três coisas, cada uma

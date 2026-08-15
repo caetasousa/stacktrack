@@ -226,7 +226,6 @@ func main() {
 			r.Patch("/{boardID}", boardHandler.Renomear)
 			r.Delete("/{boardID}", boardHandler.Apagar)
 			r.Post("/{boardID}/colunas", boardHandler.CriarColuna)
-			r.Get("/{boardID}/arquivados", boardHandler.Arquivados)
 
 			r.Get("/{boardID}/membros", membroHandler.Listar)
 			r.Post("/{boardID}/membros", membroHandler.Convidar)
@@ -274,8 +273,6 @@ func main() {
 		r.Route("/colunas/{colunaID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.RenomearColuna)
 			r.Patch("/mover", boardHandler.MoverColuna)
-			r.Patch("/arquivar", boardHandler.ArquivarColuna)
-			r.Patch("/desarquivar", boardHandler.DesarquivarColuna)
 			r.Delete("/", boardHandler.ApagarColuna)
 			r.Post("/cards", boardHandler.CriarCard)
 		})
@@ -286,8 +283,6 @@ func main() {
 			r.Delete("/", boardHandler.ApagarCard)
 			r.Patch("/prazo", boardHandler.DefinirPrazo)
 			r.Patch("/mover", boardHandler.MoverCard)
-			r.Patch("/arquivar", boardHandler.ArquivarCard)
-			r.Patch("/desarquivar", boardHandler.DesarquivarCard)
 			r.Put("/etiquetas/{etiquetaID}", extrasHandler.AplicarEtiqueta)
 			r.Delete("/etiquetas/{etiquetaID}", extrasHandler.RemoverEtiqueta)
 			r.Put("/responsaveis/{usuarioID}", extrasHandler.Atribuir)

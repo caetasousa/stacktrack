@@ -82,36 +82,6 @@ type CardResponse struct {
 	QtdComentarios int `json:"qtdComentarios"`
 }
 
-// ArquivadosResponse é a tela de arquivados de um quadro: o que saiu dele e
-// pode voltar.
-type ArquivadosResponse struct {
-	Cards   []CardArquivadoResponse   `json:"cards"`
-	Colunas []ColunaArquivadaResponse `json:"colunas"`
-}
-
-// CardArquivadoResponse é um card fora do quadro.
-//
-// Leva o NOME da coluna de origem, e não só o id: "Migração, de A fazer"
-// responde onde o card cai ao voltar, e o cliente não teria como resolver o
-// nome de uma coluna que pode, ela própria, estar arquivada.
-type CardArquivadoResponse struct {
-	ID          string    `json:"id"`
-	ColunaID    string    `json:"colunaId"`
-	Coluna      string    `json:"coluna"`
-	Titulo      string    `json:"titulo"`
-	Cor         string    `json:"cor"`
-	ArquivadoEm time.Time `json:"arquivadoEm"`
-}
-
-// ColunaArquivadaResponse é uma coluna fora do quadro. Os cards dela voltam
-// junto quando ela volta, e por isso não aparecem na lista de cards arquivados.
-type ColunaArquivadaResponse struct {
-	ID          string    `json:"id"`
-	Titulo      string    `json:"titulo"`
-	Cor         string    `json:"cor"`
-	ArquivadoEm time.Time `json:"arquivadoEm"`
-}
-
 // ProgressoResponse é o "2/5" de checklist mostrado no card.
 type ProgressoResponse struct {
 	Concluidos int `json:"concluidos"`

@@ -24,10 +24,10 @@ func NovoCardPostgres(pool *pgxpool.Pool) *CardPostgres {
 // Salvar persiste um card novo.
 func (r *CardPostgres) Salvar(ctx context.Context, c *card.Card) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, chave, version, prazo, arquivado_em, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		`INSERT INTO cards (id, coluna_id, titulo, descricao, cor, chave, version, prazo, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
-		c.Chave, c.Version, c.Prazo, c.ArquivadoEm, c.CriadoEm, c.AtualizadoEm,
+		c.Chave, c.Version, c.Prazo, c.CriadoEm, c.AtualizadoEm,
 	)
 	return err
 }
@@ -51,10 +51,10 @@ func (r *CardPostgres) Salvar(ctx context.Context, c *card.Card) error {
 func (r *CardPostgres) Atualizar(ctx context.Context, c *card.Card) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE cards SET coluna_id = $2, titulo = $3, descricao = $4, cor = $5,
-		        chave = $6, version = $7, prazo = $8, arquivado_em = $9, atualizado_em = $10
+		        chave = $6, version = $7, prazo = $8, atualizado_em = $9
 		 WHERE id = $1 AND version = $7 - 1`,
 		c.ID, c.ColunaID, c.Titulo, c.Descricao, vazioParaNulo(string(c.Cor)),
-		c.Chave, c.Version, c.Prazo, c.ArquivadoEm, c.AtualizadoEm,
+		c.Chave, c.Version, c.Prazo, c.AtualizadoEm,
 	)
 	if err != nil {
 		return err
@@ -66,18 +66,13 @@ func (r *CardPostgres) Atualizar(ctx context.Context, c *card.Card) error {
 }
 
 // BuscarPorID retorna (card, nil) quando encontra e (nil, nil) quando não existe.
-//
-// NÃO filtra por `arquivado_em`, de propósito: é por aqui que passam a tela de
-// arquivados, o desarquivamento e TODA verificação de acesso (card → coluna →
-// quadro). Esconder o card arquivado daqui faria desarquivar responder 404 —
-// não haveria como tirá-lo do arquivo.
 func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, error) {
 	var c card.Card
 	var corLida *string
 	err := r.db.QueryRow(ctx,
-		`SELECT id, coluna_id, titulo, descricao, cor, chave, version, prazo, arquivado_em, criado_em, atualizado_em
+		`SELECT id, coluna_id, titulo, descricao, cor, chave, version, prazo, criado_em, atualizado_em
 		 FROM cards WHERE id = $1`, id,
-	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.ArquivadoEm, &c.CriadoEm, &c.AtualizadoEm)
+	).Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -88,20 +83,14 @@ func (r *CardPostgres) BuscarPorID(ctx context.Context, id string) (*card.Card, 
 	return &c, nil
 }
 
-// ListarDoBoard devolve os cards ATIVOS do quadro em ordem de chave, numa
+// ListarDoBoard devolve todos os cards do quadro em ordem de posição, numa
 // consulta só — uma por coluna seria um N+1 que piora conforme o quadro cresce.
-//
-// Os dois filtros de arquivamento são necessários: o card arquivado sai, e o
-// card ativo de uma COLUNA arquivada sai junto com ela. Sem o segundo, arquivar
-// uma coluna deixaria os cards dela órfãos na tela, sem coluna a que pertencer.
 func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
 	linhas, err := r.db.Query(ctx,
-		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.chave, c.version, c.prazo, c.arquivado_em, c.criado_em, c.atualizado_em
+		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.chave, c.version, c.prazo, c.criado_em, c.atualizado_em
 		 FROM cards c
 		 JOIN colunas col ON col.id = c.coluna_id
 		 WHERE col.board_id = $1
-		   AND c.arquivado_em IS NULL
-		   AND col.arquivado_em IS NULL
 		 ORDER BY c.chave COLLATE "C", c.id`, boardID,
 	)
 	if err != nil {
@@ -113,40 +102,7 @@ func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]car
 	for linhas.Next() {
 		var c card.Card
 		var corLida *string
-		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.ArquivadoEm, &c.CriadoEm, &c.AtualizadoEm); err != nil {
-			return nil, err
-		}
-		c.Cor = cor.Cor(valorOuVazio(corLida))
-		cards = append(cards, c)
-	}
-	return cards, linhas.Err()
-}
-
-// ListarArquivadosDoBoard devolve os cards arquivados do quadro, do mais
-// recente para o mais antigo — que é a ordem em que se procura o que se acabou
-// de arquivar por engano.
-//
-// A coluna arquivada NÃO entra aqui: os cards dela continuam ativos e voltam
-// junto quando ela volta. Quem some do quadro é a coluna, e é na lista de
-// colunas arquivadas que ela aparece.
-func (r *CardPostgres) ListarArquivadosDoBoard(ctx context.Context, boardID string) ([]card.Card, error) {
-	linhas, err := r.db.Query(ctx,
-		`SELECT c.id, c.coluna_id, c.titulo, c.descricao, c.cor, c.chave, c.version, c.prazo, c.arquivado_em, c.criado_em, c.atualizado_em
-		 FROM cards c
-		 JOIN colunas col ON col.id = c.coluna_id
-		 WHERE col.board_id = $1 AND c.arquivado_em IS NOT NULL
-		 ORDER BY c.arquivado_em DESC, c.id`, boardID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer linhas.Close()
-
-	cards := make([]card.Card, 0)
-	for linhas.Next() {
-		var c card.Card
-		var corLida *string
-		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.ArquivadoEm, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
 			return nil, err
 		}
 		c.Cor = cor.Cor(valorOuVazio(corLida))
@@ -163,11 +119,6 @@ func (r *CardPostgres) Apagar(ctx context.Context, id string) error {
 
 // UltimaChave devolve a maior chave em uso na coluna, ou vazio quando a coluna
 // está vazia. É por ela que um card acrescentado sem vizinhos vai para o fim.
-//
-// Conta os ARQUIVADOS também, e isso não é esquecimento. O card arquivado
-// guarda a chave que tinha, para voltar ao mesmo lugar; ignorá-lo aqui faria um
-// card novo nascer com a mesma chave dele, e ao desarquivar os dois disputariam
-// a posição — desempatados pelo id, que não significa nada para quem olha.
 func (r *CardPostgres) UltimaChave(ctx context.Context, colunaID string) (string, error) {
 	var chave *string
 	err := r.db.QueryRow(ctx,

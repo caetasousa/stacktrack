@@ -113,4 +113,57 @@ describe('CardDoQuadro', () => {
 
 		expect(elemento.querySelectorAll('[data-responsavel]')).toHaveLength(0);
 	});
+	// O selo de auditoria. A lição do botão de arquivar vale aqui: um seletor
+	// enxerga o que o olho não vê, então o teste confere o TEXTO renderizado —
+	// o nome de quem moveu tem de estar legível no card, não só num atributo.
+	it('mostra quem moveu o card por último', () => {
+		const elemento = montar(
+			cardFalso({
+				ultimaMovimentacao: {
+					autorId: 'u-9',
+					autorNome: 'Roberto Silva',
+					de: 'A fazer',
+					para: 'Pronto',
+					ocorridoEm: new Date().toISOString()
+				}
+			})
+		);
+
+		expect(elemento.textContent).toContain('Roberto Silva');
+		expect(elemento.textContent).toContain('agora');
+	});
+
+	// O trajeto e a data exata não cabem no card, mas quem audita precisa deles
+	// sem sair da tela.
+	it('guarda o trajeto e a data completos no title', () => {
+		const elemento = montar(
+			cardFalso({
+				ultimaMovimentacao: {
+					autorId: 'u-9',
+					autorNome: 'Roberto Silva',
+					de: 'A fazer',
+					para: 'Pronto',
+					ocorridoEm: '2026-08-17T12:00:00Z'
+				}
+			})
+		);
+
+		const linha = [...elemento.querySelectorAll('[title]')].find((e) =>
+			e.getAttribute('title')?.includes('Roberto Silva')
+		);
+		expect(linha?.getAttribute('title')).toContain('moveu de A fazer para Pronto');
+	});
+
+	// Card recém-criado não ganha linha nenhuma: ausência é a informação certa.
+	// Inventar "movido por quem criou" transformaria auditoria em ficção.
+	it('não mostra selo de movimentação no card que nunca foi movido', () => {
+		const elemento = montar(cardFalso());
+
+		expect(elemento.textContent).not.toContain('agora');
+		expect(
+			[...elemento.querySelectorAll('[title]')].some((e) =>
+				e.getAttribute('title')?.includes('moveu')
+			)
+		).toBe(false);
+	});
 });

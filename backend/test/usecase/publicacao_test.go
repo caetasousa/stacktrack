@@ -31,8 +31,9 @@ func (q *quadro) publicar(t *testing.T, boardID, usuarioID string) string {
 	return p.Token
 }
 
-// aberto é a colaboração com o que pendura NOME em card — responsável e
-// comentário. Existe para o teste de vazamento poder montar um quadro cheio de
+// aberto é a colaboração com TUDO o que pendura nome de pessoa num card —
+// responsável, comentário e, desde a auditoria, o selo de quem moveu por
+// último. Existe para o teste de vazamento poder montar um quadro cheio de
 // pessoas e então conferir que nenhuma delas sai pelo link público.
 type aberto struct {
 	*colaboracao
@@ -44,6 +45,11 @@ func novoAberto(t *testing.T) *aberto {
 	t.Helper()
 	c := novaColaboracao(t)
 	c.comentarios.LigarUsuarios(c.usuarios)
+	c.atividades.LigarUsuarios(c.usuarios)
+	// O log precisa RECEBER as escritas, senão mover um card não grava evento
+	// nenhum — e o teste de vazamento ficaria verde por não haver nome algum
+	// para vazar, que é a pior forma de passar.
+	c.card.ComRegistro(c.atividades)
 	return &aberto{
 		colaboracao:   c,
 		responsavelUC: ucboard.NovoResponsavelUseCase(c.membros, c.colunas, c.cards, c.responsaveis),
@@ -252,6 +258,7 @@ func TestOQuadroPublicoNaoVazaPessoas(t *testing.T) {
 	boardID := a.criarQuadro(t, ana, "Roadmap")
 	a.convidar(t, boardID, bob, dmembro.PapelEditor)
 	colunaID := a.criarColuna(t, boardID, ana, "A fazer")
+	pronto := a.criarColuna(t, boardID, ana, "Pronto")
 	cardID := a.criarCard(t, colunaID, ana, "Revisar o contrato")
 
 	if err := a.responsavelUC.Atribuir(context.Background(), cardID, bob, ana); err != nil {
@@ -259,6 +266,15 @@ func TestOQuadroPublicoNaoVazaPessoas(t *testing.T) {
 	}
 	if _, err := a.comentarioUC.Criar(context.Background(), cardID, bob, "isto aqui é confidencial"); err != nil {
 		t.Fatalf("erro ao comentar: %v", err)
+	}
+	// O bob também MOVE o card: assim o nome dele passa a existir no selo de
+	// última movimentação, e a busca abaixo cobre também esse caminho — que é o
+	// mais recente, e portanto o menos vigiado.
+	if _, err := a.card.Mover(context.Background(), cardID, bob, pronto, ucboard.Vizinhos{}); err != nil {
+		t.Fatalf("erro ao mover o card: %v", err)
+	}
+	if m, _ := a.atividades.UltimaMovimentacaoPorCard(context.Background(), boardID); m[cardID].AutorNome != "Roberto Silva" {
+		t.Fatalf("o cenário não gravou a movimentação do bob (%+v) — o teste de vazamento não provaria nada", m[cardID])
 	}
 
 	publico, err := a.publicacao.Ver(context.Background(), a.publicar(t, boardID, ana))

@@ -75,10 +75,21 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		"http://localhost:5173",
 		identidade,
 	)
+	quadroUC.ComAtividades(atividades)
+	colunaUC := ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem)
+	cardUC := ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
+	// O log RECEBE as escritas, como em produção. Sem isto, mover um card pela
+	// API não gravaria evento, e o teste da auditoria passaria por não haver o
+	// que auditar — verde pelo motivo errado.
+	for _, uc := range []interface {
+		ComRegistro(ucboard.RegistroDeEventos)
+	}{quadroUC, colunaUC, cardUC} {
+		uc.ComRegistro(atividades)
+	}
 	boardHandler := handler.NovoBoardHandler(
 		quadroUC,
-		ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
-		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		colunaUC,
+		cardUC,
 		identidade,
 	)
 	extrasHandler := handler.NovoExtrasHandler(
@@ -119,6 +130,8 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Delete("/{boardID}/membros/{usuarioID}", membroHandler.Remover)
 			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
 
+			r.Get("/{boardID}/atividade", extrasHandler.AtividadeDoQuadro)
+
 			r.Get("/{boardID}/publicacao", publicacaoHandler.Consultar)
 			r.Put("/{boardID}/publicacao", publicacaoHandler.Publicar)
 			r.Delete("/{boardID}/publicacao", publicacaoHandler.Revogar)
@@ -132,6 +145,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Patch("/", boardHandler.EditarCard)
 			r.Delete("/", boardHandler.ApagarCard)
 			r.Get("/", boardHandler.DetalharCard)
+			r.Patch("/mover", boardHandler.MoverCard)
 			r.Get("/atividade", extrasHandler.Atividade)
 			r.Get("/comentarios", extrasHandler.ListarComentarios)
 			r.Post("/comentarios", extrasHandler.Comentar)

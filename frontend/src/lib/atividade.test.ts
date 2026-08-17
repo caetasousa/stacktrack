@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { descritas, frase, quando, type Atividade } from './atividade';
+import { descritas, frase, fraseNoQuadro, haQuanto, quando, type Atividade } from './atividade';
 
 function entrada(ajustes: Partial<Atividade> = {}): Atividade {
 	return {
@@ -88,5 +88,70 @@ describe('quando', () => {
 
 	it('formata uma data válida', () => {
 		expect(quando('2026-08-08T19:00:00Z')).not.toBe('');
+	});
+});
+
+// A frase da AUDITORIA do quadro precisa dizer em qual card a coisa aconteceu.
+// No histórico de um card o contexto é a tela; numa lista que mistura o quadro
+// inteiro, cinquenta linhas dizendo "moveu de A para B" não auditam nada.
+describe('fraseNoQuadro', () => {
+	it('nomeia o card no movimento', () => {
+		const a = entrada({
+			tipo: 'card.movido',
+			dados: { titulo: 'Migração', deColuna: 'A fazer', coluna: 'Pronto' }
+		});
+
+		expect(fraseNoQuadro(a)).toBe('moveu "Migração" de A fazer para Pronto');
+	});
+
+	it('chama de reordenação o movimento dentro da mesma coluna', () => {
+		const a = entrada({
+			tipo: 'card.movido',
+			dados: { titulo: 'Migração', deColuna: 'A fazer', coluna: 'A fazer' }
+		});
+
+		expect(fraseNoQuadro(a)).toBe('reordenou "Migração" em A fazer');
+	});
+
+	// O título vem do payload — o que o card tinha NA HORA. Quando falta, a
+	// frase encolhe em vez de mentir ou de sair pela metade.
+	it('encolhe quando o payload não traz o título', () => {
+		const a = entrada({ tipo: 'card.movido', dados: { deColuna: 'A fazer', coluna: 'Pronto' } });
+
+		expect(fraseNoQuadro(a)).toBe('moveu um card de A fazer para Pronto');
+	});
+
+	// Silêncio, e não uma frase torta: a tela omite a linha inteira.
+	it('devolve vazio para o que não sabe descrever', () => {
+		expect(fraseNoQuadro(entrada({ tipo: 'coluna.criada' }))).toBe('');
+		expect(fraseNoQuadro(entrada({ tipo: 'inventado.agora' }))).toBe('');
+	});
+});
+
+describe('haQuanto', () => {
+	const agora = new Date('2026-08-17T12:00:00Z');
+
+	it.each([
+		['2026-08-17T11:59:30Z', 'agora'],
+		['2026-08-17T11:45:00Z', 'há 15 min'],
+		['2026-08-17T09:00:00Z', 'há 3 h'],
+		['2026-08-15T12:00:00Z', 'há 2 d']
+	])('%s vira %s', (iso, esperado) => {
+		expect(haQuanto(iso, agora)).toBe(esperado);
+	});
+
+	// Acima de uma semana volta a ser data: "há 43 d" não diz nada a ninguém.
+	it('volta a mostrar a data depois de uma semana', () => {
+		expect(haQuanto('2026-07-01T12:00:00Z', agora)).toBe(quando('2026-07-01T12:00:00Z'));
+	});
+
+	// O relógio do cliente pode estar adiantado em relação ao servidor. "em 3 s"
+	// seria absurdo num histórico.
+	it('não mostra futuro quando o relógio do cliente está adiantado', () => {
+		expect(haQuanto('2026-08-17T12:00:30Z', agora)).toBe('agora');
+	});
+
+	it('devolve vazio para data ilegível', () => {
+		expect(haQuanto('nem data é', agora)).toBe('');
 	});
 });

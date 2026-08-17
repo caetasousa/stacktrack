@@ -63,6 +63,12 @@ func novoQuadro() *quadro {
 	// quadro está público" nunca seria exercitada.
 	quadros := ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
 	quadros.ComPublicacoes(publicacoes)
+	// O selo de "quem moveu por último" lê o mesmo log. Ligá-lo aqui só resolve
+	// a LEITURA: quem grava é o usecase de card, e ele só passa a registrar
+	// eventos com ComRegistro — o que a fixture `historico` faz. Nos testes que
+	// não ligam a escrita, o selo vem vazio, que é o correto: sem evento
+	// gravado, não houve movimentação de que falar.
+	quadros.ComAtividades(atividades)
 
 	return &quadro{
 		boards:       boards,

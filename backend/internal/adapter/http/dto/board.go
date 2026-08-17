@@ -284,10 +284,15 @@ type ColunaResponse struct {
 // para renderizar, numa requisição só — inclusive as etiquetas disponíveis,
 // porque o card só carrega os ids delas.
 type BoardDetalhadoResponse struct {
-	ID        string             `json:"id"`
-	Titulo    string             `json:"titulo"`
-	Papel     string             `json:"papel"`
-	Fundo     string             `json:"fundo"`
+	ID     string `json:"id"`
+	Titulo string `json:"titulo"`
+	Papel  string `json:"papel"`
+	Fundo  string `json:"fundo"`
+	// Publico avisa que existe link público ligado. Vai para todo membro, e não
+	// só para o dono: quem digita num card precisa saber que aquilo está à vista
+	// de fora ANTES de digitar. O token do link não vem aqui — ele é do dono, e
+	// sai por GET /boards/{id}/publicacao.
+	Publico   bool               `json:"publico"`
 	Colunas   []ColunaResponse   `json:"colunas"`
 	Etiquetas []EtiquetaResponse `json:"etiquetas"`
 }

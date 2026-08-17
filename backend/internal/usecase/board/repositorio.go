@@ -13,6 +13,7 @@ import (
 	"stacktrack/internal/domain/convite"
 	"stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/publicacao"
 	"stacktrack/internal/domain/usuario"
 )
 
@@ -41,6 +42,25 @@ type RepositorioMembro interface {
 	// Participantes devolve os vínculos já com nome e email, para a tela de
 	// membros não precisar de uma consulta por pessoa.
 	Participantes(ctx context.Context, boardID string) ([]Participante, error)
+}
+
+// RepositorioPublicacao guarda o link público de cada quadro.
+//
+// Não tem Atualizar: o token de uma publicação não muda. Gerar um link novo é
+// remover a publicação e criar outra, e é essa a razão de a porta ser assim —
+// um Atualizar convidaria a trocar o token no lugar, e quem estivesse com o
+// link antigo continuaria dentro de uma publicação que o dono acha que revogou.
+type RepositorioPublicacao interface {
+	Salvar(ctx context.Context, p *publicacao.Publicacao) error
+	// BuscarPorBoard responde "este quadro está publicado?" — é o que a tela do
+	// dono mostra e o que o quadro exibe como aviso a quem edita.
+	BuscarPorBoard(ctx context.Context, boardID string) (*publicacao.Publicacao, error)
+	// BuscarPorToken é a única autorização do caminho público: quem apresenta o
+	// token vê o quadro, quem não apresenta não existe para esta rota.
+	BuscarPorToken(ctx context.Context, token string) (*publicacao.Publicacao, error)
+	// Remover revoga. Revogar o que não está publicado não é erro: o resultado
+	// pretendido já vale.
+	Remover(ctx context.Context, boardID string) error
 }
 
 // buscadorUsuario resolve contas a partir do email — é como o convite descobre

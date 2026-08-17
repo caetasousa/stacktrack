@@ -28,6 +28,19 @@ type QuadroUseCase struct {
 	comentarios  RepositorioComentario
 	// armazem existe só para a LIMPEZA do disco ao apagar. Ver limpeza.go.
 	armazem armazemDeArquivos
+	// publicacoes serve APENAS para dizer se o quadro tem link público ligado.
+	// Entra por ComPublicacoes, e não pelo construtor, pela mesma razão do
+	// publicador de eventos: era um décimo primeiro parâmetro posicional em
+	// todas as chamadas, inclusive nas dos testes que não têm nada com isso.
+	// Quem publica e quem revoga é o PublicacaoUseCase — daqui não se escreve.
+	publicacoes RepositorioPublicacao
+}
+
+// ComPublicacoes liga a consulta do link público. Sem ela ligada, todo quadro
+// se descreve como não publicado — o que é o correto para os testes de regra,
+// que constroem o usecase sem essa porta.
+func (uc *QuadroUseCase) ComPublicacoes(publicacoes RepositorioPublicacao) {
+	uc.publicacoes = publicacoes
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
@@ -138,12 +151,31 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 		return nil, err
 	}
 
+	publicado, err := uc.estaPublicado(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Detalhado{
 		Board:     *b,
 		Papel:     vinculo.Papel,
 		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard, comentariosPorCard),
+		Publico:   publicado,
 		Etiquetas: etiquetasDoBoard,
 	}, nil
+}
+
+// estaPublicado informa se o quadro tem link público ligado. Sem a porta ligada
+// responde que não — ver ComPublicacoes.
+func (uc *QuadroUseCase) estaPublicado(ctx context.Context, boardID string) (bool, error) {
+	if uc.publicacoes == nil {
+		return false, nil
+	}
+	p, err := uc.publicacoes.BuscarPorBoard(ctx, boardID)
+	if err != nil {
+		return false, err
+	}
+	return p != nil, nil
 }
 
 // PodeVer informa se o usuário participa do quadro. É a pergunta que o

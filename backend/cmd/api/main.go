@@ -67,6 +67,7 @@ func main() {
 	anexoRepo := repository.NovoAnexoPostgres(pool)
 	responsavelRepo := repository.NovoResponsavelPostgres(pool)
 	comentarioRepo := repository.NovoComentarioPostgres(pool)
+	publicacaoRepo := repository.NovoPublicacaoPostgres(pool)
 	// O log de eventos é repositório como os outros: escreve o outbox e, desde a
 	// fase 11, também É a fonte do histórico — o feed é um read model sobre ele.
 	logDeEventos := repository.NovoEventoPostgres(pool)
@@ -99,6 +100,10 @@ func main() {
 	responsavelUC := ucboard.NovoResponsavelUseCase(membroRepo, colunaRepo, cardRepo, responsavelRepo)
 	comentarioUC := ucboard.NovoComentarioUseCase(membroRepo, colunaRepo, cardRepo, comentarioRepo)
 	atividadeUC := ucboard.NovoAtividadeUseCase(membroRepo, colunaRepo, cardRepo, logDeEventos)
+	publicacaoUC := ucboard.NovoPublicacaoUseCase(publicacaoRepo, membroRepo, boardRepo, colunaRepo, cardRepo, etiquetaRepo, checklistRepo)
+	// O quadro só CONSULTA a publicação, para dizer a quem edita que ele está à
+	// vista de fora. Publicar e revogar é com o publicacaoUC.
+	quadroUC.ComPublicacoes(publicacaoRepo)
 
 	// O hub é o adaptador que implementa a porta Publicador. Ligá-lo aqui, e
 	// não no construtor de cada usecase, é o que mantém os testes construindo
@@ -136,6 +141,7 @@ func main() {
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, atividadeUC, identidadeDoContexto)
+	publicacaoHandler := handler.NovoPublicacaoHandler(publicacaoUC, config.OrigemFrontend(), identidadeDoContexto)
 
 	// OriginPatterns com a origem do frontend, e nada além: WebSocket NÃO
 	// obedece CORS, então sem esta lista qualquer site que a vítima visitar
@@ -201,9 +207,19 @@ func main() {
 	// ainda não ter conta, e precisa ver de que quadro se trata antes de criar
 	// uma. O token é a credencial — quem não o tem recebe o mesmo 404 de um
 	// convite vencido. Aceitar, esse sim, exige sessão.
+	//
+	// O quadro público é a OUTRA rota sem sessão, e a única que serve conteúdo
+	// de quadro sem ela. O token da URL é a autorização inteira; quem não o tem
+	// recebe o mesmo 404 de um link revogado. O que ela devolve é uma projeção
+	// própria, sem pessoas e sem ids — ver usecase/board.QuadroPublico.
+	//
+	// O teto por IP importa mais aqui do que no resto: é a única porta que
+	// alguém sem conta consegue bater, e um quadro publicado é um GET que lê o
+	// quadro inteiro.
 	r.Group(func(r chi.Router) {
 		r.Use(limitePorIP(config.RateLimitPublicoPorMinuto()))
 		r.Get("/convites/{token}", membroHandler.DetalharConvite)
+		r.Get("/publico/{token}", publicacaoHandler.Ver)
 	})
 
 	// Tudo daqui para baixo exige sessão. O teto por sessão fica no grupo, e
@@ -234,6 +250,13 @@ func main() {
 			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
 
 			r.Patch("/{boardID}/fundo", boardHandler.DefinirFundo)
+
+			// O link público. As três exigem papel de dono — o token é o
+			// segredo, e quem o recebe pode repassá-lo a quem quiser.
+			r.Get("/{boardID}/publicacao", publicacaoHandler.Consultar)
+			r.Put("/{boardID}/publicacao", publicacaoHandler.Publicar)
+			r.Delete("/{boardID}/publicacao", publicacaoHandler.Revogar)
+
 			r.Get("/{boardID}/etiquetas", extrasHandler.ListarEtiquetas)
 			r.Post("/{boardID}/etiquetas", extrasHandler.CriarEtiqueta)
 		})

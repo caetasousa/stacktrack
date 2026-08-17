@@ -116,6 +116,7 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 	responderJSON(w, http.StatusOK, dto.BoardDetalhadoResponse{
 		ID: detalhado.Board.ID, Titulo: detalhado.Board.Titulo,
 		Papel: string(detalhado.Papel), Fundo: detalhado.Board.FundoEfetivo(),
+		Publico: detalhado.Publico,
 		Colunas: colunas, Etiquetas: paraEtiquetasResponse(detalhado.Etiquetas),
 	})
 }

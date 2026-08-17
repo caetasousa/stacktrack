@@ -52,9 +52,14 @@ type ColunaComCards struct {
 
 // Detalhado é o quadro inteiro: dados, papel de quem pediu e o conteúdo.
 type Detalhado struct {
-	Board     board.Board
-	Papel     membro.Papel
-	Colunas   []ColunaComCards
+	Board   board.Board
+	Papel   membro.Papel
+	Colunas []ColunaComCards
+	// Publico informa se existe link público ligado. Vai para TODO membro, e
+	// não só para o dono: quem escreve num card precisa saber que o que escrever
+	// está visível para fora antes de escrever, não depois. O token em si não
+	// vem junto — ver PublicacaoUseCase.Atual, que exige papel de administração.
+	Publico   bool
 	Etiquetas []etiqueta.Etiqueta
 }
 

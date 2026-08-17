@@ -7,6 +7,7 @@
 	import { ApiError } from '$lib/api/client';
 	import { cliqueSemArraste } from '$lib/arrastar';
 	import { haQuanto, quando } from '$lib/atividade';
+	import { agoraReativo } from '$lib/relogio.svelte';
 	import { iniciais } from '$lib/iniciais';
 
 	let {
@@ -43,6 +44,13 @@
 		card.prazo
 			? new Date(card.prazo).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 			: ''
+	);
+
+	// Lido do relógio compartilhado, e não de `new Date()`: assim o "há 39 min"
+	// vira "há 40 min" sozinho. Ver $lib/relogio — tempo relativo parado não
+	// parece desatualizado, parece errado.
+	const haDoRelogio = $derived(
+		card.ultimaMovimentacao ? haQuanto(card.ultimaMovimentacao.ocorridoEm, agoraReativo()) : ''
 	);
 
 	// A frase inteira fica no title: no card cabe "Ana · há 2 h", mas quem está
@@ -202,7 +210,7 @@
 			</svg>
 			<span class="truncate">{card.ultimaMovimentacao.autorNome || 'alguém'}</span>
 			<span class="shrink-0" aria-hidden="true">·</span>
-			<span class="shrink-0 tabular-nums">{haQuanto(card.ultimaMovimentacao.ocorridoEm)}</span>
+			<span class="shrink-0 tabular-nums">{haDoRelogio}</span>
 		</div>
 	{/if}
 </div>

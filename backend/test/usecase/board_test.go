@@ -27,10 +27,12 @@ type quadro struct {
 	responsaveis *memoria.Responsaveis
 	comentarios  *memoria.Comentarios
 	atividades   *memoria.Atividades
+	publicacoes  *memoria.Publicacoes
 	armazem      *memoria.Armazem
 	quadros      *ucboard.QuadroUseCase
 	coluna       *ucboard.ColunaUseCase
 	card         *ucboard.CardUseCase
+	publicacao   *ucboard.PublicacaoUseCase
 }
 
 func novoQuadro() *quadro {
@@ -45,6 +47,8 @@ func novoQuadro() *quadro {
 	responsaveis := memoria.NovosResponsaveis()
 	comentarios := memoria.NovosComentarios()
 	atividades := memoria.NovasAtividades()
+	publicacoes := memoria.NovasPublicacoes()
+	boards.LigarPublicacoes(publicacoes)
 	// O armazém entra até nos testes que não mexem em anexo: apagar limpa o
 	// volume, e sem ele o card apagado deixaria arquivo para trás.
 	armazem := memoria.NovoArmazem()
@@ -53,6 +57,12 @@ func novoQuadro() *quadro {
 	anexos.LigarQuadro(colunas, cards)
 	responsaveis.LigarQuadro(colunas, cards)
 	comentarios.LigarQuadro(colunas, cards)
+
+	// A consulta do link público entra ligada, como em produção: sem isso todo
+	// quadro se descreveria como privado nos testes, e a tela que avisa "este
+	// quadro está público" nunca seria exercitada.
+	quadros := ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
+	quadros.ComPublicacoes(publicacoes)
 
 	return &quadro{
 		boards:       boards,
@@ -65,8 +75,10 @@ func novoQuadro() *quadro {
 		responsaveis: responsaveis,
 		comentarios:  comentarios,
 		atividades:   atividades,
+		publicacoes:  publicacoes,
 		armazem:      armazem,
-		quadros:      ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		quadros:      quadros,
+		publicacao:   ucboard.NovoPublicacaoUseCase(publicacoes, membros, boards, colunas, cards, etiquetas, checklists),
 		coluna:       ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
 		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
 	}

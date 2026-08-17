@@ -54,6 +54,8 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	comentarios.LigarUsuarios(usuarios)
 	atividades := memoria.NovasAtividades()
 	atividades.LigarUsuarios(usuarios)
+	publicacoes := memoria.NovasPublicacoes()
+	boards.LigarPublicacoes(publicacoes)
 
 	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
@@ -66,8 +68,15 @@ func montarAPIDeQuadro() *apiDeQuadro {
 		ucauth.NovoPerfilUseCase(usuarios),
 		false, nil, identidade,
 	)
+	quadroUC := ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
+	quadroUC.ComPublicacoes(publicacoes)
+	publicacaoHandler := handler.NovoPublicacaoHandler(
+		ucboard.NovoPublicacaoUseCase(publicacoes, membros, boards, colunas, cards, etiquetas, checklists),
+		"http://localhost:5173",
+		identidade,
+	)
 	boardHandler := handler.NovoBoardHandler(
-		ucboard.NovoQuadroUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		quadroUC,
 		ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
 		ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
 		identidade,
@@ -90,6 +99,9 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	r := chi.NewRouter()
 	r.Post("/auth/cadastro", authHandler.Cadastrar)
 	r.Get("/convites/{token}", membroHandler.DetalharConvite)
+	// Fora do grupo autenticado, como no main.go: é justamente isso que estes
+	// testes precisam poder exercitar.
+	r.Get("/publico/{token}", publicacaoHandler.Ver)
 	r.Group(func(r chi.Router) {
 		r.Use(autenticacao.Autenticar)
 		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
@@ -106,6 +118,10 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Patch("/{boardID}/membros/{usuarioID}", membroHandler.AlterarPapel)
 			r.Delete("/{boardID}/membros/{usuarioID}", membroHandler.Remover)
 			r.Delete("/{boardID}/convites/{conviteID}", membroHandler.RevogarConvite)
+
+			r.Get("/{boardID}/publicacao", publicacaoHandler.Consultar)
+			r.Put("/{boardID}/publicacao", publicacaoHandler.Publicar)
+			r.Delete("/{boardID}/publicacao", publicacaoHandler.Revogar)
 		})
 		r.Route("/colunas/{colunaID}", func(r chi.Router) {
 			r.Patch("/", boardHandler.RenomearColuna)

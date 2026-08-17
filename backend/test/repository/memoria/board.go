@@ -16,9 +16,18 @@ type Boards struct {
 	porID map[string]*board.Board
 	// membros é a mesma instância usada pelos usecases: a listagem parte do
 	// vínculo, exatamente como o SQL do repositório de verdade.
-	membros     *Membros
+	membros *Membros
+	// publicacoes existe só para Apagar imitar o ON DELETE CASCADE também sobre
+	// o link público. É opcional: quem não liga não testa publicação.
+	publicacoes *Publicacoes
 	ErroForcado error
 }
+
+// LigarPublicacoes faz o quadro apagado levar o link público junto, como o
+// CASCADE do schema faz. Sem isto, um teste de "apagar quadro publicado"
+// passaria com o token ainda respondendo — que é justamente o defeito que
+// ninguém quer descobrir em produção.
+func (r *Boards) LigarPublicacoes(publicacoes *Publicacoes) { r.publicacoes = publicacoes }
 
 // NovosBoards cria o repositório em memória, ligado aos vínculos informados.
 func NovosBoards(membros *Membros) *Boards {
@@ -56,6 +65,9 @@ func (r *Boards) BuscarPorID(ctx context.Context, id string) (*board.Board, erro
 func (r *Boards) Apagar(ctx context.Context, id string) error {
 	delete(r.porID, id)
 	r.membros.apagarDoBoard(id)
+	if r.publicacoes != nil {
+		_ = r.publicacoes.Remover(ctx, id)
+	}
 	return nil
 }
 

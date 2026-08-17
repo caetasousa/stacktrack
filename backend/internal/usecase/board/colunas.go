@@ -51,7 +51,7 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 		return nil, err
 	}
 	if err := uc.escreverEPublicar(ctx, evento.ColunaCriada, boardID, usuarioID,
-		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo},
+		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor)},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (uc *ColunaUseCase) Renomear(ctx context.Context, colunaID, usuarioID, titu
 	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
-	dados := DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo}
+	dados := DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor)}
 	if tituloAnterior != c.Titulo {
 		dados.TituloAnterior = tituloAnterior
 	}
@@ -96,7 +96,7 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 	}
 
 	if err := uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
-		DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo},
+		DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo, Cor: string(c.Cor)},
 		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) }); err != nil {
 		return err
 	}

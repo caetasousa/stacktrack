@@ -42,8 +42,16 @@ type DadosDoCard struct {
 
 // DadosDaColuna é o payload dos eventos de coluna.
 type DadosDaColuna struct {
-	ColunaID       string `json:"colunaId,omitempty"`
-	Titulo         string `json:"titulo,omitempty"`
+	ColunaID string `json:"colunaId,omitempty"`
+	Titulo   string `json:"titulo,omitempty"`
+	// Cor é o nome da cor na paleta, vazio quando a coluna não tem uma.
+	//
+	// O payload existe para o cliente aplicar a mudança SEM perguntar de novo, e
+	// uma coluna criada verde que chegasse cinza do outro lado é exatamente o
+	// tipo de divergência silenciosa que o evento deveria evitar. Hoje a tela
+	// recarrega o quadro a cada evento e o defeito não aparecia — o teste de
+	// protocolo cobrava o contrato que o código não cumpria.
+	Cor            string `json:"cor,omitempty"`
 	TituloAnterior string `json:"tituloAnterior,omitempty"`
 }
 

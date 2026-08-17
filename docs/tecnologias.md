@@ -310,6 +310,29 @@ Duas decisões dentro do diálogo:
 
 📚 [WAI-ARIA — alertdialog](https://www.w3.org/WAI/ARIA/apg/patterns/alertdialog/) — o papel que o diálogo usa, e por quê
 
+### Paginar por cursor, e não por deslocamento
+
+A auditoria do quadro pagina com `antesDe={seq}` — o seq da última linha
+recebida —, e não com `OFFSET`/número de página.
+
+O motivo não é desempenho. O log de eventos recebe escrita o tempo todo,
+inclusive **enquanto alguém audita**: com deslocamento, um evento novo entre a
+primeira página e a segunda empurra uma linha para fora da janela, e ela nunca é
+lida. Numa auditoria, uma linha pulada em silêncio é o pior defeito possível —
+ela some justamente da tela feita para não deixar nada passar.
+
+O `seq` é `BIGSERIAL`, ordem total, então o cursor não escorrega. `WHERE seq < $n
+ORDER BY seq DESC` devolve sempre o mesmo intervalo, quantas escritas caiam no
+meio. O teste `TestAuditoriaPaginaPorCursorSemPularLinha` grava um evento novo
+entre as duas páginas de propósito.
+
+O par disso é o `temMais`: o servidor pede **uma linha a mais** do que devolve, e
+é assim que ele responde "há próxima página?" sem uma segunda consulta e sem
+contar a tabela. Sem ele, a tela ofereceria um "carregar mais" que devolve lista
+vazia — um botão mentindo.
+
+📚 [Use the Index, Luke — paginação por keyset](https://use-the-index-luke.com/no-offset) — por que OFFSET é errado antes de ser lento
+
 ### A rota pública: uma projeção, não uma permissão
 
 O link de acompanhamento é a única rota da aplicação que serve conteúdo de

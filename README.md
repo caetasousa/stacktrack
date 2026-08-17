@@ -134,6 +134,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
 | `PUT`/`DELETE` | `/cards/{id}/responsaveis/{usuarioId}` | Marca e desmarca quem responde pelo card. **422** se a pessoa não participa do quadro. |
 | `GET` | `/cards/{id}/atividade` | O histórico do card: o que aconteceu, quem fez e quando. Read model sobre o log de eventos. |
+| `GET` | `/boards/{id}/atividade` | A auditoria do quadro: quem mexeu no quê, do mais recente para o mais antigo. Qualquer membro lê. Parâmetros opcionais: `filtro=movimentacoes\|tudo` (padrão `movimentacoes`), `autor={usuarioId}` e `antesDe={seq}` — o cursor da página seguinte, e não um número de página. Devolve `temMais` para a tela não oferecer um "carregar mais" vazio. |
 | `GET`/`POST` | `/cards/{id}/comentarios` | A conversa do card, do mais antigo para o mais novo, e escrever nela. Basta participar — comentar não exige papel de edição. |
 | `PATCH`/`DELETE` | `/comentarios/{id}` | Edita ou apaga. **403** ao editar o de outra pessoa: só o autor edita. Apagar, o autor no próprio e o dono em qualquer um. |
 | `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |

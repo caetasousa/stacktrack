@@ -55,6 +55,40 @@ link.
 
 Revogar um convite invalida o link. O token é gerado com `crypto/rand`.
 
+## Auditoria: quem mexeu no quê
+
+Num quadro com muitos cards, alguém arrasta trinta deles e ninguém sabe quem
+foi. A informação **sempre esteve** no log de eventos — o histórico de cada card
+já a mostrava —, mas só era alcançável abrindo card por card, que é o mesmo que
+não estar.
+
+Nada de novo é guardado. São duas leituras sobre a mesma tabela `board_events`:
+
+**O selo no card.** Todo card que já foi movido mostra, no rodapé, quem o moveu
+por último e há quanto tempo. O trajeto completo e a data exata ficam no
+`title`. Card recém-criado **não** ganha selo: dizer "movido por quem criou"
+transformaria auditoria em ficção.
+
+**A tela de movimentações.** A lista do quadro inteiro, do mais recente para o
+mais antigo, com filtro por pessoa. Por padrão mostra só movimentações — a
+pergunta é sobre a ordem do quadro, e misturar comentário e renomeação afogaria
+a resposta. O recorte pode ser aberto.
+
+Três decisões que valem registrar:
+
+- **Reordenar dentro da própria coluna conta como movimentação**, e tem dono. É
+  justamente assim que uma coluna de prioridades é embaralhada. A frase muda
+  ("reordenou em A fazer") porque o trajeto não existe, mas a linha existe.
+- **Os nomes das colunas vêm do evento, não das colunas de hoje.** O log gravou
+  o que era verdade na hora. Resolver o id agora mostraria o nome de hoje numa
+  frase sobre ontem — e nada, se a coluna já tivesse sido apagada.
+- **Qualquer membro audita, inclusive o leitor.** É a mesma régua do histórico
+  de um card: ver o que aconteceu é ver, não mexer. Um leitor que precisasse
+  virar editor para descobrir quem bagunçou o quadro seria o contrário do que se
+  quer.
+
+O nome de quem moveu **não** sai pelo link público — ver a seção seguinte.
+
 ## Link público de acompanhamento
 
 Convidar resolve o caso de quem vai **trabalhar** no quadro. Não resolve o de

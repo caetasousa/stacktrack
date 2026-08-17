@@ -23,6 +23,18 @@ export interface Atividade {
 	tipo: string;
 	autorId: string;
 	autorNome: string;
+	/**
+	 * O email de quem agiu — porque NOME NÃO IDENTIFICA NINGUÉM.
+	 *
+	 * Dois "Ana Silva" no mesmo quadro tornam a auditoria inútil justamente
+	 * quando ela é necessária: não há como saber, olhando, se são duas pessoas
+	 * ou a mesma.
+	 *
+	 * Vazio quando a conta foi removida. O histórico sobrevive à conta de
+	 * propósito — o LEFT JOIN preserva a linha —, então a tela precisa aguentar
+	 * a ausência.
+	 */
+	autorEmail: string;
 	dados?: DadosDoCard;
 	ocorridoEm: string;
 }

@@ -280,7 +280,8 @@ func (h *ExtrasHandler) Atividade(w http.ResponseWriter, r *http.Request) {
 	for _, a := range lista {
 		fora = append(fora, dto.AtividadeResponse{
 			Seq: a.Seq, Tipo: string(a.Tipo), AutorID: a.AutorID,
-			AutorNome: a.AutorNome, Dados: a.Dados, OcorridoEm: a.OcorridoEm,
+			AutorNome: a.AutorNome, AutorEmail: a.AutorEmail,
+			Dados: a.Dados, OcorridoEm: a.OcorridoEm,
 		})
 	}
 	responderJSON(w, http.StatusOK, dto.ListaAtividadeResponse{Atividade: fora})
@@ -331,7 +332,8 @@ func (h *ExtrasHandler) AtividadeDoQuadro(w http.ResponseWriter, r *http.Request
 	for _, a := range pagina.Linhas {
 		fora = append(fora, dto.AtividadeResponse{
 			Seq: a.Seq, Tipo: string(a.Tipo), AutorID: a.AutorID,
-			AutorNome: a.AutorNome, Dados: a.Dados, OcorridoEm: a.OcorridoEm,
+			AutorNome: a.AutorNome, AutorEmail: a.AutorEmail,
+			Dados: a.Dados, OcorridoEm: a.OcorridoEm,
 		})
 	}
 	responderJSON(w, http.StatusOK, dto.ListaAtividadeResponse{Atividade: fora, TemMais: pagina.TemMais})

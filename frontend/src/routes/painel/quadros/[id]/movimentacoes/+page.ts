@@ -2,30 +2,46 @@ import { error } from '@sveltejs/kit';
 import { exigirAutenticacao } from '$lib/auth-guard';
 import { detalharBoard, type BoardDetalhado } from '$lib/api/boards';
 import { auditoriaDoQuadro } from '$lib/api/extras';
+import { listarParticipacao, type Membro } from '$lib/api/membros';
 import { ApiError } from '$lib/api/client';
 import type { Atividade } from '$lib/atividade';
 import type { PageLoad } from './$types';
 
 export const ssr = false;
 
-// O quadro vem junto da auditoria, e não só o título: a tela precisa da lista
-// de PESSOAS para montar o filtro, e quem participa do quadro se descobre pelos
-// responsáveis e pelos membros — não pelo log, que só conhece quem já agiu.
+// Três buscas em paralelo, e cada uma responde uma pergunta diferente:
 //
-// Uma pessoa que entrou no quadro e ainda não mexeu em nada não tem por que
-// aparecer no filtro; uma que mexeu e depois saiu, tem — e essa vem do próprio
-// log. Por isso as duas fontes.
+//   quadro     o título, para o cabeçalho e o caminho de volta;
+//   auditoria  o primeiro lote de linhas;
+//   membros    nome e email de quem participa HOJE, para o seletor de pessoa.
+//
+// Os membros vêm de uma consulta própria porque o log só conhece quem já AGIU:
+// quem entrou no quadro e ainda não mexeu em nada não apareceria no filtro. O
+// caminho inverso também importa — quem agiu e depois saiu não está mais na
+// lista de membros, e esse vem do log. As duas fontes se completam, e a tela as
+// junta por id.
 export const load: PageLoad = async ({
 	params
-}): Promise<{ quadro: BoardDetalhado; atividade: Atividade[]; temMais: boolean }> => {
+}): Promise<{
+	quadro: BoardDetalhado;
+	atividade: Atividade[];
+	temMais: boolean;
+	membros: Membro[];
+}> => {
 	await exigirAutenticacao();
 
 	try {
-		const [quadro, auditoria] = await Promise.all([
+		const [quadro, auditoria, participacao] = await Promise.all([
 			detalharBoard(params.id),
-			auditoriaDoQuadro(params.id)
+			auditoriaDoQuadro(params.id),
+			listarParticipacao(params.id)
 		]);
-		return { quadro, atividade: auditoria.atividade, temMais: auditoria.temMais ?? false };
+		return {
+			quadro,
+			atividade: auditoria.atividade,
+			temMais: auditoria.temMais ?? false,
+			membros: participacao.membros
+		};
 	} catch (e) {
 		// 404 tanto para quadro inexistente quanto para quadro de outra pessoa,
 		// de propósito — a tela repete a indistinção da API.

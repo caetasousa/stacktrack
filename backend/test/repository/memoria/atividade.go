@@ -133,7 +133,7 @@ func (r *Atividades) UltimaMovimentacaoPorCard(ctx context.Context, boardID stri
 func (r *Atividades) comAutor(ctx context.Context, a ucboard.Atividade) ucboard.Atividade {
 	if r.usuarios != nil && a.AutorID != "" {
 		if u, _ := r.usuarios.BuscarPorID(ctx, a.AutorID); u != nil {
-			a.AutorNome = u.Nome
+			a.AutorNome, a.AutorEmail = u.Nome, u.Email
 		}
 	}
 	return a

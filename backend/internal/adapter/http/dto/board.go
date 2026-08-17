@@ -188,10 +188,14 @@ type ListaComentariosResponse struct {
 // é a tela, que sabe traduzir "card.movido" para "moveu de A para B". Montar o
 // texto aqui congelaria o idioma e a redação no servidor.
 type AtividadeResponse struct {
-	Seq        int64  `json:"seq"`
-	Tipo       string `json:"tipo"`
-	AutorID    string `json:"autorId"`
-	AutorNome  string `json:"autorNome"`
+	Seq       int64  `json:"seq"`
+	Tipo      string `json:"tipo"`
+	AutorID   string `json:"autorId"`
+	AutorNome string `json:"autorNome"`
+	// AutorEmail desempata homônimos: dois "Ana Silva" no mesmo quadro tornam a
+	// auditoria inútil sem ele. Mesma informação que a tela de membros já mostra
+	// a qualquer participante.
+	AutorEmail string `json:"autorEmail"`
 	Dados      any    `json:"dados,omitempty"`
 	OcorridoEm string `json:"ocorridoEm"`
 }

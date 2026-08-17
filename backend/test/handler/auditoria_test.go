@@ -16,10 +16,11 @@ import (
 )
 
 type linhaDeAuditoria struct {
-	Seq       int64  `json:"seq"`
-	Tipo      string `json:"tipo"`
-	AutorID   string `json:"autorId"`
-	AutorNome string `json:"autorNome"`
+	Seq        int64  `json:"seq"`
+	Tipo       string `json:"tipo"`
+	AutorID    string `json:"autorId"`
+	AutorNome  string `json:"autorNome"`
+	AutorEmail string `json:"autorEmail"`
 }
 
 func auditar(t *testing.T, api *apiDeQuadro, cookie *http.Cookie, boardID, consulta string) []linhaDeAuditoria {
@@ -223,5 +224,55 @@ func TestOSeloNaoSaiPelaPaginaPublica(t *testing.T) {
 		if strings.Contains(corpo, proibido) {
 			t.Errorf("a página pública vazou %q.\nCorpo: %s", proibido, corpo)
 		}
+	}
+}
+
+// O email desempata homônimos, e sem ele a auditoria fica inútil justamente
+// quando é necessária: dois "Ana Silva" no mesmo quadro são indistinguíveis
+// olhando só o nome, e não há como saber se são duas pessoas ou a mesma.
+//
+// Não é exposição nova — qualquer membro já lê o email de todos na tela de
+// membros. O teste existe para que TIRÁ-LO seja uma decisão, e não o efeito
+// colateral de mexer no SELECT.
+func TestAAuditoriaIdentificaQuemAgiuPeloEmail(t *testing.T) {
+	api := montarAPIDeQuadro()
+	daAna, _, _, boardID, _ := cenarioMovimentado(t, api)
+
+	linhas := auditar(t, api, daAna, boardID, "")
+
+	if len(linhas) != 1 {
+		t.Fatalf("movimentações = %d, esperada 1", len(linhas))
+	}
+	if linhas[0].AutorEmail != "roberto@exemplo.com" {
+		t.Errorf("autorEmail = %q, esperado o email de quem moveu", linhas[0].AutorEmail)
+	}
+}
+
+// Dois homônimos precisam sair distinguíveis. É o caso que motivou o campo, e
+// o único em que o nome sozinho falha de forma invisível.
+func TestHomonimosSaemDistinguiveis(t *testing.T) {
+	api := montarAPIDeQuadro()
+	daAna, _ := api.conta(t, "Ana Silva", "ana.silva@exemplo.com")
+	daOutra, outraID := api.conta(t, "Ana Silva", "ana.s@exemplo.com")
+	boardID := api.criarQuadro(t, daAna, "Roadmap")
+	entra(t, api, boardID, outraID, membro.PapelEditor)
+
+	aFazer := idDoCorpo(t, chamar(api, http.MethodPost, "/boards/"+boardID+"/colunas", `{"titulo":"A fazer"}`, daAna))
+	pronto := idDoCorpo(t, chamar(api, http.MethodPost, "/boards/"+boardID+"/colunas", `{"titulo":"Pronto"}`, daAna))
+	cardID := idDoCorpo(t, chamar(api, http.MethodPost, "/colunas/"+aFazer+"/cards", `{"titulo":"Card"}`, daAna))
+
+	if rec := chamar(api, http.MethodPatch, "/cards/"+cardID+"/mover", `{"colunaId":"`+pronto+`"}`, daOutra); rec.Code != http.StatusOK {
+		t.Fatalf("mover: %d %s", rec.Code, rec.Body)
+	}
+
+	linhas := auditar(t, api, daAna, boardID, "")
+	if len(linhas) != 1 {
+		t.Fatalf("movimentações = %d, esperada 1", len(linhas))
+	}
+	if linhas[0].AutorNome != "Ana Silva" {
+		t.Fatalf("o cenário não tem homônimo: %q", linhas[0].AutorNome)
+	}
+	if linhas[0].AutorEmail != "ana.s@exemplo.com" {
+		t.Errorf("autorEmail = %q — sem ele as duas Anas seriam a mesma pessoa na tela", linhas[0].AutorEmail)
 	}
 }

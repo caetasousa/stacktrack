@@ -57,10 +57,21 @@ type DadosDaColuna struct {
 
 // Atividade é uma linha do histórico, já com o nome de quem agiu.
 type Atividade struct {
-	Seq        int64
-	Tipo       evento.Tipo
-	AutorID    string
-	AutorNome  string
+	Seq       int64
+	Tipo      evento.Tipo
+	AutorID   string
+	AutorNome string
+	// AutorEmail existe porque NOME NÃO IDENTIFICA NINGUÉM. Dois "Ana Silva" no
+	// mesmo quadro tornam a auditoria inútil justamente quando ela é necessária
+	// — e é impossível saber, olhando, se são duas pessoas ou a mesma.
+	//
+	// Não é exposição nova: qualquer membro já lê o email de todos na tela de
+	// membros (MembroUseCase.Listar exige `acesso`, não administração). A
+	// auditoria mostra a mesma informação para a mesma plateia.
+	//
+	// Vazio quando a conta foi removida — o LEFT JOIN preserva a linha do
+	// histórico, que é o ponto dele.
+	AutorEmail string
 	Dados      any
 	OcorridoEm string
 }

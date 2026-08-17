@@ -121,7 +121,7 @@ func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, l
 // um histórico serve para fazer.
 func (r *EventoPostgres) DoCard(ctx context.Context, cardID string, limite int) ([]ucboard.Atividade, error) {
 	linhas, err := r.pool.Query(ctx,
-		`SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, e.criado_em
+		`SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, u.email, e.criado_em
 		   FROM board_events e
 		   LEFT JOIN usuarios u ON u.id = e.autor_id
 		  WHERE e.card_id = $1
@@ -147,7 +147,7 @@ func (r *EventoPostgres) DoCard(ctx context.Context, cardID string, limite int) 
 // linha para fora da janela e ela nunca seria lida — numa auditoria, uma linha
 // pulada em silêncio é o pior defeito possível.
 func (r *EventoPostgres) DoBoard(ctx context.Context, boardID string, filtro ucboard.FiltroDeAtividade) ([]ucboard.Atividade, error) {
-	sql := `SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, e.criado_em
+	sql := `SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, u.email, e.criado_em
 	          FROM board_events e
 	          LEFT JOIN usuarios u ON u.id = e.autor_id
 	         WHERE e.board_id = $1`
@@ -235,14 +235,15 @@ func lerAtividades(linhas pgx.Rows) ([]ucboard.Atividade, error) {
 		var a ucboard.Atividade
 		var tipo string
 		var corpo []byte
-		var autor, nome *string
+		var autor, nome, email *string
 		var quando time.Time
-		if err := linhas.Scan(&a.Seq, &tipo, &corpo, &autor, &nome, &quando); err != nil {
+		if err := linhas.Scan(&a.Seq, &tipo, &corpo, &autor, &nome, &email, &quando); err != nil {
 			return nil, err
 		}
 		a.Tipo = evento.Tipo(tipo)
 		a.AutorID = valorOuVazio(autor)
 		a.AutorNome = valorOuVazio(nome)
+		a.AutorEmail = valorOuVazio(email)
 		a.OcorridoEm = quando.Format(time.RFC3339)
 		if len(corpo) > 0 {
 			a.Dados = json.RawMessage(corpo)

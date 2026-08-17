@@ -7,6 +7,7 @@ function entrada(ajustes: Partial<Atividade> = {}): Atividade {
 		tipo: 'card.criado',
 		autorId: 'u-ana',
 		autorNome: 'Ana',
+		autorEmail: 'ana@exemplo.com',
 		ocorridoEm: '2026-08-08T19:00:00Z',
 		...ajustes
 	};

@@ -10,7 +10,6 @@
 	import { ApiError } from '$lib/api/client';
 	import { fraseNoQuadro, quando, type Atividade } from '$lib/atividade';
 	import { iniciais } from '$lib/iniciais';
-	import { pessoasDoQuadro } from '$lib/filtro';
 
 	let { data } = $props();
 
@@ -25,13 +24,21 @@
 	// no log. A segunda parte importa — auditar costuma ser sobre alguém que já
 	// saiu, e um filtro que só lista os membros atuais esconderia exatamente a
 	// pessoa que se está procurando.
+	//
+	// O rótulo leva o email junto, e não só o nome: é uma lista onde se ESCOLHE
+	// uma pessoa, e escolher entre dois "Ana Silva" idênticos é impossível.
 	const pessoas = $derived.by(() => {
-		const porID = new Map<string, string>();
-		for (const p of pessoasDoQuadro(data.quadro.colunas)) porID.set(p.usuarioId, p.nome);
+		const porID = new Map<string, { nome: string; email: string }>();
+		for (const m of data.membros) porID.set(m.usuarioId, { nome: m.nome, email: m.email });
 		for (const l of linhas) {
-			if (l.autorId && !porID.has(l.autorId)) porID.set(l.autorId, l.autorNome || 'conta removida');
+			if (l.autorId && !porID.has(l.autorId)) {
+				porID.set(l.autorId, { nome: l.autorNome || 'conta removida', email: l.autorEmail });
+			}
 		}
-		return [...porID].map(([usuarioId, nome]) => ({ usuarioId, nome }));
+		return [...porID].map(([usuarioId, p]) => ({
+			usuarioId,
+			rotulo: p.email ? `${p.nome} — ${p.email}` : p.nome
+		}));
 	});
 
 	// Só as linhas que a tela sabe descrever. Um tipo de evento novo aparece como
@@ -122,7 +129,7 @@
 	>
 		<option value="">Qualquer pessoa</option>
 		{#each pessoas as pessoa (pessoa.usuarioId)}
-			<option value={pessoa.usuarioId}>{pessoa.nome}</option>
+			<option value={pessoa.usuarioId}>{pessoa.rotulo}</option>
 		{/each}
 	</select>
 
@@ -162,10 +169,19 @@
 					>
 						{iniciais(linha.a.autorNome || '?')}
 					</span>
-					<p class="min-w-0 flex-1 text-sm text-body">
-						<b class="font-semibold text-ink">{linha.a.autorNome || 'conta removida'}</b>
-						{linha.texto}
-					</p>
+					<div class="min-w-0 flex-1">
+						<p class="text-sm text-body">
+							<b class="font-semibold text-ink">{linha.a.autorNome || 'conta removida'}</b>
+							{linha.texto}
+						</p>
+						<!-- O email SEMPRE, e não só quando há homônimo. Uma regra que
+						     esconde a informação na maior parte do tempo obriga quem audita
+						     a saber que ela existe — e a auditoria é usada justamente por
+						     quem não sabe ainda o que está procurando. -->
+						{#if linha.a.autorEmail}
+							<p class="truncate text-xs text-mute">{linha.a.autorEmail}</p>
+						{/if}
+					</div>
 					<!-- Data completa, e não relativa: no card cabe "há 2 h", mas quem
 					     audita precisa comparar horários entre linhas. -->
 					<time class="shrink-0 text-xs tabular-nums text-mute" datetime={linha.a.ocorridoEm}>

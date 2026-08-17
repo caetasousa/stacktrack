@@ -118,7 +118,13 @@ test('o filtro por pessoa isola o que cada uma fez', async ({ browser }) => {
 	await pagina.goto(`/painel/quadros/${quadroId}/movimentacoes`);
 	await expect(pagina.getByText('de A fazer para Pronto')).toBeVisible();
 
-	await pagina.getByLabel('Pessoa').selectOption({ label: 'bruno-auditoria' });
+	// A opção é escolhida pelo VALOR, e não pelo rótulo: o rótulo passou a levar
+	// o email junto — que é o ponto do campo, desempatar homônimos — e um email
+	// gerado com timestamp não dá para escrever no teste.
+	const valorDoBruno = await pagina
+		.locator('option', { hasText: 'bruno-auditoria' })
+		.getAttribute('value');
+	await pagina.getByLabel('Pessoa').selectOption(valorDoBruno);
 
 	// Só o movimento do bruno sobra: ele levou o card para Pronto, a ana o trouxe
 	// de volta.

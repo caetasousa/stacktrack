@@ -64,7 +64,7 @@ var ErrChaveInvalida = errors.New("chave de ordenação inválida")
 var ErrForaDeOrdem = errors.New("os vizinhos informados estão fora de ordem")
 
 // TamanhoMaximo é o comprimento máximo de uma chave, e ele NÃO é uma escolha
-// do domínio: é o tamanho da coluna (VARCHAR(200) em V18). Estão amarrados de
+// do domínio: é o tamanho da coluna (VARCHAR(200) em V5/V6). Estão amarrados de
 // propósito — um domínio que gerasse chave maior que a coluna transformaria uma
 // regra de negócio em erro de driver, e o teste
 // test/repository/chave_cabe_na_coluna_test.go trava os dois juntos.

@@ -70,10 +70,14 @@ func TestTodaColunaDasMigrationsApareceNoSQLDoRepositorio(t *testing.T) {
 // declaracaoDeOrfas é o arquivo que lista as colunas deliberadamente sem SQL.
 //
 // NÃO é uma migration, e o motivo é caro: a primeira tentativa pôs a declaração
-// como comentário DENTRO da V20, e o Flyway recusou subir. Ele guarda o checksum
-// de cada migration aplicada e valida na partida — editar o arquivo, ainda que
-// só para acrescentar um comentário, muda o checksum e derruba o start. Migration
-// aplicada é imutável inclusive nos comentários.
+// como comentário DENTRO da migration que criara as colunas, e o Flyway recusou
+// subir. Ele guarda o checksum de cada migration aplicada e valida na partida —
+// editar o arquivo, ainda que só para acrescentar um comentário, muda o checksum
+// e derruba o start. Migration aplicada é imutável inclusive nos comentários.
+//
+// (Aquela migration não existe mais com aquele número: o conjunto foi
+// consolidado quando o banco de produção foi zerado. A lição vale igual, e volta
+// a valer no minuto em que houver dado real no banco.)
 //
 // `.md` é ignorado pelo Flyway, que só recolhe o que casa com `V*.sql`.
 const declaracaoDeOrfas = "COLUNAS-ORFAS.md"

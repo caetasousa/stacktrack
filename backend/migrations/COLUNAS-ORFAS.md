@@ -40,20 +40,17 @@ então o Flyway não o enxerga: ele só recolhe os que casam com o padrão de no
 
 <!-- Uma por linha, no formato `- ORFA: tabela.coluna` seguido do porquê. -->
 
-- ORFA: cards.arquivado_em, colunas.arquivado_em
+*(nenhuma no momento)*
 
-  Criadas pela `V20`, para o arquivamento da fase 13 — que foi feita inteira e
-  depois retirada por decisão de produto.
+A lista já teve `cards.arquivado_em` e `colunas.arquivado_em`, órfãs do
+arquivamento que foi construído inteiro e depois retirado por decisão de
+produto. Elas esperavam o contract do deploy seguinte.
 
-  A `V20` continua no diretório porque o Flyway é forward-only: ela rodou em
-  produção, e o que já aconteceu não se desfaz apagando o texto.
+O contract nunca precisou ser escrito: o banco de produção foi zerado e as
+migrations foram consolidadas, então as duas colunas simplesmente deixaram de
+existir. **Não foi o ciclo expand/contract funcionando — foi ele deixando de ser
+necessário**, e é uma saída que só existe uma vez, com o banco vazio.
 
-  ⏳ **Falta o contract, e ele é do PRÓXIMO deploy.** Derrubar as colunas no
-  mesmo deploy que retirou o código quebraria a versão que fica no ar durante a
-  janela de publicação — que é também para onde um rollback volta —, porque ela
-  lê e escreve `arquivado_em` em todo SELECT e INSERT de card e coluna. É a
-  mesma doutrina da fase 9, na direção contrária: ali uma coluna nascia, aqui
-  uma morre, e nos dois casos são dois deploys.
-
-  Quando a `V21` derrubar as duas, esta declaração sai junto — o guard reprova
-  se ela ficar.
+Este arquivo continua aqui porque o mecanismo continua valendo: no dia em que
+uma funcionalidade for retirada com dado real no banco, a coluna vai ficar órfã
+por um deploy e a declaração vai ter de aparecer.

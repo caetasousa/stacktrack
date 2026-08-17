@@ -29,7 +29,7 @@ var (
 // segredo que continua no banco esperando ser religado por engano.
 type Publicacao struct {
 	BoardID string
-	// Token é o segredo do link, em claro. Ver a migration V21 para por que
+	// Token é o segredo do link, em claro. Ver a migration V14 para por que
 	// este não é guardado como hash, ao contrário do de sessão e do de convite.
 	Token     string
 	CriadoPor string

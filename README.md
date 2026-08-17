@@ -104,6 +104,7 @@ Argon2id.
 | `POST` | `/auth/logout` | Encerra a sessão no servidor e apaga o cookie (204, sempre). |
 | `GET` | `/auth/me` | Devolve a conta autenticada. 401 sem sessão válida. |
 | `GET` | `/convites/{token}` | Detalhes do convite, **sem sessão** — é o que a tela do link mostra. |
+| `GET` | `/publico/{token}` | O quadro de um link de acompanhamento, **sem sessão**: colunas, cards, descrições, etiquetas, prazos e checklists. Sem responsáveis, comentários, anexos, histórico nem ids. **404** para token inventado, revogado ou de quadro apagado — os três iguais. Responde `Cache-Control: no-store` e `X-Robots-Tag: noindex`. |
 
 As demais exigem sessão e têm teto de requisições por sessão.
 
@@ -113,6 +114,9 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só. |
 | `PATCH`/`DELETE` | `/boards/{id}` | Renomeia ou apaga o quadro. Só o dono. |
 | `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
+| `GET` | `/boards/{id}/publicacao` | O estado do link público, com a URL. Só o dono — **403** para editor e leitor, porque o token é o segredo do link. |
+| `PUT` | `/boards/{id}/publicacao` | Liga o link público e devolve a URL. Só o dono. Idempotente: repetir devolve o **mesmo** link. |
+| `DELETE` | `/boards/{id}/publicacao` | Revoga o link (204, mesmo que já não houvesse). O endereço morre na hora, e publicar de novo gera um token **diferente**. |
 | `POST` | `/boards/{id}/colunas` | Cria uma coluna no fim do quadro (201). |
 | `PATCH`/`DELETE` | `/colunas/{id}` | Renomeia (título e cor) ou apaga a coluna e os cards dela. |
 | `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, **pelos vizinhos**. |

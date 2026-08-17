@@ -55,6 +55,57 @@ link.
 
 Revogar um convite invalida o link. O token é gerado com `crypto/rand`.
 
+## Link público de acompanhamento
+
+Convidar resolve o caso de quem vai **trabalhar** no quadro. Não resolve o de
+quem só precisa **saber como vai** — o cliente, a diretoria, a área vizinha.
+Para essas pessoas, criar conta e conceder papel é atrito por nada: elas não vão
+mexer em coisa nenhuma, e cada conta a mais é uma permissão a administrar depois.
+
+O dono liga um link público e manda o endereço. Quem o recebe vê o quadro em
+modo de leitura, sem conta e sem convite.
+
+### O link é a credencial
+
+Não existe `/publico/{id-do-quadro}`. O endereço carrega um **token** de 256 bits
+gerado com `crypto/rand`, e é ele — não o id do quadro — que autoriza. As
+consequências são as que interessam:
+
+- quem descobrir o id de um quadro não chega a lugar nenhum com ele;
+- revogar é apagar uma linha, e o endereço morre na hora;
+- religar depois gera um token **diferente**. Quem guardou a URL antiga não
+  volta a entrar. É o que separa revogar de esconder.
+
+Publicar duas vezes devolve o **mesmo** link, de propósito: sem isso, só abrir a
+tela de compartilhamento de novo invalidaria em silêncio o endereço que já
+tinha sido enviado às pessoas.
+
+### O que atravessa, e o que não
+
+| Vai | Fica |
+|---|---|
+| colunas, cards, descrições, etiquetas, prazos, progresso de checklist | comentários, anexos, histórico, responsáveis, membros |
+
+A coluna da direita é a regra, não um recorte de tela. Ela existe porque quem
+decide publicar é o dono do quadro, e **o nome do colega não é dele para
+publicar** — nem a conversa em que a equipe discute o que ainda não está
+decidido. O que sai é o andamento do trabalho; quem o faz e como se chegou lá,
+não.
+
+Ids também não saem — nem do quadro, nem das colunas, nem dos cards. A resposta
+pública não precisa endereçar nada, e um id que não sai não é um id que alguém
+tenta noutra rota.
+
+### Quem liga, e quem fica sabendo
+
+Ligar e desligar é do **dono**: o token é o segredo, e quem o recebe pode
+repassá-lo a quem quiser — um editor com acesso a ele publicaria o quadro por
+conta própria.
+
+Mas o **aviso** de que o quadro está público vai para todo membro, no cabeçalho
+do quadro. Quem escreve num card precisa saber que aquilo está à vista de fora
+antes de escrever, não depois.
+
 ## O que pende de um card
 
 **Responsáveis** são quem responde pelo card — é o que faz o quadro responder

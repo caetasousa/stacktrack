@@ -310,6 +310,45 @@ Duas decisões dentro do diálogo:
 
 📚 [WAI-ARIA — alertdialog](https://www.w3.org/WAI/ARIA/apg/patterns/alertdialog/) — o papel que o diálogo usa, e por quê
 
+### A rota pública: uma projeção, não uma permissão
+
+O link de acompanhamento é a única rota da aplicação que serve conteúdo de
+quadro **sem sessão**. Duas decisões de arquitetura seguram isso, e as duas são
+estruturais: elas não dependem de ninguém lembrar da regra depois.
+
+**Um usecase separado, com dependências de menos.** O caminho público é
+[`PublicacaoUseCase`](../backend/internal/usecase/board/publicacao.go), e não um
+método a mais no `QuadroUseCase`. Ele não recebe repositório de comentário, de
+anexo, de responsável nem de evento — então uma alteração futura não consegue,
+por descuido, pendurar ali uma escrita ou um dado de pessoa. A garantia é a
+lista de dependências do construtor, não a disciplina de quem mexer.
+
+**Uma projeção própria, sem ids.** `QuadroPublico` é um tipo à parte, e não o
+`Detalhado` com campos zerados na saída. Reaproveitar o tipo da tela autenticada
+deixaria cada campo novo dele — e campo novo é sempre pensado para a tela
+autenticada — escapar por esta rota até alguém reparar.
+
+Os testes seguem o mesmo raciocínio invertido: em vez de conferirem campo a
+campo o que **devia** sair, eles procuram no JSON serializado o que **não devia**
+— nome, email, id de usuário, texto de comentário, ids de quadro, coluna e card.
+Um campo acrescentado amanhã cai nessa rede sem ninguém precisar atualizar o
+teste. Ver `TestOQuadroPublicoNaoVazaPessoas` e `TestOCorpoPublicoNaoLevaPessoaNemID`.
+
+Três detalhes de borda que não são decoração:
+
+- **`Cache-Control: no-store`** na resposta. Revogar precisa valer na hora, e uma
+  cópia guardada por um intermediário continuaria sendo servida depois de o dono
+  desligar o link — sem ele ter como saber.
+- **`meta name="referrer" content="no-referrer"`** na página. O token está na
+  URL; sem isso, clicar num link escrito na descrição de um card mandaria o
+  endereço inteiro no `Referer` para o site de destino.
+- **`credentials: 'omit'`** na chamada, a única do projeto. A rota não olha
+  sessão, então mandar o cookie de quem por acaso está logado só exporia a
+  credencial numa requisição que não precisa dela.
+
+📚 [OWASP — Insecure Direct Object Reference](https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html) — por que o id do quadro não vira endereço público
+📝 [MDN — Referrer-Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy) — como um segredo na URL vaza para terceiros
+
 ### O toque não é um clique pequeno
 
 Três defeitos que só existiam no celular vieram do mesmo lugar: o navegador

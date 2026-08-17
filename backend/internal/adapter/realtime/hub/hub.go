@@ -43,6 +43,19 @@ const tamanhoDaFila = 32
 type Pessoa struct {
 	ID   string `json:"id"`
 	Nome string `json:"nome"`
+	// EditandoColunaID é a coluna que esta pessoa está editando AGORA, quando
+	// está editando alguma. Vazio é o caso normal.
+	//
+	// Viaja junto da presença, e não num evento próprio, porque é a mesma
+	// pergunta: "quem está aqui, e fazendo o quê". Um segundo canal para isto
+	// teria de repetir a entrada, a saída e a deduplicação por pessoa — e
+	// divergir do primeiro no dia em que alguém mexesse só num.
+	//
+	// É estado EFÊMERO, como a presença: vive no mapa de conexões e morre com o
+	// processo. Não há migration para ele, e é isso que o torna correto — um
+	// "está editando" persistido num banco é um cadeado que ninguém abre quando
+	// o navegador fecha sem avisar.
+	EditandoColunaID string `json:"editandoColunaId,omitempty"`
 }
 
 // Assinante é uma conexão interessada num quadro.
@@ -111,10 +124,57 @@ func (h *Hub) presentesBloqueado(boardID string) []Pessoa {
 		vistos[a.pessoa.ID] = struct{}{}
 		lista = append(lista, a.pessoa)
 	}
+	// Duas abas da mesma pessoa viram um avatar só, e a dedup acima fica com a
+	// PRIMEIRA que aparecer no mapa — cuja ordem o Go não garante. Se ela
+	// estiver sem foco e a outra estiver editando, o "está editando" some por
+	// sorteio. Esta passada devolve o foco de qualquer aba daquela pessoa.
+	for a := range h.salas[boardID] {
+		if a.pessoa.ID == "" || a.pessoa.EditandoColunaID == "" {
+			continue
+		}
+		for i := range lista {
+			if lista[i].ID == a.pessoa.ID && lista[i].EditandoColunaID == "" {
+				lista[i].EditandoColunaID = a.pessoa.EditandoColunaID
+			}
+		}
+	}
 	// Ordem estável: sem ela a lista chega embaralhada a cada evento, e a tela
 	// reordenaria os avatares sozinha a cada entrada e saída.
 	sort.Slice(lista, func(i, j int) bool { return lista[i].ID < lista[j].ID })
 	return lista
+}
+
+// DefinirFoco registra que esta conexão está editando uma coluna — ou que
+// parou, quando colunaID vem vazio — e reanuncia a presença da sala.
+//
+// Reanunciar é o ponto: sem isso o servidor saberia quem está editando e
+// ninguém mais ficaria sabendo.
+//
+// Não valida se a coluna pertence ao quadro, e não precisa: o anúncio só sai
+// para a sala DAQUELE quadro, e um id que não existe lá não casa com coluna
+// nenhuma na tela — vira silêncio, não vazamento. O que precisa de limite é o
+// TAMANHO, e esse é aplicado na borda, antes de chegar aqui.
+func (h *Hub) DefinirFoco(a *Assinante, colunaID string) {
+	if a == nil {
+		return
+	}
+	h.mu.Lock()
+	if h.fechado {
+		h.mu.Unlock()
+		return
+	}
+	if a.pessoa.EditandoColunaID == colunaID {
+		// Nada mudou: reanunciar geraria uma rajada de eventos idênticos a cada
+		// tecla digitada, que é exatamente o que o cliente não deve conseguir
+		// provocar.
+		h.mu.Unlock()
+		return
+	}
+	a.pessoa.EditandoColunaID = colunaID
+	presentes := h.presentesBloqueado(a.boardID)
+	h.mu.Unlock()
+
+	h.anunciarPresenca(a.boardID, presentes)
 }
 
 // Presentes informa quem está com o quadro aberto.

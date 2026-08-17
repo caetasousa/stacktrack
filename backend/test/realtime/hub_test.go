@@ -367,3 +367,122 @@ func TestPresencaNaoVazaEntreQuadros(t *testing.T) {
 		t.Errorf("quadro-2 = %#v, esperado vazio", presentes)
 	}
 }
+
+// --- quem está editando uma coluna -----------------------------------------
+
+// O foco viaja JUNTO da presença, e não num evento próprio: é a mesma pergunta
+// — "quem está aqui, e fazendo o quê". Este teste tranca o caminho inteiro: um
+// avisa, o outro fica sabendo.
+func TestQuemEditaUmaColunaApareceParaOsOutros(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	bob := h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+	esperar(t, ana, evento.PresencaAlterada)
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.DefinirFoco(bob, "coluna-7")
+
+	e := esperar(t, ana, evento.PresencaAlterada)
+	presentes, _ := e.Dados.([]hub.Pessoa)
+	if focoDe(presentes, "bob") != "coluna-7" {
+		t.Errorf("presentes = %#v, esperado o bob editando coluna-7", presentes)
+	}
+	if focoDe(presentes, "ana") != "" {
+		t.Errorf("a ana não estava editando nada: %#v", presentes)
+	}
+}
+
+// Parar de editar precisa avisar tanto quanto começar. Sem isto a coluna ficaria
+// com um cadeado eterno na tela dos outros.
+func TestPararDeEditarTambemAvisa(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	bob := h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+	esperar(t, ana, evento.PresencaAlterada)
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.DefinirFoco(bob, "coluna-7")
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.DefinirFoco(bob, "")
+
+	e := esperar(t, ana, evento.PresencaAlterada)
+	presentes, _ := e.Dados.([]hub.Pessoa)
+	if focoDe(presentes, "bob") != "" {
+		t.Errorf("o bob parou de editar e continuou marcado: %#v", presentes)
+	}
+}
+
+// Fechar a aba solta o foco junto. É a razão de o "está editando" ser efêmero:
+// persistido, ficaria travado por quem fechou o navegador sem avisar.
+func TestSairSoltaAColunaQueEstavaSendoEditada(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	bob := h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+	esperar(t, ana, evento.PresencaAlterada)
+	esperar(t, ana, evento.PresencaAlterada)
+	h.DefinirFoco(bob, "coluna-7")
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.Cancelar(bob)
+
+	e := esperar(t, ana, evento.PresencaAlterada)
+	presentes, _ := e.Dados.([]hub.Pessoa)
+	if len(presentes) != 1 || focoDe(presentes, "bob") != "" {
+		t.Errorf("depois da saída do bob: %#v", presentes)
+	}
+}
+
+// Repetir o mesmo foco NÃO pode gerar evento: o cliente reanuncia a cada
+// mudança de estado, e sem esta guarda uma tela com defeito viraria uma rajada
+// de presença para a sala inteira.
+func TestFocoRepetidoNaoGeraEvento(t *testing.T) {
+	h := hub.Novo()
+	ana := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+	bob := h.Assinar("quadro-1", hub.Pessoa{ID: "bob", Nome: "Bob"})
+	esperar(t, ana, evento.PresencaAlterada)
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.DefinirFoco(bob, "coluna-7")
+	esperar(t, ana, evento.PresencaAlterada)
+
+	h.DefinirFoco(bob, "coluna-7")
+
+	select {
+	case e := <-ana.Eventos:
+		t.Errorf("o foco repetido gerou %q", e.Tipo)
+	case <-time.After(80 * time.Millisecond):
+	}
+}
+
+// Duas abas da mesma pessoa viram UM avatar, e a deduplicação fica com a
+// primeira que o mapa devolver — cuja ordem o Go não garante. Se ela estiver
+// sem foco e a outra estiver editando, o "está editando" sumiria por sorteio:
+// o teste passaria na maioria das execuções e falharia sem explicação nas
+// outras, que é o pior defeito que um teste pode esconder.
+func TestFocoDeUmaAbaSobreviveAOutraAbaDaMesmaPessoa(t *testing.T) {
+	for i := 0; i < 40; i++ {
+		h := hub.Novo()
+		h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+		segunda := h.Assinar("quadro-1", hub.Pessoa{ID: "ana", Nome: "Ana"})
+		h.DefinirFoco(segunda, "coluna-9")
+
+		presentes := h.Presentes("quadro-1")
+		if len(presentes) != 1 {
+			t.Fatalf("presentes = %#v, esperada uma ana só", presentes)
+		}
+		if focoDe(presentes, "ana") != "coluna-9" {
+			t.Fatalf("execução %d: o foco da segunda aba se perdeu: %#v", i, presentes)
+		}
+	}
+}
+
+// focoDe devolve a coluna que a pessoa está editando na lista de presentes.
+func focoDe(presentes []hub.Pessoa, id string) string {
+	for _, p := range presentes {
+		if p.ID == id {
+			return p.EditandoColunaID
+		}
+	}
+	return ""
+}

@@ -34,7 +34,9 @@
 		aoMudar,
 		aoFalhar,
 		aoArrastarCards,
-		aoSoltarCard
+		aoSoltarCard,
+		editandoAgora = [],
+		aoEditar
 	}: {
 		coluna: Coluna;
 		etiquetasDoQuadro: Etiqueta[];
@@ -50,6 +52,11 @@
 		// soltar (aoSoltarCard) é que a mudança vai para a API.
 		aoArrastarCards: (colunaId: string, cards: Card[]) => void;
 		aoSoltarCard: (colunaId: string, cards: Card[], cardMovidoId: string | null) => void;
+		// Quem MAIS está com o formulário desta coluna aberto agora. Vem da
+		// presença em tempo real; a própria pessoa nunca aparece aqui.
+		editandoAgora?: string[];
+		// Avisa a sala que esta pessoa começou ou parou de editar a coluna.
+		aoEditar?: (editando: boolean) => void;
 	} = $props();
 
 	let renomeando = $state(false);
@@ -65,6 +72,20 @@
 		corEmEdicao = coluna.cor;
 		renomeando = true;
 	}
+
+	// O anúncio segue o estado, e não os cliques.
+	//
+	// Ligá-lo em cada `onclick` significaria lembrar de desligar em TODOS os
+	// caminhos de saída — salvar, cancelar, a tecla Esc, navegar para fora,
+	// desmontar. Um esquecido deixa a coluna eternamente "sendo editada" por
+	// alguém que já foi embora, e é o tipo de cadeado que só se descobre quando
+	// incomoda. Com $effect, o retorno é a saída: ele roda quando `renomeando`
+	// muda e quando o componente morre, aconteça o que acontecer no meio.
+	$effect(() => {
+		if (!renomeando) return;
+		aoEditar?.(true);
+		return () => aoEditar?.(false);
+	});
 
 	async function renomear(evento: SubmitEvent) {
 		evento.preventDefault();
@@ -219,6 +240,23 @@
 		     impossível de acertar com um card na mão. -->
 		<p class="pointer-events-none -mt-2 px-3 pb-3 text-center text-xs text-mute">
 			solte um card aqui
+		</p>
+	{/if}
+
+	<!-- Quem mais está mexendo nesta coluna. Fica no RODAPÉ, e não no cabeçalho:
+	     lá em cima ele empurraria o título e a contagem a cada vez que alguém
+	     começasse a digitar, e um cabeçalho que dança é pior do que o aviso é
+	     bom. Aqui ele aparece e some sem mover mais nada. -->
+	{#if editandoAgora.length > 0}
+		<p
+			class="flex items-center gap-1.5 border-t border-hairline px-3 py-2 text-[0.6875rem] text-aviso"
+			aria-live="polite"
+		>
+			<i class="size-1.5 shrink-0 animate-pulse rounded-full bg-current"></i>
+			<span class="truncate">
+				{editandoAgora.join(', ')}
+				{editandoAgora.length === 1 ? 'está editando' : 'estão editando'}
+			</span>
 		</p>
 	{/if}
 

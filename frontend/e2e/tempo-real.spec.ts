@@ -254,3 +254,56 @@ test('quem grava por último recebe o aviso em vez de sobrescrever', async () =>
 	await telaBruno.getByRole('button', { name: 'Trazer a versão atual' }).click();
 	await expect(telaBruno.getByText('Texto da ana').first()).toBeVisible();
 });
+
+// Quem está mexendo numa coluna aparece para os outros, no rodapé dela.
+//
+// É o mesmo canal da presença — o cliente passa a FALAR com o servidor, e não
+// só a ouvir. O teste cobre os dois sentidos: aparecer ao abrir o formulário e
+// SUMIR ao fechá-lo, que é a metade que costuma faltar. Um "está editando" que
+// só sabe aparecer vira um cadeado eterno na tela dos outros.
+// semModal fecha o que um teste anterior possa ter deixado aberto.
+//
+// As duas abas são compartilhadas por TODOS os testes deste arquivo, e o modal
+// do card cobre a tela inteira: sem isto, o clique no título da coluna acerta o
+// fundo escuro do modal e o teste falha por um motivo que não tem nada a ver
+// com o que ele testa. Foi assim que ele apareceu como "flaky" — dependia da
+// ordem de execução, não do produto.
+async function semModal(...paginas: Page[]) {
+	for (const p of paginas) {
+		await p.keyboard.press('Escape');
+		await expect(p.locator('[role="presentation"]')).toHaveCount(0);
+	}
+}
+
+test('quem edita uma coluna aparece no rodapé dela para os outros', async () => {
+	await semModal(telaAna, telaBruno);
+	const rodape = telaAna.getByText('está editando');
+
+	// Nada antes de alguém começar.
+	await expect(rodape).toHaveCount(0);
+
+	// O bruno abre o formulário de renomear clicando no título da coluna.
+	await telaBruno.getByRole('button', { name: 'A fazer', exact: true }).click();
+	await expect(telaBruno.getByLabel('Título da coluna')).toBeVisible();
+
+	// ...e a ana vê, sem recarregar.
+	await expect(rodape).toBeVisible();
+	await expect(rodape).toContainText('bruno');
+
+	// Ao cancelar, some — e é essa metade que solta o cadeado.
+	await telaBruno.getByRole('button', { name: 'Cancelar' }).click();
+	await expect(rodape).toHaveCount(0);
+});
+
+// A própria pessoa NÃO se vê no rodapé: ela está com o formulário aberto na
+// frente dela, e o próprio nome ali só confundiria.
+test('quem está editando não vê o próprio nome no rodapé', async () => {
+	await semModal(telaAna, telaBruno);
+	await telaBruno.getByRole('button', { name: 'A fazer', exact: true }).click();
+	await expect(telaBruno.getByLabel('Título da coluna')).toBeVisible();
+
+	await expect(telaAna.getByText('está editando')).toBeVisible();
+	await expect(telaBruno.getByText('está editando')).toHaveCount(0);
+
+	await telaBruno.getByRole('button', { name: 'Cancelar' }).click();
+});

@@ -35,6 +35,7 @@
 		type Presente
 	} from '$lib/realtime/conexao.svelte';
 	import { iniciais } from '$lib/iniciais';
+	import { sessao } from '$lib/stores/session.svelte';
 	import {
 		FILTRO_VAZIO,
 		filtrando as estaFiltrando,
@@ -71,7 +72,11 @@
 	//
 	// A dependência é `data.quadro.id`: mudar de quadro fecha uma conexão e abre
 	// a outra, sem passar pelo estado "duas abertas".
-	let conexao = $state<{ readonly situacao: string; fechar: () => void } | null>(null);
+	let conexao = $state<{
+		readonly situacao: string;
+		anunciarEdicao: (colunaId: string | null) => void;
+		fechar: () => void;
+	} | null>(null);
 
 	$effect(() => {
 		const id = data.quadro.id;
@@ -151,6 +156,26 @@
 
 	// Quem está com este quadro aberto agora, incluindo você.
 	let presentes = $state<Presente[]>([]);
+
+	// Quem está editando cada coluna, por id de coluna.
+	//
+	// Derivado da presença, e não de um estado próprio: a presença já chega
+	// completa a cada mudança, então não há o que sincronizar — e quem fecha a
+	// aba sem avisar desaparece da lista pelo mesmo caminho que já fazia o
+	// avatar sumir. Um mapa de "está editando" mantido à parte ficaria com
+	// cadeados de gente que não está mais lá.
+	//
+	// O PRÓPRIO usuário sai de fora: ele sabe que está editando, está com o
+	// formulário aberto na frente dele, e ver o próprio nome no rodapé só
+	// confundiria.
+	const editandoPorColuna = $derived.by(() => {
+		const porColuna = new Map<string, string[]>();
+		for (const p of presentes) {
+			if (!p.editandoColunaId || p.id === sessao.usuario?.id) continue;
+			porColuna.set(p.editandoColunaId, [...(porColuna.get(p.editandoColunaId) ?? []), p.nome]);
+		}
+		return porColuna;
+	});
 
 	// --- filtro ---------------------------------------------------------------
 	//
@@ -708,6 +733,8 @@
 						etiquetasDoQuadro={data.quadro.etiquetas}
 						{podeEditar}
 						arrasteTravado={filtrando}
+						editandoAgora={editandoPorColuna.get(coluna.id) ?? []}
+						aoEditar={(editando) => conexao?.anunciarEdicao(editando ? coluna.id : null)}
 						aoAbrirCard={(id) => (cardAberto = id)}
 						aoMudar={recarregar}
 						aoFalhar={falhar}

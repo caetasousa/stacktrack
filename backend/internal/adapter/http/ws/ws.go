@@ -226,7 +226,7 @@ func (h *Handler) Acompanhar(w http.ResponseWriter, r *http.Request) {
 	// não serializa isso por você, e o sintoma é a conexão morrer com erro de
 	// protocolo sob carga. Por isso todo envio sai daqui, do laço abaixo, e a
 	// única fonte é o canal do assinante.
-	go h.lerAteMorrer(ctx, encerrar, conexao)
+	go h.lerAteMorrer(ctx, encerrar, conexao, assinante)
 
 	h.escreverAteMorrer(ctx, conexao, assinante, usuarioID, boardID, tokenDaSessao)
 }
@@ -244,21 +244,61 @@ func (h *Handler) aindaPodeAcompanhar(ctx context.Context, usuarioID, boardID, t
 	return h.autorizador.PodeVer(ctx, boardID, usuarioID)
 }
 
-// lerAteMorrer existe mesmo sem o cliente mandar nada.
+// mensagemDoCliente é o único formato que o cliente pode mandar.
+//
+// UM tipo, e não um mapa aberto: o que chega aqui é entrada de fora, e um
+// formato fechado é o que impede o campo de amanhã virar caminho de ontem.
+type mensagemDoCliente struct {
+	Tipo string `json:"tipo"`
+	// ColunaID vazio significa "parei de editar".
+	ColunaID string `json:"colunaId"`
+}
+
+// tamanhoMaximoDeIdDeColuna limita o que é repassado para a sala inteira.
+//
+// Um UUID tem 36 caracteres. O teto existe porque este valor é REDISTRIBUÍDO a
+// todo mundo que está no quadro: sem ele, uma conexão mandaria um id de dez mil
+// caracteres e o servidor o multiplicaria por cada pessoa conectada.
+const tamanhoMaximoDeIdDeColuna = 64
+
+// limiteDeLeitura é o teto de bytes por mensagem vinda do cliente.
+//
+// A biblioteca traz um padrão de 32 KB, pensado para quem trafega dados. Aqui o
+// cliente só manda `{"tipo":"foco","colunaId":"<uuid>"}` — menos de 60 bytes.
+// Apertar o limite é grátis e transforma "mandar lixo grande" em desconexão
+// imediata, antes de qualquer alocação.
+const limiteDeLeitura = 512
+
+// lerAteMorrer processa o que o cliente manda, e existiria mesmo se ele não
+// mandasse nada.
 //
 // Sem ler, os pongs de resposta ao ping nunca seriam processados — a biblioteca
 // os entrega pelo mesmo caminho das mensagens — e a conexão morreria sozinha em
 // 30 segundos. Ler também é o que detecta o fechamento pelo lado do cliente.
-func (h *Handler) lerAteMorrer(ctx context.Context, encerrar context.CancelFunc, c *websocket.Conn) {
+func (h *Handler) lerAteMorrer(ctx context.Context, encerrar context.CancelFunc, c *websocket.Conn, a *hub.Assinante) {
 	defer encerrar()
+	c.SetReadLimit(limiteDeLeitura)
 	for {
-		if _, _, err := c.Read(ctx); err != nil {
+		_, dados, err := c.Read(ctx)
+		if err != nil {
 			return
 		}
-		// O cliente não manda nada, e não é esquecimento: a presença é derivada
-		// do próprio mapa de conexões do hub, então não há o que ele informe
-		// que o servidor já não saiba. Se um dia mandar (um cursor, um "estou
-		// digitando"), é aqui que entra o tratamento.
+
+		// Mensagem malformada é IGNORADA, e não derruba a conexão: o canal
+		// carrega o quadro ao vivo, e perder isso por causa de um JSON torto
+		// seria trocar o essencial pelo acessório. Um cliente que só mande lixo
+		// não consegue nada além de gastar o próprio socket.
+		var msg mensagemDoCliente
+		if json.Unmarshal(dados, &msg) != nil {
+			continue
+		}
+		if msg.Tipo != "foco" {
+			continue
+		}
+		if len(msg.ColunaID) > tamanhoMaximoDeIdDeColuna {
+			continue
+		}
+		h.hub.DefinirFoco(a, msg.ColunaID)
 	}
 }
 

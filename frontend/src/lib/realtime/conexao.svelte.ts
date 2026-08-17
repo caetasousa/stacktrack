@@ -29,6 +29,14 @@ export type TipoDeEvento =
 export interface Presente {
 	id: string;
 	nome: string;
+	/**
+	 * A coluna que esta pessoa está editando agora, quando está editando alguma.
+	 *
+	 * Vem junto da presença, e não num evento próprio: é a mesma pergunta —
+	 * "quem está aqui, e fazendo o quê" — e um segundo canal teria de repetir a
+	 * entrada, a saída e a deduplicação por pessoa.
+	 */
+	editandoColunaId?: string;
 }
 
 export interface EventoDoQuadro {
@@ -79,11 +87,18 @@ export function enderecoDoSocket(
  *
  * `aoEvento` recebe cada evento. O servidor já filtra o eco do próprio autor,
  * então tudo que chega aqui foi feito por outra pessoa.
+ *
+ * `anunciarEdicao` é o único caminho de volta: o cliente fala com o servidor
+ * por aqui, e só para dizer o que está editando.
  */
 export function conectarAoQuadro(
 	boardId: string,
 	aoEvento: (e: EventoDoQuadro) => void
-): { readonly situacao: Situacao; fechar: () => void } {
+): {
+	readonly situacao: Situacao;
+	anunciarEdicao: (colunaId: string | null) => void;
+	fechar: () => void;
+} {
 	let situacao = $state<Situacao>('conectando');
 	let socket: WebSocket | null = null;
 	// Até onde a tela já aplicou. É o que vai em ?desde= na reconexão, e é o
@@ -155,6 +170,19 @@ export function conectarAoQuadro(
 	return {
 		get situacao() {
 			return situacao;
+		},
+		/**
+		 * anunciarEdicao avisa a sala de que esta pessoa começou (ou parou, com
+		 * `null`) de editar uma coluna.
+		 *
+		 * Silencioso quando o socket não está aberto: quem está editando durante
+		 * uma queda de conexão simplesmente não aparece para os outros, e forçar
+		 * um erro aqui transformaria uma informação acessória num problema no
+		 * meio da digitação. Ao reconectar, o `$effect` da coluna reanuncia.
+		 */
+		anunciarEdicao(colunaId: string | null) {
+			if (socket?.readyState !== WebSocket.OPEN) return;
+			socket.send(JSON.stringify({ tipo: 'foco', colunaId: colunaId ?? '' }));
 		},
 		fechar() {
 			desligado = true;

@@ -1,0 +1,184 @@
+<script lang="ts">
+	// A auditoria do quadro: quem mexeu no quê, do mais recente para o mais
+	// antigo.
+	//
+	// O problema que ela resolve não é técnico. A informação SEMPRE esteve no log
+	// de eventos — o histórico de cada card já a mostrava —, mas num quadro com
+	// cinquenta cards ela só era alcançável abrindo card por card, que é o mesmo
+	// que não estar. Esta tela não guarda nada de novo: junta o que já existia.
+	import { auditoriaDoQuadro } from '$lib/api/extras';
+	import { ApiError } from '$lib/api/client';
+	import { fraseNoQuadro, quando, type Atividade } from '$lib/atividade';
+	import { iniciais } from '$lib/iniciais';
+	import { pessoasDoQuadro } from '$lib/filtro';
+
+	let { data } = $props();
+
+	let linhas = $state<Atividade[]>([]);
+	let soMovimentacoes = $state(true);
+	let autorId = $state('');
+	let carregando = $state(false);
+	let acabou = $state(false);
+	let erro = $state('');
+
+	// Quem aparece no seletor: quem participa do quadro HOJE, mais quem aparece
+	// no log. A segunda parte importa — auditar costuma ser sobre alguém que já
+	// saiu, e um filtro que só lista os membros atuais esconderia exatamente a
+	// pessoa que se está procurando.
+	const pessoas = $derived.by(() => {
+		const porID = new Map<string, string>();
+		for (const p of pessoasDoQuadro(data.quadro.colunas)) porID.set(p.usuarioId, p.nome);
+		for (const l of linhas) {
+			if (l.autorId && !porID.has(l.autorId)) porID.set(l.autorId, l.autorNome || 'conta removida');
+		}
+		return [...porID].map(([usuarioId, nome]) => ({ usuarioId, nome }));
+	});
+
+	// Só as linhas que a tela sabe descrever. Um tipo de evento novo aparece como
+	// silêncio, e não como uma frase pela metade no meio da auditoria.
+	const descritas = $derived(
+		linhas.map((a) => ({ a, texto: fraseNoQuadro(a) })).filter((l) => l.texto !== '')
+	);
+
+	// Recarrega do zero quando o recorte muda. Não é `$effect` sobre os filtros:
+	// o primeiro lote veio do load(), e um efeito dispararia uma segunda busca
+	// idêntica assim que a página montasse.
+	async function aplicarFiltro() {
+		carregando = true;
+		erro = '';
+		try {
+			const resposta = await auditoriaDoQuadro(data.quadro.id, { soMovimentacoes, autorId });
+			linhas = resposta.atividade;
+			acabou = !resposta.temMais;
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível ler as movimentações';
+		} finally {
+			carregando = false;
+		}
+	}
+
+	// A página seguinte parte do MENOR seq já recebido, e não de um número de
+	// página: o quadro continua sendo mexido enquanto se audita, e paginar por
+	// deslocamento pularia em silêncio as linhas que entrassem no meio.
+	async function carregarMais() {
+		if (carregando || acabou || linhas.length === 0) return;
+		carregando = true;
+		erro = '';
+		try {
+			const resposta = await auditoriaDoQuadro(data.quadro.id, {
+				soMovimentacoes,
+				autorId,
+				antesDe: linhas[linhas.length - 1].seq
+			});
+			linhas = [...linhas, ...resposta.atividade];
+			acabou = !resposta.temMais;
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível carregar mais';
+		} finally {
+			carregando = false;
+		}
+	}
+
+	// O primeiro lote veio junto com a página, no load().
+	$effect(() => {
+		linhas = data.atividade;
+		acabou = !data.temMais;
+	});
+</script>
+
+<svelte:head><title>Movimentações · {data.quadro.titulo} · stacktrack</title></svelte:head>
+
+<div>
+	<a
+		href="/painel/quadros/{data.quadro.id}"
+		class="inline-flex items-center gap-1 text-xs text-mute transition-colors hover:text-ink"
+	>
+		<svg
+			class="size-3"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2.5"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			aria-hidden="true"
+		>
+			<path d="M15 5l-7 7 7 7" />
+		</svg>
+		{data.quadro.titulo}
+	</a>
+	<h1 class="mt-1 text-2xl font-semibold tracking-tight text-ink">Movimentações</h1>
+	<p class="mt-0.5 text-sm text-mute">Quem mexeu no quê, do mais recente para o mais antigo.</p>
+</div>
+
+<div class="mt-6 flex flex-wrap items-center gap-2 text-xs">
+	<span class="font-semibold tracking-widest text-mute uppercase">Filtrar</span>
+
+	<select
+		bind:value={autorId}
+		onchange={aplicarFiltro}
+		class="campo w-auto py-1 text-xs"
+		aria-label="Pessoa"
+	>
+		<option value="">Qualquer pessoa</option>
+		{#each pessoas as pessoa (pessoa.usuarioId)}
+			<option value={pessoa.usuarioId}>{pessoa.nome}</option>
+		{/each}
+	</select>
+
+	<label class="flex cursor-pointer items-center gap-1.5 text-mute">
+		<input
+			type="checkbox"
+			bind:checked={soMovimentacoes}
+			onchange={aplicarFiltro}
+			class="cursor-pointer"
+		/>
+		Só movimentações
+	</label>
+
+	{#if carregando}
+		<span class="text-mute">carregando…</span>
+	{/if}
+</div>
+
+{#if erro}
+	<p class="erro-form mt-4">{erro}</p>
+{/if}
+
+<section class="mt-4 overflow-hidden rounded-lg border border-hairline bg-surface">
+	{#if descritas.length === 0}
+		<p class="px-5 py-10 text-center text-sm text-mute">
+			{soMovimentacoes
+				? 'Ninguém moveu nada por aqui ainda.'
+				: 'Nada aconteceu neste quadro ainda.'}
+		</p>
+	{:else}
+		<ul class="divide-y divide-hairline">
+			{#each descritas as linha (linha.a.seq)}
+				<li class="flex items-start gap-3 px-5 py-3">
+					<span
+						class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-suave text-[0.625rem] font-semibold text-accent-texto"
+						aria-hidden="true"
+					>
+						{iniciais(linha.a.autorNome || '?')}
+					</span>
+					<p class="min-w-0 flex-1 text-sm text-body">
+						<b class="font-semibold text-ink">{linha.a.autorNome || 'conta removida'}</b>
+						{linha.texto}
+					</p>
+					<!-- Data completa, e não relativa: no card cabe "há 2 h", mas quem
+					     audita precisa comparar horários entre linhas. -->
+					<time class="shrink-0 text-xs tabular-nums text-mute" datetime={linha.a.ocorridoEm}>
+						{quando(linha.a.ocorridoEm)}
+					</time>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</section>
+
+{#if descritas.length > 0 && !acabou}
+	<button onclick={carregarMais} disabled={carregando} class="botao-secundario mt-4">
+		{carregando ? 'Carregando…' : 'Carregar mais'}
+	</button>
+{/if}

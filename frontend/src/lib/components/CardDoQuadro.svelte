@@ -6,6 +6,7 @@
 	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 	import { cliqueSemArraste } from '$lib/arrastar';
+	import { haQuanto, quando } from '$lib/atividade';
 	import { iniciais } from '$lib/iniciais';
 
 	let {
@@ -43,6 +44,22 @@
 			? new Date(card.prazo).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 			: ''
 	);
+
+	// A frase inteira fica no title: no card cabe "Ana · há 2 h", mas quem está
+	// auditando precisa do trajeto e da data exata sem sair da tela. O histórico
+	// completo continua no modal, e o do quadro na tela de movimentações.
+	const detalheDaMovimentacao = $derived.by(() => {
+		const m = card.ultimaMovimentacao;
+		if (!m) return '';
+		const quem = m.autorNome || 'alguém';
+		const trajeto =
+			m.de && m.para && m.de !== m.para
+				? `moveu de ${m.de} para ${m.para}`
+				: m.para
+					? `reordenou em ${m.para}`
+					: 'moveu este card';
+		return `${quem} ${trajeto} — ${quando(m.ocorridoEm)}`;
+	});
 
 	// O card é clicável E arrastável. Sem o limiar de distância, soltar depois
 	// de arrastar abriria o modal em cima do movimento que a pessoa fez.
@@ -154,6 +171,38 @@
 			{#if card.descricao}
 				<span title="Tem descrição">≡</span>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Quem mexeu neste card por último.
+
+	     Fica numa LINHA PRÓPRIA, separada por um filete, e não junto dos selos
+	     acima: aqueles descrevem o conteúdo do card (prazo, checklist, anexos),
+	     e este descreve quem o tocou. Misturá-los faria a auditoria parecer mais
+	     um atributo da tarefa.
+
+	     Só aparece em card que já foi movido. Card recém-criado não ganha linha
+	     nenhuma — ausência é a informação correta ali. -->
+	{#if card.ultimaMovimentacao}
+		<div
+			class="mt-2 flex items-center gap-1.5 border-t border-hairline pt-2 text-[0.6875rem] text-mute"
+			title={detalheDaMovimentacao}
+		>
+			<svg
+				class="size-3 shrink-0"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2.2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<path d="M4 7h11M11 3l4 4-4 4M20 17H9M13 13l-4 4 4 4" />
+			</svg>
+			<span class="truncate">{card.ultimaMovimentacao.autorNome || 'alguém'}</span>
+			<span class="shrink-0" aria-hidden="true">·</span>
+			<span class="shrink-0 tabular-nums">{haQuanto(card.ultimaMovimentacao.ocorridoEm)}</span>
 		</div>
 	{/if}
 </div>

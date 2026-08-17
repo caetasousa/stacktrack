@@ -17,6 +17,7 @@ function card(ajustes: Partial<Card> = {}): Card {
 		checklist: { concluidos: 0, total: 0 },
 		qtdAnexos: 0,
 		qtdComentarios: 0,
+		ultimaMovimentacao: null,
 		...ajustes
 	};
 }

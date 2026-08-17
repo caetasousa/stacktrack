@@ -43,6 +43,27 @@ export interface Card {
 	checklist: Progresso;
 	qtdAnexos: number;
 	qtdComentarios: number;
+	// Quem mexeu neste card por último, e para onde. `null` no card que nunca
+	// foi movido — e null é a resposta certa aí: dizer "movido por quem criou"
+	// transformaria a auditoria em ficção.
+	ultimaMovimentacao: Movimentacao | null;
+}
+
+/**
+ * A última vez que um card mudou de lugar, e por quem.
+ *
+ * `de` e `para` são os nomes que as colunas tinham NA HORA, e vêm do log de
+ * eventos — não de uma consulta às colunas de hoje. É o que mantém a frase
+ * verdadeira depois de alguém renomear ou apagar a coluna.
+ *
+ * Iguais entre si significam reordenação dentro da própria coluna.
+ */
+export interface Movimentacao {
+	autorId: string;
+	autorNome: string;
+	de: string;
+	para: string;
+	ocorridoEm: string;
 }
 
 export type Cor = 'cinza' | 'vermelho' | 'laranja' | 'amarelo' | 'verde' | 'azul' | 'roxo' | 'rosa';

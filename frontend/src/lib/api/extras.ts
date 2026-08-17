@@ -130,6 +130,44 @@ export function atividadeDoCard(cardId: string): Promise<{ atividade: Atividade[
 	return apiGet<{ atividade: Atividade[] }>(`/cards/${cardId}/atividade`);
 }
 
+/** O recorte da auditoria do quadro. */
+export interface FiltroDeAuditoria {
+	/** `true` (o padrão do servidor) traz só movimentações. */
+	soMovimentacoes?: boolean;
+	/** Vazio significa "de todo mundo". */
+	autorId?: string;
+	/**
+	 * O seq da última linha já recebida — é o cursor da página seguinte.
+	 *
+	 * Cursor, e não número de página: o log recebe escrita o tempo todo, e
+	 * paginar por deslocamento pularia linhas que entrassem entre um pedido e o
+	 * outro. Numa auditoria, pular em silêncio é o pior defeito possível.
+	 */
+	antesDe?: number;
+}
+
+// auditoriaDoQuadro responde "quem mexeu no quê" para o quadro inteiro. É o
+// mesmo read model do histórico de um card, sem o recorte por card — a
+// informação sempre esteve no log; o que faltava era alcançá-la sem abrir
+// cinquenta cards.
+export function auditoriaDoQuadro(
+	boardId: string,
+	filtro: FiltroDeAuditoria = {}
+): Promise<{ atividade: Atividade[]; temMais?: boolean }> {
+	const parametros = new URLSearchParams();
+	if (filtro.soMovimentacoes === false) parametros.set('filtro', 'tudo');
+	if (filtro.autorId) parametros.set('autor', filtro.autorId);
+	if (filtro.antesDe) parametros.set('antesDe', String(filtro.antesDe));
+
+	const consulta = parametros.toString();
+	// `temMais` vem do servidor, e não é deduzido do tamanho do lote: o teto de
+	// página é dele, e uma página cheia não significa que acabou. Sem isso a
+	// tela ofereceria um "carregar mais" que devolve lista vazia.
+	return apiGet<{ atividade: Atividade[]; temMais?: boolean }>(
+		`/boards/${boardId}/atividade${consulta ? `?${consulta}` : ''}`
+	);
+}
+
 // --- comentários ----------------------------------------------------------
 
 export function comentar(cardId: string, texto: string): Promise<Comentario> {

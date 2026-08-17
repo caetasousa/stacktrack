@@ -65,6 +65,49 @@ export function frase(a: Atividade): string {
 	}
 }
 
+/**
+ * fraseNoQuadro descreve a mesma entrada para a AUDITORIA do quadro, onde a
+ * frase precisa dizer em qual card a coisa aconteceu.
+ *
+ * No histórico de um card o contexto é a própria tela ("moveu de A para B" —
+ * moveu este card, o que está aberto). Numa lista que mistura o quadro inteiro,
+ * a mesma frase fica sem sujeito: cinquenta linhas dizendo "moveu de A para B"
+ * não deixam auditar nada.
+ *
+ * O título vem do payload do evento, e é o que o card tinha NA HORA. Um card
+ * renomeado depois — ou apagado — continua identificável pela linha do log.
+ */
+export function fraseNoQuadro(a: Atividade): string {
+	const d = a.dados ?? {};
+	const card = d.titulo ? `"${d.titulo}"` : 'um card';
+
+	switch (a.tipo) {
+		case 'card.movido':
+			if (d.deColuna && d.coluna && d.deColuna !== d.coluna) {
+				return `moveu ${card} de ${d.deColuna} para ${d.coluna}`;
+			}
+			return d.coluna ? `reordenou ${card} em ${d.coluna}` : `moveu ${card}`;
+
+		case 'card.criado':
+			return d.coluna ? `criou ${card} em ${d.coluna}` : `criou ${card}`;
+
+		case 'card.alterado':
+			return d.tituloAnterior ? `renomeou "${d.tituloAnterior}" para ${card}` : `editou ${card}`;
+
+		case 'card.apagado':
+			return `apagou ${card}`;
+
+		case 'comentario.alterado':
+			return `comentou em ${card}`;
+
+		// Os eventos de coluna e de quadro não têm card, e o payload deles é
+		// outro. Ficam de fora em vez de virarem uma frase torta — a auditoria
+		// existe para as movimentações, e o resto é acompanhamento.
+		default:
+			return '';
+	}
+}
+
 /** Data curta: num histórico o que importa é quando, não a precisão. */
 export function quando(iso: string): string {
 	const d = new Date(iso);
@@ -75,6 +118,30 @@ export function quando(iso: string): string {
 		hour: '2-digit',
 		minute: '2-digit'
 	});
+}
+
+/**
+ * haQuanto devolve "agora", "há 5 min", "há 3 h", "há 2 d" — o tempo relativo
+ * que cabe no rodapé de um card.
+ *
+ * Relativo, e não a data: no card o que importa é se aquilo foi AGORA HÁ POUCO
+ * ou faz tempo, e "17 de ago., 14:32" obriga quem lê a fazer a conta. A data
+ * exata continua disponível no `title` e na tela de auditoria.
+ *
+ * Acima de uma semana volta a ser data: "há 43 d" não diz nada a ninguém.
+ */
+export function haQuanto(iso: string, agora: Date = new Date()): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return '';
+
+	const segundos = Math.floor((agora.getTime() - d.getTime()) / 1000);
+	// Relógio do cliente adiantado em relação ao servidor produz futuro por
+	// alguns segundos. "em 3 s" seria absurdo num histórico — vira "agora".
+	if (segundos < 60) return 'agora';
+	if (segundos < 3600) return `há ${Math.floor(segundos / 60)} min`;
+	if (segundos < 86400) return `há ${Math.floor(segundos / 3600)} h`;
+	if (segundos < 7 * 86400) return `há ${Math.floor(segundos / 86400)} d`;
+	return quando(iso);
 }
 
 /** Entradas que a tela sabe descrever — o resto é omitido. */

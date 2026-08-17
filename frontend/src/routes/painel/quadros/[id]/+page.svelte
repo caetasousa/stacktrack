@@ -466,6 +466,15 @@
 			>
 				Membros
 			</a>
+			<!-- A auditoria fica ao lado de Membros, e não escondida em Ajustes:
+			     as duas respondem "quem", e é aí que se procura. Qualquer membro
+			     entra — ver o que aconteceu é ver, não mexer. -->
+			<a
+				href="/painel/quadros/{data.quadro.id}/movimentacoes"
+				class="rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
+			>
+				Movimentações
+			</a>
 			{#if podeAdministrar}
 				<button
 					onclick={() => (compartilhando = true)}

@@ -21,10 +21,30 @@ FROM flyway/flyway:13-alpine
 # os carrega avidamente — remover o driver errado derruba o boot com
 # ClassNotFoundException, mesmo sem uso nenhum daquele banco. Removeu algo? Rode
 # `flyway migrate` contra um Postgres de verdade antes de confiar.
+#
+# O Cassandra é a prova de que o aviso acima não é teórico. Remover só
+# `drivers/cassandra` derruba a partida:
+#
+#	ClassNotFoundException: com.datastax.oss.driver.api.core.cql.Statement
+#		at java.util.ServiceLoader$1.run
+#
+# O ServiceLoader acha o PLUGIN em lib/flyway e tenta instanciá-lo; sem o driver
+# ao lado, ele estoura. Driver e plugin saem JUNTOS ou não sai nenhum dos dois.
+#
+# Este diretório trouxe três achados de HIGH/MEDIUM (httpcore5, httpcore5-h2 e
+# httpclient5 — o driver do Cassandra embarca um cliente HTTP inteiro para falar
+# com a API da Astra). Nenhum deles é alcançável por um projeto que só fala
+# PostgreSQL, mas dependência que não roda aqui também não precisa estar aqui.
+#
+# Removê-los NÃO encolhe a imagem: `rm` numa camada posterior não apaga as
+# anteriores. O ganho é superfície e ruído de varredura, não disco.
 RUN apk upgrade --no-cache && \
 	rm -rf /flyway/drivers/couchbase \
 	/flyway/drivers/databricks-jdbc-*.jar \
 	/flyway/drivers/mssql-jdbc-*.jar \
-	/flyway/lib/netty
+	/flyway/lib/netty \
+	/flyway/drivers/cassandra \
+	/flyway/lib/flyway/flyway-database-cassandra-*.jar \
+	/flyway/lib/flyway/flyway-database-nc-cassandra-*.jar
 
 COPY migrations /flyway/sql

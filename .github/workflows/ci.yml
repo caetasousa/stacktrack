@@ -309,12 +309,17 @@ jobs:
       # Relatório legível no log, com HIGH junto. Nunca trava: HIGH em imagem
       # base costuma não ter correção disponível, e barrar o deploy nisso
       # transformaria o portão em ruído que se aprende a ignorar.
+      # `trivyignores` é passado explicitamente nas TRÊS chamadas. O Trivy lê
+      # um .trivyignore do diretório corrente por conta própria, mas depender
+      # disso deixaria o silenciamento valendo por acidente de diretório —
+      # nomeá-lo é o que garante que o portão e o SARIF enxerguem a mesma lista.
       - name: Trivy — relatório (HIGH + CRITICAL, não trava)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.imagem }}:scan
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+          trivyignores: .trivyignore
 
       # No log o achado se perde no scroll e desaparece no run seguinte; em
       # SARIF ele vai para a aba Security com histórico, deduplicação e a data
@@ -329,6 +334,7 @@ jobs:
           exit-code: '0'
           format: sarif
           output: trivy-${{ matrix.imagem }}.sarif
+          trivyignores: .trivyignore
 
       - name: publica o SARIF na aba Security
         if: always()
@@ -346,6 +352,7 @@ jobs:
           image-ref: ${{ matrix.imagem }}:scan
           severity: 'CRITICAL'
           exit-code: '1'
+          trivyignores: .trivyignore
 
   publicar-imagens:
     name: Publica imagens no GHCR

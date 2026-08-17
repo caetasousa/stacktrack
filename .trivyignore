@@ -1,0 +1,42 @@
+# Achados do Trivy deliberadamente silenciados.
+#
+# A regra de ouro deste arquivo: SILENCIA-SE UM ID, NUNCA UM PACOTE. Um módulo
+# inteiro na lista esconderia também o próximo defeito real que aparecesse nele
+# — e a gente só descobriria quando não pudesse mais escolher.
+#
+# Toda linha vem com a razão escrita e a data. Sem isso, um achado autorizado e
+# um achado esquecido ficam idênticos, que é exatamente o problema que o
+# migrations/COLUNAS-ORFAS.md também resolve.
+#
+# Nada aqui substitui correção: quando dá para remover ou atualizar, remove-se
+# ou atualiza-se (ver o Cassandra em backend/Dockerfile.migrations). Este
+# arquivo é só para o achado que NÃO tem o que corrigir.
+
+# --------------------------------------------------------------------------
+# GO-2026-5932 — golang.org/x/crypto/openpgp é abandonado e inseguro por
+# desenho.
+#
+# Verdadeiro, e irrelevante aqui: o binário da API não contém esse pacote.
+#
+#	$ go list -deps ./cmd/api | grep openpgp
+#	(nada)
+#
+#	$ go list -deps ./cmd/api | grep x/crypto
+#	golang.org/x/crypto/argon2
+#	golang.org/x/crypto/blake2b
+#	golang.org/x/crypto/sha3
+#
+# O x/crypto está no binário por causa do Argon2id, o hasher de senha
+# (internal/adapter/security). O Trivy, varrendo um binário Go, enxerga MÓDULOS
+# e não pacotes — então ele não tem como distinguir `argon2` de `openpgp`, e
+# atribui ao binário inteiro um aviso sobre um pacote que nunca foi ligado.
+#
+# Também não existe o que atualizar: o aviso é sobre o pacote ser abandonado,
+# não sobre um defeito com correção. A coluna "fixed version" vem vazia, e vai
+# continuar vindo.
+#
+# ⚠️ Silencia SÓ este id. Um CVE futuro em argon2, sha3 ou chacha20 — que são os
+# pacotes de x/crypto realmente ligados — continua aparecendo normalmente.
+#
+# Conferido em 2026-08-17, com x/crypto v0.54.0.
+GO-2026-5932

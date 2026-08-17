@@ -95,6 +95,11 @@ export interface BoardDetalhado {
 	titulo: string;
 	papel: Papel;
 	fundo: Fundo;
+	// Existe link público ligado. Vem para TODO membro, e não só para o dono:
+	// quem escreve num card precisa saber que aquilo está à vista de fora antes
+	// de escrever. O token do link não vem aqui — ele é do dono, e sai por
+	// $lib/api/publicacao.
+	publico: boolean;
 	colunas: Coluna[];
 	// As etiquetas do quadro inteiro: o card carrega só os ids delas.
 	etiquetas: Etiqueta[];

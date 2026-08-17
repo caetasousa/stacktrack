@@ -261,6 +261,15 @@ html {
 		border-color: var(--hairline-strong);
 	}
 
+	/* O selo de quadro publicado. Não é erro nem é normal: é um estado que
+	   muda o que se deve escrever nos cards, e por isso usa a cor de aviso em
+	   vez do acento — que se confundiria com o selo de papel ao lado. */
+	.chip-aviso {
+		background-color: color-mix(in srgb, var(--aviso) 16%, transparent);
+		color: var(--aviso);
+		border-color: color-mix(in srgb, var(--aviso) 40%, transparent);
+	}
+
 	.erro-form {
 		padding: 0.625rem 0.75rem;
 		border: 1px solid var(--negativo);

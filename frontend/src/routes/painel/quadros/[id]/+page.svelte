@@ -43,6 +43,7 @@
 		type Filtro
 	} from '$lib/filtro';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
+	import DialogoDeCompartilhamento from '$lib/components/DialogoDeCompartilhamento.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
 
@@ -188,6 +189,7 @@
 	// Qual card está aberto no modal — null é modal fechado.
 	let cardAberto = $state<string | null>(null);
 	let painelDeAjustes = $state(false);
+	let compartilhando = $state(false);
 	let nomeDaEtiqueta = $state('');
 	let corDaEtiqueta = $state<Cor>('azul');
 
@@ -413,6 +415,28 @@
 			<span class="chip" class:chip-neutro={data.quadro.papel !== 'dono'}>
 				<i class="size-1.5 rounded-full bg-current"></i>{data.quadro.papel}
 			</span>
+			<!-- O aviso vai para TODO membro, e não só para quem publicou: quem
+			     escreve num card precisa saber que aquilo está à vista de fora
+			     ANTES de escrever, não depois. É o selo, e não o botão, que carrega
+			     essa informação — o botão só o dono vê. -->
+			{#if data.quadro.publico}
+				<span class="chip chip-aviso" title="Existe um link de acompanhamento ativo neste quadro">
+					<svg
+						class="size-3"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<circle cx="12" cy="12" r="9" />
+						<path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18" />
+					</svg>
+					público
+				</span>
+			{/if}
 			<!-- A situação da conexão fica à vista: quando ela cai, quem está
 			     olhando precisa saber que a tela parou de se atualizar sozinha —
 			     senão vai confiar num quadro velho. Ao vivo não vira selo verde
@@ -443,6 +467,12 @@
 				Membros
 			</a>
 			{#if podeAdministrar}
+				<button
+					onclick={() => (compartilhando = true)}
+					class="cursor-pointer rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
+				>
+					Compartilhar
+				</button>
 				<button
 					onclick={() => ((titulo = data.quadro.titulo), (renomeando = true))}
 					class="cursor-pointer rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
@@ -688,6 +718,14 @@
 		</p>
 	{/if}
 </div>
+
+{#if compartilhando && podeAdministrar}
+	<DialogoDeCompartilhamento
+		boardId={data.quadro.id}
+		aoFechar={() => (compartilhando = false)}
+		aoMudar={recarregar}
+	/>
+{/if}
 
 {#if cardAberto}
 	<ModalDoCard

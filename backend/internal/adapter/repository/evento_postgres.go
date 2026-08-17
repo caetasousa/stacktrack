@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"stacktrack/internal/domain/evento"
@@ -131,7 +132,104 @@ func (r *EventoPostgres) DoCard(ctx context.Context, cardID string, limite int) 
 		return nil, err
 	}
 	defer linhas.Close()
+	return lerAtividades(linhas)
+}
 
+// DoBoard devolve o histórico do quadro inteiro, do mais recente para o mais
+// antigo — é o que a tela de auditoria lê.
+//
+// A consulta é montada com argumentos posicionais, e nunca por concatenação: os
+// três filtros vêm da query string, e um deles interpolado no SQL seria injeção
+// direta sobre o log de eventos de todos os quadros.
+//
+// O cursor é `seq < $n`, e não OFFSET. O log recebe escrita o tempo todo: com
+// OFFSET, um evento novo entre a primeira página e a segunda empurraria uma
+// linha para fora da janela e ela nunca seria lida — numa auditoria, uma linha
+// pulada em silêncio é o pior defeito possível.
+func (r *EventoPostgres) DoBoard(ctx context.Context, boardID string, filtro ucboard.FiltroDeAtividade) ([]ucboard.Atividade, error) {
+	sql := `SELECT e.seq, e.tipo, e.payload, e.autor_id, u.nome, e.criado_em
+	          FROM board_events e
+	          LEFT JOIN usuarios u ON u.id = e.autor_id
+	         WHERE e.board_id = $1`
+	args := []any{boardID}
+
+	if filtro.SoMovimentacoes {
+		args = append(args, string(evento.CardMovido))
+		sql += fmt.Sprintf(" AND e.tipo = $%d", len(args))
+	}
+	if filtro.AutorID != "" {
+		args = append(args, filtro.AutorID)
+		sql += fmt.Sprintf(" AND e.autor_id = $%d", len(args))
+	}
+	if filtro.AntesDe > 0 {
+		args = append(args, filtro.AntesDe)
+		sql += fmt.Sprintf(" AND e.seq < $%d", len(args))
+	}
+	args = append(args, filtro.Limite)
+	sql += fmt.Sprintf(" ORDER BY e.seq DESC LIMIT $%d", len(args))
+
+	linhas, err := r.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+	return lerAtividades(linhas)
+}
+
+// UltimaMovimentacaoPorCard devolve, para cada card do quadro que já foi movido,
+// a última movimentação dele — numa consulta só.
+//
+// DISTINCT ON é do PostgreSQL e é o que resolve isto sem subconsulta: com
+// `ORDER BY card_id, seq DESC` ele fica com a PRIMEIRA linha de cada card, que
+// nessa ordenação é a mais recente. A alternativa portável seria uma janela
+// (ROW_NUMBER) num subselect — mais SQL para o mesmo plano.
+func (r *EventoPostgres) UltimaMovimentacaoPorCard(ctx context.Context, boardID string) (map[string]ucboard.Movimentacao, error) {
+	linhas, err := r.pool.Query(ctx,
+		`SELECT DISTINCT ON (e.card_id) e.card_id, e.autor_id, u.nome, e.payload, e.criado_em
+		   FROM board_events e
+		   LEFT JOIN usuarios u ON u.id = e.autor_id
+		  WHERE e.board_id = $1 AND e.tipo = $2 AND e.card_id IS NOT NULL
+		  ORDER BY e.card_id, e.seq DESC`,
+		boardID, string(evento.CardMovido),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	porCard := make(map[string]ucboard.Movimentacao)
+	for linhas.Next() {
+		var cardID string
+		var autor, nome *string
+		var corpo []byte
+		var quando time.Time
+		if err := linhas.Scan(&cardID, &autor, &nome, &corpo, &quando); err != nil {
+			return nil, err
+		}
+		m := ucboard.Movimentacao{
+			AutorID:    valorOuVazio(autor),
+			AutorNome:  valorOuVazio(nome),
+			OcorridoEm: quando.Format(time.RFC3339),
+		}
+		// As colunas vêm do payload, e não de um JOIN com `colunas`: o evento
+		// gravou o nome que a coluna tinha NA HORA. Resolver o id agora mostraria
+		// o nome de hoje numa frase sobre ontem — e nada, se a coluna já tiver
+		// sido apagada. É a mesma decisão documentada em DadosDoCard.
+		if len(corpo) > 0 {
+			var dados ucboard.DadosDoCard
+			if err := json.Unmarshal(corpo, &dados); err == nil {
+				m.DeColuna, m.ParaColuna = dados.DeColuna, dados.Coluna
+			}
+		}
+		porCard[cardID] = m
+	}
+	return porCard, linhas.Err()
+}
+
+// lerAtividades converte as linhas do log em entradas de histórico. É a mesma
+// leitura de DoCard e de DoBoard — duas cópias divergiriam no dia em que o log
+// ganhasse uma coluna.
+func lerAtividades(linhas pgx.Rows) ([]ucboard.Atividade, error) {
 	lista := make([]ucboard.Atividade, 0)
 	for linhas.Next() {
 		var a ucboard.Atividade

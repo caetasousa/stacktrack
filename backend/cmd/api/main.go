@@ -104,6 +104,9 @@ func main() {
 	// O quadro só CONSULTA a publicação, para dizer a quem edita que ele está à
 	// vista de fora. Publicar e revogar é com o publicacaoUC.
 	quadroUC.ComPublicacoes(publicacaoRepo)
+	// O selo de "quem moveu por último" em cada card vem do log de eventos, que
+	// já é a fonte do histórico. Nenhuma tabela nova: auditoria é leitura.
+	quadroUC.ComAtividades(logDeEventos)
 
 	// O hub é o adaptador que implementa a porta Publicador. Ligá-lo aqui, e
 	// não no construtor de cada usecase, é o que mantém os testes construindo
@@ -256,6 +259,11 @@ func main() {
 			r.Get("/{boardID}/publicacao", publicacaoHandler.Consultar)
 			r.Put("/{boardID}/publicacao", publicacaoHandler.Publicar)
 			r.Delete("/{boardID}/publicacao", publicacaoHandler.Revogar)
+
+			// A auditoria do quadro: quem mexeu no quê. Qualquer membro lê, pela
+			// mesma razão do histórico de um card — ver não é mexer, e a mesma
+			// informação já saía card a card.
+			r.Get("/{boardID}/atividade", extrasHandler.AtividadeDoQuadro)
 
 			r.Get("/{boardID}/etiquetas", extrasHandler.ListarEtiquetas)
 			r.Post("/{boardID}/etiquetas", extrasHandler.CriarEtiqueta)

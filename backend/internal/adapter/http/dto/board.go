@@ -80,6 +80,22 @@ type CardResponse struct {
 	// QtdComentarios alimenta o selo 💬 do card. Vem contado pelo servidor,
 	// numa consulta só para o quadro inteiro.
 	QtdComentarios int `json:"qtdComentarios"`
+	// UltimaMovimentacao é nulo no card que nunca foi movido.
+	UltimaMovimentacao *MovimentacaoResponse `json:"ultimaMovimentacao"`
+}
+
+// MovimentacaoResponse é quem mexeu no card por último, e para onde.
+//
+// Sai no quadro autenticado, e NUNCA na projeção pública: é o nome de uma
+// pessoa. Ver dto/publicacao.go.
+type MovimentacaoResponse struct {
+	AutorID   string `json:"autorId"`
+	AutorNome string `json:"autorNome"`
+	// De e Para são iguais quando o card só foi reordenado dentro da coluna —
+	// é o que deixa a tela dizer "reordenou" sem inventar um movimento.
+	De         string `json:"de"`
+	Para       string `json:"para"`
+	OcorridoEm string `json:"ocorridoEm"`
 }
 
 // ProgressoResponse é o "2/5" de checklist mostrado no card.
@@ -183,6 +199,11 @@ type AtividadeResponse struct {
 // ListaAtividadeResponse envelopa o histórico.
 type ListaAtividadeResponse struct {
 	Atividade []AtividadeResponse `json:"atividade"`
+	// TemMais indica que existe a página seguinte. Sai só na auditoria do
+	// quadro, que pagina; o histórico de um card vem inteiro e o campo fica
+	// ausente ali, e não `false` — dizer "não há mais" seria responder a uma
+	// pergunta que aquela rota não faz.
+	TemMais bool `json:"temMais,omitempty"`
 }
 
 // ComentarioRequest é o corpo de escrever e editar comentário.

@@ -34,6 +34,11 @@ type QuadroUseCase struct {
 	// todas as chamadas, inclusive nas dos testes que não têm nada com isso.
 	// Quem publica e quem revoga é o PublicacaoUseCase — daqui não se escreve.
 	publicacoes RepositorioPublicacao
+	// atividades serve APENAS para o selo de "quem moveu por último" em cada
+	// card. Entra por ComAtividades pela mesma razão de publicacoes: é leitura
+	// acessória, e um parâmetro posicional a mais em todas as chamadas — testes
+	// inclusive — só para isso não se paga.
+	atividades RepositorioAtividade
 }
 
 // ComPublicacoes liga a consulta do link público. Sem ela ligada, todo quadro
@@ -41,6 +46,12 @@ type QuadroUseCase struct {
 // que constroem o usecase sem essa porta.
 func (uc *QuadroUseCase) ComPublicacoes(publicacoes RepositorioPublicacao) {
 	uc.publicacoes = publicacoes
+}
+
+// ComAtividades liga a consulta de quem moveu cada card por último. Sem ela, os
+// cards vêm sem esse selo — ausência, e não informação errada.
+func (uc *QuadroUseCase) ComAtividades(atividades RepositorioAtividade) {
+	uc.atividades = atividades
 }
 
 // NovoQuadroUseCase cria uma instância de QuadroUseCase com as dependências injetadas.
@@ -155,14 +166,27 @@ func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string
 	if err != nil {
 		return nil, err
 	}
+	movimentacoesPorCard, err := uc.ultimasMovimentacoes(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Detalhado{
 		Board:     *b,
 		Papel:     vinculo.Papel,
-		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard, comentariosPorCard),
+		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard, comentariosPorCard, movimentacoesPorCard),
 		Publico:   publicado,
 		Etiquetas: etiquetasDoBoard,
 	}, nil
+}
+
+// ultimasMovimentacoes devolve, por card, quem o moveu por último. Sem a porta
+// ligada devolve um mapa vazio — ver ComAtividades.
+func (uc *QuadroUseCase) ultimasMovimentacoes(ctx context.Context, boardID string) (map[string]Movimentacao, error) {
+	if uc.atividades == nil {
+		return map[string]Movimentacao{}, nil
+	}
+	return uc.atividades.UltimaMovimentacaoPorCard(ctx, boardID)
 }
 
 // estaPublicado informa se o quadro tem link público ligado. Sem a porta ligada
@@ -267,6 +291,7 @@ func agrupar(
 	progressoPorCard map[string]Progresso,
 	anexosPorCard map[string]int,
 	comentariosPorCard map[string]int,
+	movimentacoesPorCard map[string]Movimentacao,
 ) []ColunaComCards {
 	porColuna := make(map[string][]CardNoQuadro, len(colunas))
 	for _, c := range cards {
@@ -278,13 +303,19 @@ func agrupar(
 		if responsaveis == nil {
 			responsaveis = []Responsavel{}
 		}
+		// Ponteiro só quando existe: o card nunca movido não recebe selo nenhum.
+		var movimentacao *Movimentacao
+		if m, houve := movimentacoesPorCard[c.ID]; houve {
+			movimentacao = &m
+		}
 		porColuna[c.ColunaID] = append(porColuna[c.ColunaID], CardNoQuadro{
-			Card:           c,
-			Responsaveis:   responsaveis,
-			Etiquetas:      etiquetas,
-			Checklist:      progressoPorCard[c.ID],
-			QtdAnexos:      anexosPorCard[c.ID],
-			QtdComentarios: comentariosPorCard[c.ID],
+			Card:               c,
+			Responsaveis:       responsaveis,
+			Etiquetas:          etiquetas,
+			Checklist:          progressoPorCard[c.ID],
+			QtdAnexos:          anexosPorCard[c.ID],
+			QtdComentarios:     comentariosPorCard[c.ID],
+			UltimaMovimentacao: movimentacao,
 		})
 	}
 

@@ -299,6 +299,12 @@ func paraCardNoQuadro(c ucboard.CardNoQuadro) dto.CardResponse {
 	resposta.Checklist = dto.ProgressoResponse{Concluidos: c.Checklist.Concluidos, Total: c.Checklist.Total}
 	resposta.QtdAnexos = c.QtdAnexos
 	resposta.QtdComentarios = c.QtdComentarios
+	if m := c.UltimaMovimentacao; m != nil {
+		resposta.UltimaMovimentacao = &dto.MovimentacaoResponse{
+			AutorID: m.AutorID, AutorNome: m.AutorNome,
+			De: m.DeColuna, Para: m.ParaColuna, OcorridoEm: m.OcorridoEm,
+		}
+	}
 	return resposta
 }
 

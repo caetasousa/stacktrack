@@ -5,6 +5,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"stacktrack/internal/adapter/http/dto"
@@ -283,6 +284,57 @@ func (h *ExtrasHandler) Atividade(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	responderJSON(w, http.StatusOK, dto.ListaAtividadeResponse{Atividade: fora})
+}
+
+// AtividadeDoQuadro devolve o histórico do quadro inteiro — a auditoria.
+//
+// Responde a pergunta que o histórico por card não responde quando há muitos
+// cards: "quem mexeu na ordem deste quadro, e quando". Por padrão traz só as
+// movimentações, que é o assunto; `filtro=tudo` abre para o resto.
+//
+// Parâmetros, todos opcionais:
+//
+//	filtro=movimentacoes|tudo   recorte (padrão: movimentacoes)
+//	autor=<usuarioID>           só o que aquela pessoa fez
+//	antesDe=<seq>               cursor da página seguinte
+//
+// O cursor é o seq da última linha recebida, e não um número de página: o log
+// recebe escrita o tempo todo, e paginar por deslocamento pularia linhas que
+// entrassem no meio — numa auditoria, pular em silêncio é o pior defeito.
+func (h *ExtrasHandler) AtividadeDoQuadro(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+
+	consulta := r.URL.Query()
+	filtro := ucboard.FiltroDeAtividade{
+		// Qualquer valor que não seja exatamente "tudo" cai no recorte estreito.
+		// É a direção segura para um parâmetro vindo da URL: um erro de digitação
+		// devolve menos, e não a história inteira do quadro.
+		SoMovimentacoes: consulta.Get("filtro") != "tudo",
+		AutorID:         consulta.Get("autor"),
+	}
+	// Cursor inválido é tratado como ausente, e não como erro: quem chama com
+	// lixo recebe a primeira página, que é o que ele veria de qualquer forma.
+	if antes, err := strconv.ParseInt(consulta.Get("antesDe"), 10, 64); err == nil && antes > 0 {
+		filtro.AntesDe = antes
+	}
+
+	pagina, err := h.atividade.DoBoard(r.Context(), chi.URLParam(r, "boardID"), usuarioID, filtro)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao ler a auditoria do quadro", err)
+		return
+	}
+
+	fora := make([]dto.AtividadeResponse, 0, len(pagina.Linhas))
+	for _, a := range pagina.Linhas {
+		fora = append(fora, dto.AtividadeResponse{
+			Seq: a.Seq, Tipo: string(a.Tipo), AutorID: a.AutorID,
+			AutorNome: a.AutorNome, Dados: a.Dados, OcorridoEm: a.OcorridoEm,
+		})
+	}
+	responderJSON(w, http.StatusOK, dto.ListaAtividadeResponse{Atividade: fora, TemMais: pagina.TemMais})
 }
 
 // --- checklists -----------------------------------------------------------

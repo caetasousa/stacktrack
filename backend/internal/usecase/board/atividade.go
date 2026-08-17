@@ -57,15 +57,62 @@ type Atividade struct {
 	OcorridoEm string
 }
 
+// Movimentacao é a última vez que um card mudou de lugar, e por quem.
+//
+// Guarda o NOME de quem moveu e os nomes das colunas, e não ids: é a mesma
+// razão de DadosDoCard guardá-los. O selo do card responde "quem mexeu nisto
+// por último", e a resposta precisa continuar verdadeira depois de a coluna ser
+// renomeada ou apagada.
+type Movimentacao struct {
+	AutorID   string
+	AutorNome string
+	// DeColuna e ParaColuna são iguais quando o card só foi reordenado dentro da
+	// própria coluna — é o que deixa a tela dizer "reordenou" em vez de inventar
+	// um movimento que não houve.
+	DeColuna   string
+	ParaColuna string
+	OcorridoEm string
+}
+
+// FiltroDeAtividade escolhe o recorte do histórico do quadro.
+type FiltroDeAtividade struct {
+	// SoMovimentacoes restringe a card.movido. É o padrão da tela de auditoria:
+	// a pergunta que ela responde é "quem mexeu na ordem do quadro", e misturar
+	// comentário e renomeação afogaria a resposta.
+	SoMovimentacoes bool
+	// AutorID vazio significa "de todo mundo".
+	AutorID string
+	// AntesDe é o cursor de paginação: devolve o que vier ANTES deste seq.
+	// Zero começa do mais recente.
+	//
+	// Cursor por seq, e não OFFSET: o log recebe escrita o tempo todo, e um
+	// OFFSET faria a segunda página pular linhas que entraram entre um pedido e
+	// o outro. O seq é ordem total, então o cursor não escorrega.
+	AntesDe int64
+	Limite  int
+}
+
 // RepositorioAtividade lê o histórico do log de eventos.
 //
 // É uma porta de LEITURA sobre a mesma tabela que RegistroDeEventos escreve —
 // o histórico é um read model, e não uma segunda fonte da verdade. Foi essa
-// separação que permitiu a fase 11 entregar o histórico sem tabela nova.
+// separação que permitiu a fase 11 entregar o histórico sem tabela nova, e é a
+// mesma que agora entrega a auditoria do quadro.
 type RepositorioAtividade interface {
 	// DoCard devolve o que aconteceu com o card, do mais recente para o mais
 	// antigo — é a ordem em que se lê histórico.
 	DoCard(ctx context.Context, cardID string, limite int) ([]Atividade, error)
+	// DoBoard devolve o que aconteceu no quadro inteiro, do mais recente para o
+	// mais antigo, aplicando o filtro.
+	DoBoard(ctx context.Context, boardID string, filtro FiltroDeAtividade) ([]Atividade, error)
+	// UltimaMovimentacaoPorCard devolve, para cada card do quadro que já foi
+	// movido, a última movimentação dele — numa consulta só.
+	//
+	// É a mesma razão de EtiquetasDoBoardPorCard e ProgressoDoBoard existirem: a
+	// tela do quadro mostra isto em TODO card, e uma consulta por card seria um
+	// N+1 que piora justamente nos quadros grandes, que são os que precisam de
+	// auditoria.
+	UltimaMovimentacaoPorCard(ctx context.Context, boardID string) (map[string]Movimentacao, error)
 }
 
 // AtividadeUseCase responde "o que aconteceu com este card".
@@ -107,4 +154,56 @@ func (uc *AtividadeUseCase) DoCard(ctx context.Context, cardID, usuarioID string
 		return nil, traduzirParaCard(err)
 	}
 	return uc.atividades.DoCard(ctx, cardID, LimiteDaAtividade)
+}
+
+// LimiteDaAuditoria é quantas linhas uma página da auditoria do quadro devolve.
+//
+// Menor que um quadro inteiro de propósito: a tela pagina por cursor, e uma
+// primeira resposta curta chega antes. Quem precisa de mais pede a próxima.
+const LimiteDaAuditoria = 60
+
+// DoBoard devolve o histórico do quadro — quem mexeu no quê, do mais recente
+// para o mais antigo.
+//
+// Qualquer membro pode ler, pela mesma razão do histórico de um card: ver o que
+// aconteceu é ver, não mexer. E a informação já era acessível card a card — o
+// que muda aqui é só não precisar abrir cinquenta cards para juntá-la.
+//
+// Retorna dboard.ErrNaoEncontrado para quadro inexistente e para quem não
+// participa, os dois iguais.
+func (uc *AtividadeUseCase) DoBoard(ctx context.Context, boardID, usuarioID string, filtro FiltroDeAtividade) (PaginaDeAtividade, error) {
+	if _, err := acesso(ctx, uc.membros, boardID, usuarioID); err != nil {
+		return PaginaDeAtividade{}, err
+	}
+	if filtro.Limite <= 0 || filtro.Limite > LimiteDaAuditoria {
+		// Teto aplicado aqui, e não confiado a quem chama: sem ele, um `limite`
+		// vindo da URL montaria a história inteira do quadro em memória.
+		filtro.Limite = LimiteDaAuditoria
+	}
+
+	// Pede UMA linha a mais do que vai devolver. É o que permite responder "há
+	// mais?" sem uma segunda consulta e sem contar a tabela inteira — e é o que
+	// evita a tela oferecer um "carregar mais" que não carrega nada, que é um
+	// botão mentindo.
+	pedido := filtro
+	pedido.Limite = filtro.Limite + 1
+	lista, err := uc.atividades.DoBoard(ctx, boardID, pedido)
+	if err != nil {
+		return PaginaDeAtividade{}, err
+	}
+
+	if len(lista) > filtro.Limite {
+		return PaginaDeAtividade{Linhas: lista[:filtro.Limite], TemMais: true}, nil
+	}
+	return PaginaDeAtividade{Linhas: lista}, nil
+}
+
+// PaginaDeAtividade é um lote do histórico e a informação de se existe o
+// próximo. Quem chama não tem como deduzir isso sozinho: o teto é do servidor,
+// e uma página cheia não significa que acabou.
+type PaginaDeAtividade struct {
+	Linhas []Atividade
+	// TemMais é falso na última página. A tela usa isso para esconder o botão
+	// em vez de oferecer um clique que devolve lista vazia.
+	TemMais bool
 }

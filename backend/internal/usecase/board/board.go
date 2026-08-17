@@ -42,6 +42,10 @@ type CardNoQuadro struct {
 	Checklist      Progresso
 	QtdAnexos      int
 	QtdComentarios int
+	// UltimaMovimentacao é nil no card que nunca foi movido — o recém-criado, o
+	// que ninguém tocou. Nil é a resposta certa aí: inventar "movido por quem
+	// criou" transformaria auditoria em ficção.
+	UltimaMovimentacao *Movimentacao
 }
 
 // ColunaComCards é uma coluna e os cards dela, já em ordem de chave.

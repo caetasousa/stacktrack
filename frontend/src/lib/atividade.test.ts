@@ -122,9 +122,53 @@ describe('fraseNoQuadro', () => {
 		expect(fraseNoQuadro(a)).toBe('moveu um card de A fazer para Pronto');
 	});
 
+	// A auditoria descreve o quadro INTEIRO, e não só os cards: coluna, etiqueta,
+	// anexo, checklist, responsável, participação. Foi o pedido que originou a
+	// separação dos tipos no servidor — antes, doze ações diferentes chegavam
+	// aqui como um "quadro.alterado" sem payload, e a tela as descartava.
+	it.each([
+		['coluna.criada', { titulo: 'A fazer' }, 'criou a coluna "A fazer"'],
+		['coluna.apagada', { titulo: 'A fazer' }, 'apagou a coluna "A fazer"'],
+		['coluna.movida', { titulo: 'A fazer' }, 'reordenou a coluna "A fazer"'],
+		[
+			'quadro.renomeado',
+			{ titulo: 'Novo', tituloAnterior: 'Velho' },
+			'renomeou o quadro de "Velho" para "Novo"'
+		],
+		['quadro.fundo', { fundo: 'oceano' }, 'mudou o fundo do quadro para oceano'],
+		['etiqueta.criada', { nome: 'urgente' }, 'criou a etiqueta "urgente"'],
+		['etiqueta.aplicada', { titulo: 'Card', alvo: 'urgente' }, 'marcou "Card" com "urgente"'],
+		['anexo.adicionado', { titulo: 'Card', alvo: 'nota.pdf' }, 'anexou "nota.pdf" em "Card"'],
+		[
+			'responsavel.atribuido',
+			{ titulo: 'Card', alvo: 'Ana' },
+			'pôs "Ana" como responsável por "Card"'
+		],
+		['item.criado', { titulo: 'Card', alvo: 'passo 1' }, 'acrescentou "passo 1" a "Card"'],
+		['membro.adicionado', { nome: 'Ana', papel: 'editor' }, 'adicionou Ana ao quadro como editor'],
+		['membro.entrou', { papel: 'editor' }, 'entrou no quadro como editor'],
+		[
+			'membro.papel',
+			{ nome: 'Ana', papel: 'leitor', papelAnterior: 'editor' },
+			'mudou Ana de editor para leitor'
+		],
+		['membro.removido', { nome: 'Ana' }, 'removeu Ana do quadro']
+	])('descreve %s', (tipo, dados, esperado) => {
+		expect(fraseNoQuadro(entrada({ tipo, dados }))).toBe(esperado);
+	});
+
+	// Os tipos genéricos de ANTES da separação continuam no log — append-only —,
+	// e some-los seria pior do que uma frase vaga: a auditoria mostraria um
+	// buraco onde houve atividade.
+	it('ainda descreve, mesmo que vagamente, os eventos antigos', () => {
+		expect(fraseNoQuadro(entrada({ tipo: 'quadro.alterado' }))).toBe('mexeu no quadro');
+		expect(fraseNoQuadro(entrada({ tipo: 'membros.alterados' }))).toBe(
+			'mexeu na participação do quadro'
+		);
+	});
+
 	// Silêncio, e não uma frase torta: a tela omite a linha inteira.
-	it('devolve vazio para o que não sabe descrever', () => {
-		expect(fraseNoQuadro(entrada({ tipo: 'coluna.criada' }))).toBe('');
+	it('devolve vazio para um tipo que ainda não existe', () => {
 		expect(fraseNoQuadro(entrada({ tipo: 'inventado.agora' }))).toBe('');
 	});
 });

@@ -495,10 +495,10 @@
 			     as duas respondem "quem", e é aí que se procura. Qualquer membro
 			     entra — ver o que aconteceu é ver, não mexer. -->
 			<a
-				href="/painel/quadros/{data.quadro.id}/movimentacoes"
+				href="/painel/quadros/{data.quadro.id}/historico"
 				class="rounded px-2 py-1 transition-colors hover:bg-surface-elevated hover:text-ink"
 			>
-				Movimentações
+				Histórico
 			</a>
 			{#if podeAdministrar}
 				<button

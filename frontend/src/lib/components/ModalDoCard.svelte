@@ -822,12 +822,21 @@
 									<li class="flex gap-2 text-xs text-mute">
 										<span
 											class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-[9px] font-semibold"
-											title={linha.atividade.autorNome || 'conta removida'}
+											title={linha.atividade.autorEmail ||
+												linha.atividade.autorNome ||
+												'conta removida'}
 										>
 											{iniciais(linha.atividade.autorNome || '?')}
 										</span>
 										<span>
-											<b class="font-semibold text-body">
+											<!-- O email no `title` do nome, e não ao lado dele: aqui as linhas são
+											     curtas e quase sempre da mesma pessoa, e um email repetido em cada
+											     uma afogaria o que aconteceu. No histórico do QUADRO, onde se
+											     compara gente, ele aparece por extenso. -->
+											<b
+												class="font-semibold text-body"
+												title={linha.atividade.autorEmail || undefined}
+											>
 												{linha.atividade.autorNome || 'alguém'}
 											</b>
 											{linha.texto} · {quandoAconteceu(linha.atividade.ocorridoEm)}

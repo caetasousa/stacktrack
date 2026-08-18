@@ -33,7 +33,7 @@ export const load: PageLoad = async ({
 	try {
 		const [quadro, auditoria, participacao] = await Promise.all([
 			detalharBoard(params.id),
-			auditoriaDoQuadro(params.id),
+			auditoriaDoQuadro(params.id, { soMovimentacoes: false }),
 			listarParticipacao(params.id)
 		]);
 		return {

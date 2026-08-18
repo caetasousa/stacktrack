@@ -14,7 +14,11 @@
 	let { data } = $props();
 
 	let linhas = $state<Atividade[]>([]);
-	let soMovimentacoes = $state(true);
+	// Começa MOSTRANDO TUDO. A tela nasceu respondendo "quem bagunçou a ordem",
+	// e por isso abria só com movimentações de card; mas quem chega aqui está
+	// investigando, e um recorte ligado por padrão esconde justamente o que a
+	// pessoa ainda não sabe que procura. O recorte estreito continua a um clique.
+	let soMovimentacoes = $state(false);
 	let autorId = $state('');
 	let carregando = $state(false);
 	let acabou = $state(false);
@@ -93,7 +97,7 @@
 	});
 </script>
 
-<svelte:head><title>Movimentações · {data.quadro.titulo} · stacktrack</title></svelte:head>
+<svelte:head><title>Histórico · {data.quadro.titulo} · stacktrack</title></svelte:head>
 
 <div>
 	<a
@@ -114,8 +118,11 @@
 		</svg>
 		{data.quadro.titulo}
 	</a>
-	<h1 class="mt-1 text-2xl font-semibold tracking-tight text-ink">Movimentações</h1>
-	<p class="mt-0.5 text-sm text-mute">Quem mexeu no quê, do mais recente para o mais antigo.</p>
+	<h1 class="mt-1 text-2xl font-semibold tracking-tight text-ink">Histórico do quadro</h1>
+	<p class="mt-0.5 text-sm text-mute">
+		Tudo o que aconteceu aqui — cards, colunas, etiquetas, anexos, checklists e participação —, do
+		mais recente para o mais antigo.
+	</p>
 </div>
 
 <div class="mt-6 flex flex-wrap items-center gap-2 text-xs">
@@ -140,7 +147,7 @@
 			onchange={aplicarFiltro}
 			class="cursor-pointer"
 		/>
-		Só movimentações
+		Só movimentações de card
 	</label>
 
 	{#if carregando}
@@ -156,7 +163,7 @@
 	{#if descritas.length === 0}
 		<p class="px-5 py-10 text-center text-sm text-mute">
 			{soMovimentacoes
-				? 'Ninguém moveu nada por aqui ainda.'
+				? 'Ninguém moveu card nenhum por aqui ainda.'
 				: 'Nada aconteceu neste quadro ainda.'}
 		</p>
 	{:else}

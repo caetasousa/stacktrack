@@ -65,14 +65,37 @@ não estar.
 Nada de novo é guardado. São duas leituras sobre a mesma tabela `board_events`:
 
 **O selo no card.** Todo card que já foi movido mostra, no rodapé, quem o moveu
-por último e há quanto tempo. O trajeto completo e a data exata ficam no
+por último e há quanto tempo — o tempo relativo acompanha o relógio, e não
+congela na hora em que a página abriu. O trajeto completo e a data exata ficam no
 `title`. Card recém-criado **não** ganha selo: dizer "movido por quem criou"
 transformaria auditoria em ficção.
 
-**A tela de movimentações.** A lista do quadro inteiro, do mais recente para o
-mais antigo, com filtro por pessoa. Por padrão mostra só movimentações — a
-pergunta é sobre a ordem do quadro, e misturar comentário e renomeação afogaria
-a resposta. O recorte pode ser aberto.
+**A tela de histórico.** Tudo o que aconteceu no quadro, do mais recente para o
+mais antigo, com filtro por pessoa: card criado, movido, renomeado, apagado;
+coluna criada, renomeada, reordenada, apagada; etiqueta criada, aplicada,
+retirada; anexo, checklist, item, responsável, comentário; quadro renomeado,
+fundo trocado; e quem entrou, mudou de papel ou saiu.
+
+Ela começou mostrando só movimentações de card — a pergunta original era "quem
+bagunçou a ordem". O recorte estreito continua a um clique, mas deixou de ser o
+padrão: quem chega ali está investigando, e um filtro ligado de saída esconde
+justamente o que a pessoa ainda não sabe que procura.
+
+**Isso exigiu dar identidade aos eventos.** Doze ações diferentes — etiqueta,
+anexo, checklist, responsável, renomear o quadro, trocar o fundo — eram gravadas
+como um único `quadro.alterado` com payload vazio. Funcionava como aviso de
+"recarregue o quadro", que era para o que fora feito, e era inútil como
+histórico: o log registrava que ALGO mudou e nada mais. O tipo do evento é a
+identidade do que aconteceu, e um tipo genérico apaga essa identidade no momento
+da gravação — depois não há como recuperá-la.
+
+Os tipos genéricos continuam sendo lidos: o log é append-only, e as linhas
+antigas não mudam. A tela as descreve como pode ("mexeu no quadro") em vez de
+escondê-las, porque um buraco onde houve atividade é pior que uma frase vaga.
+
+**O email aparece sob cada nome.** Dois "Ana Silva" no mesmo quadro tornam o
+histórico inútil exatamente quando ele é necessário. Não é exposição nova:
+qualquer membro já lê o email de todos na tela de membros.
 
 Três decisões que valem registrar:
 

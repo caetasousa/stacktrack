@@ -92,7 +92,7 @@ test('o card mostra quem o moveu por último, e não quem o criou', async ({
 	await contexto.close();
 });
 
-test('a tela de movimentações lista quem mexeu em quê', async ({ playwright, browser }) => {
+test('o histórico lista quem mexeu em quê', async ({ playwright, browser }) => {
 	const req = await playwright.request.newContext();
 	await mover(req, ana, aFazer);
 	await req.dispose();
@@ -100,9 +100,9 @@ test('a tela de movimentações lista quem mexeu em quê', async ({ playwright, 
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
-	await pagina.getByRole('link', { name: 'Movimentações' }).click();
+	await pagina.getByRole('link', { name: 'Histórico' }).click();
 
-	await expect(pagina.getByRole('heading', { name: 'Movimentações' })).toBeVisible();
+	await expect(pagina.getByRole('heading', { name: 'Histórico do quadro' })).toBeVisible();
 	// Os dois movimentos aparecem, cada um com o nome de quem o fez.
 	await expect(pagina.getByText('moveu "Trocar o gateway" de A fazer para Pronto')).toBeVisible();
 	await expect(pagina.getByText('moveu "Trocar o gateway" de Pronto para A fazer')).toBeVisible();
@@ -115,7 +115,8 @@ test('a tela de movimentações lista quem mexeu em quê', async ({ playwright, 
 test('o filtro por pessoa isola o que cada uma fez', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
-	await pagina.goto(`/painel/quadros/${quadroId}/movimentacoes`);
+	await pagina.goto(`/painel/quadros/${quadroId}/historico`);
+	await pagina.getByLabel('Só movimentações de card').check();
 	await expect(pagina.getByText('de A fazer para Pronto')).toBeVisible();
 
 	// A opção é escolhida pelo VALOR, e não pelo rótulo: o rótulo passou a levar
@@ -155,9 +156,62 @@ test('quem só lê o quadro também consegue auditar', async ({ playwright, brow
 
 	const contexto = await abaDe(browser, carla);
 	const pagina = await contexto.newPage();
-	await pagina.goto(`/painel/quadros/${quadroId}/movimentacoes`);
+	await pagina.goto(`/painel/quadros/${quadroId}/historico`);
 
 	await expect(pagina.getByText('moveu "Trocar o gateway"').first()).toBeVisible();
+
+	await contexto.close();
+});
+
+// A prova do que o histórico passou a ser: um quadro onde se mexe em tudo, e
+// TUDO aparece.
+//
+// Antes, doze ações diferentes — etiqueta, anexo, checklist, responsável,
+// renomear, fundo — chegavam ao log como um "quadro.alterado" sem payload, e a
+// tela as descartava em silêncio. Este teste falha se qualquer uma delas voltar
+// a ser invisível.
+test('o histórico mostra o que aconteceu com tudo, não só com os cards', async ({
+	playwright,
+	browser
+}) => {
+	const req = await playwright.request.newContext();
+	const ck = `${ana.cookie.name}=${ana.cookie.value}`;
+
+	const etq = await req.post(`${API}/boards/${quadroId}/etiquetas`, {
+		data: { nome: 'urgente', cor: 'vermelho' },
+		headers: { Cookie: ck }
+	});
+	const etqId = ((await etq.json()) as { id: string }).id;
+	await req.put(`${API}/cards/${cardID}/etiquetas/${etqId}`, { headers: { Cookie: ck } });
+	await req.post(`${API}/cards/${cardID}/checklists`, {
+		data: { titulo: 'Passos' },
+		headers: { Cookie: ck }
+	});
+	await req.post(`${API}/cards/${cardID}/anexos/link`, {
+		data: { url: 'https://exemplo.com/contrato', nome: 'contrato' },
+		headers: { Cookie: ck }
+	});
+	await req.patch(`${API}/boards/${quadroId}`, {
+		data: { titulo: 'Quadro auditado (renomeado)' },
+		headers: { Cookie: ck }
+	});
+	await req.patch(`${API}/boards/${quadroId}/fundo`, {
+		data: { fundo: 'oceano' },
+		headers: { Cookie: ck }
+	});
+	await req.dispose();
+
+	const contexto = await abaDe(browser, ana);
+	const pagina = await contexto.newPage();
+	await pagina.goto(`/painel/quadros/${quadroId}/historico`);
+
+	await expect(pagina.getByText('criou a etiqueta "urgente"')).toBeVisible();
+	await expect(pagina.getByText('marcou "Trocar o gateway" com "urgente"')).toBeVisible();
+	await expect(pagina.getByText('criou a checklist "Passos"')).toBeVisible();
+	await expect(pagina.getByText('anexou "contrato"')).toBeVisible();
+	await expect(pagina.getByText('renomeou o quadro')).toBeVisible();
+	await expect(pagina.getByText('mudou o fundo do quadro para oceano')).toBeVisible();
+	await expect(pagina.getByText('criou a coluna "A fazer"')).toBeVisible();
 
 	await contexto.close();
 });

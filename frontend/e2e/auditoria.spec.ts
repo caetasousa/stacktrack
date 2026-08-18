@@ -215,3 +215,133 @@ test('o histórico mostra o que aconteceu com tudo, não só com os cards', asyn
 
 	await contexto.close();
 });
+
+// O CRUD INTEIRO, de ponta a ponta: coluna e card, do nascimento à exclusão.
+//
+// Este teste existe por um relato concreto — "criei uma coluna e não apareceu,
+// apaguei e não apareceu, renomeei e não apareceu, criei um card e não
+// apareceu". As quatro eram invisíveis, por duas razões somadas: a tela abria
+// filtrada em movimentações de card, e coluna não tinha frase nenhuma.
+//
+// Ele confere cada operação pela SUA FRASE, e não pela contagem de linhas: uma
+// regressão que devolvesse qualquer uma ao tipo genérico ainda produziria uma
+// linha ("mexeu no quadro") e passaria por qualquer asserção de quantidade.
+test('o histórico registra o CRUD inteiro de coluna e de card', async ({ playwright, browser }) => {
+	const req = await playwright.request.newContext();
+	let dono: Conta;
+	try {
+		dono = await criarConta(req, 'dona-crud');
+	} catch (e) {
+		await req.dispose();
+		if (e instanceof TetoDeRequisicoes) test.skip(true, e.message);
+		throw e;
+	}
+	const ck = `${dono.cookie.name}=${dono.cookie.value}`;
+	const quadro = await criarQuadro(req, dono, 'CRUD auditado');
+
+	const criarCol = async (titulo: string) => {
+		const r = await req.post(`${API}/boards/${quadro.id}/colunas`, {
+			data: { titulo, cor: '' },
+			headers: { Cookie: ck }
+		});
+		if (!r.ok()) throw new Error(`criar coluna: ${r.status()} ${await r.text()}`);
+		return ((await r.json()) as { id: string }).id;
+	};
+
+	const origem = await criarCol('Coluna A');
+	const destino = await criarCol('Coluna B');
+	await req.patch(`${API}/colunas/${origem}`, {
+		data: { titulo: 'Coluna A renomeada', cor: 'verde' },
+		headers: { Cookie: ck }
+	});
+
+	const rk = await req.post(`${API}/colunas/${origem}/cards`, {
+		data: { titulo: 'Tarefa', descricao: '', cor: '' },
+		headers: { Cookie: ck }
+	});
+	const card = ((await rk.json()) as { id: string }).id;
+
+	// Atribuir e depois desatribuir: é o caso que o relato citou como motivo de
+	// precisar da auditoria — "atribuir uma tarefa e depois editar para culpar
+	// alguém". As duas pontas precisam ficar registradas.
+	const me = await req.get(`${API}/auth/me`, { headers: { Cookie: ck } });
+	const donoID = ((await me.json()) as { id: string }).id;
+	await req.put(`${API}/cards/${card}/responsaveis/${donoID}`, { headers: { Cookie: ck } });
+	await req.delete(`${API}/cards/${card}/responsaveis/${donoID}`, { headers: { Cookie: ck } });
+
+	await req.patch(`${API}/cards/${card}/mover`, {
+		data: { colunaId: destino },
+		headers: { Cookie: ck }
+	});
+	await req.patch(`${API}/cards/${card}`, {
+		data: { titulo: 'Tarefa renomeada', descricao: 'x', cor: '', version: 0 },
+		headers: { Cookie: ck }
+	});
+	await req.delete(`${API}/cards/${card}`, { headers: { Cookie: ck } });
+	await req.delete(`${API}/colunas/${origem}`, { headers: { Cookie: ck } });
+	await req.dispose();
+
+	const contexto = await abaDe(browser, dono);
+	const pagina = await contexto.newPage();
+	await pagina.goto(`/painel/quadros/${quadro.id}/historico`);
+	await expect(pagina.getByRole('heading', { name: 'Histórico do quadro' })).toBeVisible();
+
+	for (const frase of [
+		'criou a coluna "Coluna A"',
+		'criou a coluna "Coluna B"',
+		'renomeou a coluna "Coluna A" para "Coluna A renomeada"',
+		'apagou a coluna "Coluna A renomeada"',
+		'criou "Tarefa" em Coluna A renomeada',
+		'pôs "dona-crud" como responsável por "Tarefa"',
+		'tirou "dona-crud" da responsabilidade de "Tarefa"',
+		'moveu "Tarefa" de Coluna A renomeada para Coluna B',
+		'renomeou "Tarefa" para "Tarefa renomeada"',
+		'apagou "Tarefa renomeada"'
+	]) {
+		await expect(pagina.getByText(frase), `faltou no histórico: ${frase}`).toBeVisible();
+	}
+
+	await contexto.close();
+});
+
+// O histórico guarda o que era verdade NA HORA — e é isso que o torna prova.
+//
+// Sem essa garantia, renomear depois reescreveria o passado: a linha "criou X"
+// passaria a mostrar o nome novo, e apagar o próprio rastro seria só renomear.
+test('renomear depois não reescreve o que o histórico já registrou', async ({
+	playwright,
+	browser
+}) => {
+	const req = await playwright.request.newContext();
+	let dono: Conta;
+	try {
+		dono = await criarConta(req, 'dona-passado');
+	} catch (e) {
+		await req.dispose();
+		if (e instanceof TetoDeRequisicoes) test.skip(true, e.message);
+		throw e;
+	}
+	const ck = `${dono.cookie.name}=${dono.cookie.value}`;
+	const quadro = await criarQuadro(req, dono, 'Passado');
+	const col = await criarColuna(req, dono, quadro.id, 'A fazer');
+	const rk = await req.post(`${API}/colunas/${col.id}/cards`, {
+		data: { titulo: 'Nome original', descricao: '', cor: '' },
+		headers: { Cookie: ck }
+	});
+	const card = ((await rk.json()) as { id: string }).id;
+	await req.patch(`${API}/cards/${card}`, {
+		data: { titulo: 'Nome trocado', descricao: '', cor: '', version: 0 },
+		headers: { Cookie: ck }
+	});
+	await req.dispose();
+
+	const contexto = await abaDe(browser, dono);
+	const pagina = await contexto.newPage();
+	await pagina.goto(`/painel/quadros/${quadro.id}/historico`);
+
+	// A criação continua falando do nome ANTIGO, e a renomeação mostra os dois.
+	await expect(pagina.getByText('criou "Nome original" em A fazer')).toBeVisible();
+	await expect(pagina.getByText('renomeou "Nome original" para "Nome trocado"')).toBeVisible();
+
+	await contexto.close();
+});

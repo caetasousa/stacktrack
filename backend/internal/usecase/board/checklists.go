@@ -46,7 +46,7 @@ func (uc *ChecklistUseCase) Criar(ctx context.Context, cardID, usuarioID, titulo
 	if err := uc.checklists.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicarDoCard(ctx, cardID, usuarioID)
+	uc.publicarDoCard(ctx, evento.ChecklistCriada, cardID, usuarioID, c.Titulo)
 	return c, nil
 }
 
@@ -62,7 +62,7 @@ func (uc *ChecklistUseCase) Renomear(ctx context.Context, checklistID, usuarioID
 	if err := uc.checklists.Atualizar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicarDoCard(ctx, c.CardID, usuarioID)
+	uc.publicarDoCard(ctx, evento.ChecklistAlterada, c.CardID, usuarioID, c.Titulo)
 	return c, nil
 }
 
@@ -75,7 +75,7 @@ func (uc *ChecklistUseCase) Apagar(ctx context.Context, checklistID, usuarioID s
 	if err := uc.checklists.Apagar(ctx, checklistID); err != nil {
 		return err
 	}
-	uc.publicarDoCard(ctx, c.CardID, usuarioID)
+	uc.publicarDoCard(ctx, evento.ChecklistApagada, c.CardID, usuarioID, c.Titulo)
 	return nil
 }
 
@@ -97,7 +97,7 @@ func (uc *ChecklistUseCase) CriarItem(ctx context.Context, checklistID, usuarioI
 	if err := uc.checklists.SalvarItem(ctx, item); err != nil {
 		return nil, err
 	}
-	uc.publicarDoChecklist(ctx, checklistID, usuarioID)
+	uc.publicarDoChecklist(ctx, evento.ItemCriado, checklistID, usuarioID, item.Texto)
 	return item, nil
 }
 
@@ -129,7 +129,7 @@ func (uc *ChecklistUseCase) EditarItem(ctx context.Context, itemID, usuarioID st
 	if err := uc.checklists.AtualizarItem(ctx, item); err != nil {
 		return nil, err
 	}
-	uc.publicarDoChecklist(ctx, item.ChecklistID, usuarioID)
+	uc.publicarDoChecklist(ctx, evento.ItemAlterado, item.ChecklistID, usuarioID, item.Texto)
 	return item, nil
 }
 
@@ -148,22 +148,22 @@ func (uc *ChecklistUseCase) ApagarItem(ctx context.Context, itemID, usuarioID st
 	if err := uc.checklists.ApagarItem(ctx, itemID); err != nil {
 		return err
 	}
-	uc.publicarDoChecklist(ctx, item.ChecklistID, usuarioID)
+	uc.publicarDoChecklist(ctx, evento.ItemApagado, item.ChecklistID, usuarioID, item.Texto)
 	return nil
 }
 
 // publicarDoChecklist e publicarDoCard resolvem o quadro para achar a sala.
 // Falha na resolução não desfaz a escrita nem vira erro: o dado já mudou, e o
 // pior que acontece é a outra aba precisar de um F5.
-func (uc *ChecklistUseCase) publicarDoChecklist(ctx context.Context, checklistID, usuarioID string) {
+func (uc *ChecklistUseCase) publicarDoChecklist(ctx context.Context, tipo evento.Tipo, checklistID, usuarioID, alvo string) {
 	c, err := uc.checklists.BuscarPorID(ctx, checklistID)
 	if err != nil || c == nil {
 		return
 	}
-	uc.publicarDoCard(ctx, c.CardID, usuarioID)
+	uc.publicarDoCard(ctx, tipo, c.CardID, usuarioID, alvo)
 }
 
-func (uc *ChecklistUseCase) publicarDoCard(ctx context.Context, cardID, usuarioID string) {
+func (uc *ChecklistUseCase) publicarDoCard(ctx context.Context, tipo evento.Tipo, cardID, usuarioID, alvo string) {
 	card, err := uc.cards.BuscarPorID(ctx, cardID)
 	if err != nil || card == nil {
 		return
@@ -172,7 +172,8 @@ func (uc *ChecklistUseCase) publicarDoCard(ctx context.Context, cardID, usuarioI
 	if err != nil || col == nil {
 		return
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, col.BoardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, tipo, col.BoardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: card.Titulo, Alvo: alvo})
 }
 
 // carregarComAcessoDeEdicao percorre checklist → card → coluna → quadro. É o

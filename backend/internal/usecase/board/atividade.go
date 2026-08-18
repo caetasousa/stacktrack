@@ -38,6 +38,40 @@ type DadosDoCard struct {
 	DeColuna string `json:"deColuna,omitempty"`
 	ColunaID string `json:"colunaId,omitempty"`
 	Version  int    `json:"version,omitempty"`
+	// Alvo é o NOME do que foi mexido quando o evento é sobre algo pendurado no
+	// card: a etiqueta aplicada, o anexo adicionado, a pessoa atribuída, a
+	// checklist criada.
+	//
+	// Um campo genérico em vez de um struct por tipo, e a razão é o que a frase
+	// precisa: "aplicou a etiqueta urgente em X" e "anexou contrato.pdf em X"
+	// têm a mesma forma — quem, o quê, onde. O que distingue as duas é o TIPO do
+	// evento, que já viaja ao lado.
+	Alvo string `json:"alvo,omitempty"`
+}
+
+// DadosDoQuadro é o payload dos eventos do quadro em si.
+type DadosDoQuadro struct {
+	Titulo         string `json:"titulo,omitempty"`
+	TituloAnterior string `json:"tituloAnterior,omitempty"`
+	Fundo          string `json:"fundo,omitempty"`
+}
+
+// DadosDaEtiqueta é o payload dos eventos de etiqueta do quadro.
+type DadosDaEtiqueta struct {
+	Nome         string `json:"nome,omitempty"`
+	NomeAnterior string `json:"nomeAnterior,omitempty"`
+	Cor          string `json:"cor,omitempty"`
+}
+
+// DadosDoMembro é o payload dos eventos de participação.
+//
+// Guarda nome e email de quem foi afetado — não de quem agiu, que já viaja como
+// autor do evento. Sem isso, "removeu alguém do quadro" não diria quem saiu.
+type DadosDoMembro struct {
+	Nome          string `json:"nome,omitempty"`
+	Email         string `json:"email,omitempty"`
+	Papel         string `json:"papel,omitempty"`
+	PapelAnterior string `json:"papelAnterior,omitempty"`
 }
 
 // DadosDaColuna é o payload dos eventos de coluna.

@@ -56,7 +56,7 @@ func (uc *ComentarioUseCase) Criar(ctx context.Context, cardID, usuarioID, texto
 	if err := uc.comentarios.Salvar(ctx, c); err != nil {
 		return nil, err
 	}
-	uc.publicarNoCard(ctx, evento.ComentarioAlterado, boardID, cardID, usuarioID, DadosDoCard{CardID: cardID})
+	uc.publicarNoCard(ctx, evento.ComentarioCriado, boardID, cardID, usuarioID, DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID)})
 	return c, nil
 }
 
@@ -82,7 +82,7 @@ func (uc *ComentarioUseCase) Editar(ctx context.Context, comentarioID, usuarioID
 	// saber o que aconteceu com o trabalho, e a conversa já está logo acima, com
 	// a marca de "editado" em cada mensagem. O evento continua saindo ao vivo,
 	// para a tela de quem está junto recarregar.
-	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, DadosDoCard{CardID: c.CardID})
+	uc.publicarNoCard(ctx, evento.ComentarioEditado, boardID, c.CardID, usuarioID, DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)})
 	return c, nil
 }
 
@@ -102,7 +102,7 @@ func (uc *ComentarioUseCase) Apagar(ctx context.Context, comentarioID, usuarioID
 	if err := uc.comentarios.Apagar(ctx, comentarioID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.ComentarioAlterado, boardID, usuarioID, DadosDoCard{CardID: c.CardID})
+	uc.publicarNoCard(ctx, evento.ComentarioApagado, boardID, c.CardID, usuarioID, DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)})
 	return nil
 }
 

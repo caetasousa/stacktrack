@@ -63,7 +63,8 @@ func (uc *AnexoUseCase) AnexarLink(ctx context.Context, cardID, usuarioID, nome,
 	if err := uc.anexos.Salvar(ctx, a); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, evento.AnexoAdicionado, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: a.Nome})
 	return a, nil
 }
 
@@ -110,7 +111,8 @@ func (uc *AnexoUseCase) AnexarArquivo(ctx context.Context,
 		uc.descartar(ctx, caminho)
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, evento.AnexoAdicionado, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: a.Nome})
 	return a, nil
 }
 
@@ -154,7 +156,8 @@ func (uc *AnexoUseCase) Apagar(ctx context.Context, anexoID, usuarioID string) e
 	if err := uc.anexos.Apagar(ctx, anexoID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, evento.AnexoRemovido, boardID, a.CardID, usuarioID,
+		DadosDoCard{CardID: a.CardID, Titulo: tituloDoCard(ctx, uc.cards, a.CardID), Alvo: a.Nome})
 	// A linha some primeiro: com o arquivo órfão no disco a tela fica correta,
 	// e sobra lixo. Na ordem inversa, um erro deixaria a tela mostrando anexo
 	// que não abre.

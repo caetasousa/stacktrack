@@ -112,6 +112,23 @@ func (e *eventos) publicar(ctx context.Context, tipo evento.Tipo, boardID, autor
 	e.publicarNoCard(ctx, tipo, boardID, "", autorID, dados)
 }
 
+// tituloDoCard resolve o título para o payload de um evento.
+//
+// A frase da auditoria diz "anexou contrato.pdf em X", e sem o título ela vira
+// "anexou contrato.pdf em um card" — que é a metade inútil da informação, o
+// mesmo defeito que a coluna de origem do movimento já tinha corrigido.
+//
+// O título é gravado no evento, e não resolvido na leitura: é o que o card
+// tinha NA HORA, pela mesma razão de DadosDoCard guardar nomes. Falha vira
+// string vazia, e a frase encolhe em vez de mentir.
+func tituloDoCard(ctx context.Context, cards RepositorioCard, cardID string) string {
+	c, err := cards.BuscarPorID(ctx, cardID)
+	if err != nil || c == nil {
+		return ""
+	}
+	return c.Titulo
+}
+
 // publicarNoCard é publicar marcando a que card o evento pertence — é o que
 // permite ao histórico de um card ser lido por índice, sem varrer o payload de
 // todos os eventos do quadro.

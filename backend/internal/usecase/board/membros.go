@@ -114,7 +114,7 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 		return nil, err
 	}
 	if convidado != nil {
-		return uc.adicionarDireto(ctx, boardID, convidado, papel)
+		return uc.adicionarDireto(ctx, boardID, usuarioID, convidado, papel)
 	}
 
 	pendente, err := uc.convites.BuscarPendentePorEmail(ctx, boardID, email)
@@ -145,7 +145,7 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 //
 // Publica MembrosAlterados: quem já estava no quadro vê o novo participante na
 // lista de membros e no seletor de responsáveis sem recarregar.
-func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID string, u *dusuario.Usuario, papel membro.Papel) (*ResultadoConvite, error) {
+func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID, quemAdiciona string, u *dusuario.Usuario, papel membro.Papel) (*ResultadoConvite, error) {
 	existente, err := uc.membros.Buscar(ctx, boardID, u.ID)
 	if err != nil {
 		return nil, err
@@ -161,7 +161,11 @@ func (uc *MembroUseCase) adicionarDireto(ctx context.Context, boardID string, u 
 	if err := uc.membros.Salvar(ctx, vinculo); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.MembrosAlterados, boardID, "", nil)
+	// O autor é quem ADICIONOU, e o payload diz quem foi adicionado. Publicar
+	// sem autor fazia a auditoria mostrar "conta removida entrou no quadro" —
+	// uma frase falsa sobre um fato verdadeiro.
+	uc.publicar(ctx, evento.MembroAdicionado, boardID, quemAdiciona,
+		DadosDoMembro{Nome: u.Nome, Email: u.Email, Papel: string(papel)})
 
 	return &ResultadoConvite{
 		Adicionado: true,
@@ -197,6 +201,9 @@ func (uc *MembroUseCase) AlterarPapel(ctx context.Context, boardID, usuarioID, a
 	if vinculo == nil {
 		return nil, membro.ErrNaoEMembro
 	}
+	// Guardado ANTES da troca: depois dela o vínculo só sabe o papel de agora, e
+	// "promoveu de leitor para editor" perderia a metade que explica a mudança.
+	papelAnterior := vinculo.Papel
 	if err := vinculo.DefinirPapel(papel); err != nil {
 		return nil, err
 	}
@@ -215,7 +222,8 @@ func (uc *MembroUseCase) AlterarPapel(ctx context.Context, boardID, usuarioID, a
 	// Trocar o papel de alguém muda o que ELA pode fazer, e a tela dela precisa
 	// saber na hora: sem este aviso, quem foi rebaixado a leitor continuava
 	// vendo os botões de edição até dar F5 — e levava 403 ao usar qualquer um.
-	uc.publicar(ctx, evento.MembrosAlterados, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.MembroPapelAlterado, boardID, usuarioID,
+		DadosDoMembro{Nome: p.Nome, Email: p.Email, Papel: string(papel), PapelAnterior: string(papelAnterior)})
 	return p, nil
 }
 
@@ -239,13 +247,20 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 	// remoção conserta, enquanto sobrar atribuição sem vínculo deixaria o nome
 	// de quem não tem mais acesso pendurado nos cards — e o filtro "meus cards"
 	// mostraria a essa pessoa cards que ela não consegue abrir.
+	// Quem está saindo é resolvido ANTES da remoção: depois dela não há vínculo
+	// nem por onde descobrir de quem se tratava, e o evento diria só que "alguém
+	// saiu".
+	nomeDoAlvo, emailDoAlvo := "", ""
+	if u, err := uc.usuarios.BuscarPorID(ctx, alvoID); err == nil && u != nil {
+		nomeDoAlvo, emailDoAlvo = u.Nome, u.Email
+	}
 	if err := uc.responsaveis.RemoverDoBoard(ctx, boardID, alvoID); err != nil {
 		return err
 	}
 	if err := uc.membros.Remover(ctx, boardID, alvoID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.MembrosAlterados, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.MembroRemovido, boardID, usuarioID, DadosDoMembro{Nome: nomeDoAlvo, Email: emailDoAlvo})
 	return nil
 }
 
@@ -346,7 +361,8 @@ func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID strin
 	if err := uc.convites.Atualizar(ctx, c); err != nil {
 		return nil, "", err
 	}
-	uc.publicar(ctx, evento.MembrosAlterados, c.BoardID, usuarioID, nil)
+	uc.publicar(ctx, evento.MembroEntrou, c.BoardID, usuarioID,
+		DadosDoMembro{Email: c.Email, Papel: string(c.Papel)})
 	return b, c.Papel, nil
 }
 

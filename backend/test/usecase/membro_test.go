@@ -459,19 +459,26 @@ func TestMudancaDeMembroAvisaOQuadro(t *testing.T) {
 	boardID := c.criarQuadro(t, ana, "Estudos")
 	bruno := c.conta(t, "Bruno", "bruno@exemplo.com")
 
+	// Cada ação publica o SEU tipo, e não um "membros.alterados" para as três.
+	//
+	// Para a tela os três significam a mesma coisa — releia a lista de membros —,
+	// e por isso um tipo só bastava. Para a auditoria, não: "entrou", "virou
+	// leitor" e "foi removido" são fatos diferentes, e um tipo genérico apaga
+	// essa diferença na hora de gravar, quando ainda dava para saber.
 	casos := []struct {
-		nome string
-		agir func() error
+		nome     string
+		esperado evento.Tipo
+		agir     func() error
 	}{
-		{"entrar no quadro", func() error {
+		{"ser adicionado ao quadro", evento.MembroAdicionado, func() error {
 			_, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bruno@exemplo.com", membro.PapelEditor)
 			return err
 		}},
-		{"trocar de papel", func() error {
+		{"trocar de papel", evento.MembroPapelAlterado, func() error {
 			_, err := c.membroUC.AlterarPapel(context.Background(), boardID, ana, bruno, membro.PapelLeitor)
 			return err
 		}},
-		{"sair do quadro", func() error {
+		{"sair do quadro", evento.MembroRemovido, func() error {
 			return c.membroUC.Remover(context.Background(), boardID, ana, bruno)
 		}},
 	}
@@ -485,8 +492,19 @@ func TestMudancaDeMembroAvisaOQuadro(t *testing.T) {
 			t.Errorf("%s não avisou o quadro", caso.nome)
 			continue
 		}
-		if tipo := espiao.entregues[len(espiao.entregues)-1].Tipo; tipo != evento.MembrosAlterados {
-			t.Errorf("%s publicou %s, esperado membros.alterados", caso.nome, tipo)
+		ultimo := espiao.entregues[len(espiao.entregues)-1]
+		if ultimo.Tipo != caso.esperado {
+			t.Errorf("%s publicou %s, esperado %s", caso.nome, ultimo.Tipo, caso.esperado)
+		}
+		// O payload precisa dizer DE QUEM se trata. Sem ele a auditoria mostraria
+		// "removeu alguém do quadro" — a metade inútil da informação.
+		dados, ok := ultimo.Dados.(ucboard.DadosDoMembro)
+		if !ok {
+			t.Errorf("%s publicou payload %T, esperado DadosDoMembro", caso.nome, ultimo.Dados)
+			continue
+		}
+		if dados.Nome == "" && dados.Email == "" {
+			t.Errorf("%s não disse de quem se tratava: %+v", caso.nome, dados)
 		}
 	}
 }

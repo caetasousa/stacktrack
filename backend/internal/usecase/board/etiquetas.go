@@ -55,7 +55,8 @@ func (uc *EtiquetaUseCase) Criar(ctx context.Context, boardID, usuarioID, nome s
 	if err := uc.etiquetas.Salvar(ctx, e); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicar(ctx, evento.EtiquetaCriada, boardID, usuarioID,
+		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)})
 	return e, nil
 }
 
@@ -65,13 +66,18 @@ func (uc *EtiquetaUseCase) Editar(ctx context.Context, etiquetaID, usuarioID, no
 	if err != nil {
 		return nil, err
 	}
+	nomeAnterior := e.Nome
 	if err := e.Editar(nome, cor); err != nil {
 		return nil, err
 	}
 	if err := uc.etiquetas.Atualizar(ctx, e); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, e.BoardID, usuarioID, nil)
+	dados := DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)}
+	if nomeAnterior != e.Nome {
+		dados.NomeAnterior = nomeAnterior
+	}
+	uc.publicar(ctx, evento.EtiquetaAlterada, e.BoardID, usuarioID, dados)
 	return e, nil
 }
 
@@ -85,7 +91,8 @@ func (uc *EtiquetaUseCase) Apagar(ctx context.Context, etiquetaID, usuarioID str
 	if err := uc.etiquetas.Apagar(ctx, etiquetaID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, e.BoardID, usuarioID, nil)
+	uc.publicar(ctx, evento.EtiquetaApagada, e.BoardID, usuarioID,
+		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)})
 	return nil
 }
 
@@ -99,7 +106,7 @@ func (uc *EtiquetaUseCase) Aplicar(ctx context.Context, cardID, etiquetaID, usua
 	if err := uc.etiquetas.Aplicar(ctx, cardID, etiquetaID); err != nil {
 		return err
 	}
-	uc.publicarDoCard(ctx, cardID, usuarioID)
+	uc.publicarDoCard(ctx, evento.EtiquetaAplicada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID))
 	return nil
 }
 
@@ -111,19 +118,39 @@ func (uc *EtiquetaUseCase) Remover(ctx context.Context, cardID, etiquetaID, usua
 	if err := uc.etiquetas.Remover(ctx, cardID, etiquetaID); err != nil {
 		return err
 	}
-	uc.publicarDoCard(ctx, cardID, usuarioID)
+	uc.publicarDoCard(ctx, evento.EtiquetaRetirada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID))
 	return nil
 }
 
 // publicarDoCard resolve o quadro a partir do card e avisa a sala. Falha aqui
 // não desfaz a escrita nem vira erro para quem chamou: o dado já mudou, e o
 // pior que acontece é a outra aba levar um F5 para ver.
-func (uc *EtiquetaUseCase) publicarDoCard(ctx context.Context, cardID, usuarioID string) {
+// nomeDaEtiqueta resolve o nome para o payload do evento.
+//
+// O NOME, e não o id: o log registra o que era verdade na hora, e uma etiqueta
+// renomeada ou apagada depois deixaria o histórico mudo se ele guardasse só a
+// referência. É a mesma decisão de DadosDoCard.
+//
+// Falha vira string vazia: a frase encolhe, e o evento continua existindo.
+func (uc *EtiquetaUseCase) nomeDaEtiqueta(ctx context.Context, etiquetaID string) string {
+	e, err := uc.etiquetas.BuscarPorID(ctx, etiquetaID)
+	if err != nil || e == nil {
+		return ""
+	}
+	return e.Nome
+}
+
+func (uc *EtiquetaUseCase) publicarDoCard(ctx context.Context, tipo evento.Tipo, cardID, usuarioID, etiqueta string) {
 	boardID, err := uc.boardDoCard(ctx, cardID)
 	if err != nil {
 		return
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	titulo := ""
+	if c, err := uc.cards.BuscarPorID(ctx, cardID); err == nil && c != nil {
+		titulo = c.Titulo
+	}
+	uc.publicarNoCard(ctx, tipo, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: titulo, Alvo: etiqueta})
 }
 
 // conferirMesmoQuadro é a checagem que impede pendurar num card a etiqueta de

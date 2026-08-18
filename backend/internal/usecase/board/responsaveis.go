@@ -62,7 +62,8 @@ func (uc *ResponsavelUseCase) Atribuir(ctx context.Context, cardID, alvoID, usua
 	if err := uc.responsaveis.Atribuir(ctx, cardID, alvoID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, evento.ResponsavelAtribuido, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: uc.nomeDe(ctx, cardID, alvoID)})
 	return nil
 }
 
@@ -72,11 +73,33 @@ func (uc *ResponsavelUseCase) Desatribuir(ctx context.Context, cardID, alvoID, u
 	if err != nil {
 		return err
 	}
+	// O nome é resolvido ANTES da remoção: depois dela a pessoa já não está na
+	// lista do card, e o evento sairia sem dizer quem saiu.
+	nome := uc.nomeDe(ctx, cardID, alvoID)
 	if err := uc.responsaveis.Remover(ctx, cardID, alvoID); err != nil {
 		return err
 	}
-	uc.publicar(ctx, evento.QuadroAlterado, boardID, usuarioID, nil)
+	uc.publicarNoCard(ctx, evento.ResponsavelRemovido, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: nome})
 	return nil
+}
+
+// nomeDe resolve o nome de quem responde pelo card, para o payload do evento.
+//
+// Vem da lista do próprio card, que já traz nome resolvido — é a mesma consulta
+// que a tela usa. Falha ou ausência viram string vazia: a frase encolhe, e o
+// evento continua existindo.
+func (uc *ResponsavelUseCase) nomeDe(ctx context.Context, cardID, alvoID string) string {
+	lista, err := uc.responsaveis.DoCard(ctx, cardID)
+	if err != nil {
+		return ""
+	}
+	for _, r := range lista {
+		if r.UsuarioID == alvoID {
+			return r.Nome
+		}
+	}
+	return ""
 }
 
 // conferirAlvo garante que quem vai ser atribuído PARTICIPA do quadro do card.

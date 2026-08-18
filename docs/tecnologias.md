@@ -223,30 +223,241 @@ Um arquivo para desenvolvimento (hot reload, bind mount, Mailpit) e outro para
 produção (imagens prontas, sem porta publicada, contenção). Ver
 [producao.md](producao.md).
 
-### coder/websocket
+### coder/websocket — o tempo real, por dentro
 
-O tempo real da fase 5. Escolhido por ter API sobre `context`, o que faz cada
-envio e o desligamento gracioso caírem no mesmo mecanismo do resto do projeto.
+Esta seção é longa de propósito: é a peça com mais decisões por linha do
+projeto, e quase todas existem por causa de um jeito específico de dar errado.
 
-O desenho está em [`internal/adapter/realtime/hub`](../backend/internal/adapter/realtime/hub/hub.go)
-(salas por quadro, `RWMutex`, fan-out que não bloqueia) e em
-[`internal/adapter/http/ws`](../backend/internal/adapter/http/ws/ws.go) (handshake,
-ping/pong, uma goroutine de leitura e **uma** de escrita).
+#### Por que WebSocket, e não recarregar de tempos em tempos
 
-⚠️ **WebSocket não obedece CORS.** Sem `OriginPatterns`, qualquer site que a
-vítima visitar abre uma conexão autenticada com o cookie dela e lê o quadro em
-tempo real — o Cross-Site WebSocket Hijacking. O `SameSite=Lax` é a segunda
-camada, não a primeira.
+Um quadro Kanban colaborativo tem uma exigência incômoda: a mudança precisa
+aparecer **na tela da outra pessoa**, e não na próxima vez que ela recarregar.
+
+As três saídas possíveis:
+
+| Como                                                        | O que custa                                                                                                                                                                |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Polling** — o cliente pergunta "mudou?" a cada N segundos | N segundos de atraso, e uma requisição por cliente por N segundos mesmo quando nada acontece. Dez pessoas num quadro parado = 10 consultas a cada N segundos, para sempre. |
+| **SSE** (Server-Sent Events)                                | Resolve o servidor→cliente com HTTP comum. Mas é **mão única**: o "estou editando esta coluna" precisaria de outro canal.                                                  |
+| **WebSocket**                                               | Mão dupla sobre uma conexão só, mantida aberta. O custo é que ela é _sua_ para cuidar: nada expira sozinho, e conexão morta não avisa.                                     |
+
+Escolhemos WebSocket porque o produto já pede o caminho de volta (quem está
+editando o quê) e porque o resto desta seção — a parte cara — teria de existir
+quase igual com SSE.
+
+O `coder/websocket` entra por ter API sobre `context`: cada envio e o
+desligamento gracioso caem no mesmo mecanismo do resto do projeto.
+
+#### O handshake é um GET que troca de protocolo no meio
+
+É o detalhe que resolve a autenticação de graça, e vale entender bem.
+
+```
+CLIENTE                                          SERVIDOR
+   |                                                |
+   |  GET /ws?board=abc  HTTP/1.1                   |
+   |  Upgrade: websocket                            |
+   |  Cookie: __Host-stacktrack_session=...   ──────>   ← é HTTP: o cookie vai
+   |                                                |
+   |                    <────  HTTP/101 Switching Protocols
+   |                                                |
+   |  ===== daqui pra frente não é mais HTTP =====  |
+   |  <────────────  frames JSON  ────────────────> |
+```
+
+O handshake é uma requisição HTTP normal — por isso o cookie de sessão viaja
+junto, e por isso o middleware de autenticação do resto da API vale aqui sem
+nenhuma adaptação. **Não existe token na query string**, e isso não é economia:
+query string vai para log de acesso, para histórico do navegador e para o
+cabeçalho `Referer`.
+
+Depois do `101`, acabou o HTTP. Não há mais requisição, não há mais cabeçalho,
+não há mais cookie — só frames. Guarde isso: metade das decisões abaixo existe
+porque **a conexão sobrevive à requisição que a criou**.
+
+#### Uma conexão, duas goroutines, e por que exatamente duas
+
+Ver [`ws.go`](../backend/internal/adapter/http/ws/ws.go), em `Acompanhar`:
+
+```
+              ┌─────────── uma conexão ───────────┐
+              │                                   │
+   hub ──► canal do assinante ──► escreverAteMorrer ──► frames ──► cliente
+                                                   │
+                       lerAteMorrer ◄── frames ◄───┘
+```
+
+**Uma de escrita, e só uma.** A biblioteca **não** serializa escritas
+concorrentes: dois `Write` ao mesmo tempo intercalam bytes e corrompem o frame.
+O sintoma é cruel — funciona nos testes, e a conexão morre com erro de protocolo
+sob carga. Por isso todo envio sai de um lugar só, e a única fonte é o canal do
+assinante.
+
+**Uma de leitura, mesmo que o cliente quase não fale.** Ela existiria mesmo se o
+cliente fosse mudo, por dois motivos que não são óbvios:
+
+1. **os pongs chegam por ali.** A biblioteca entrega a resposta do ping pelo
+   mesmo caminho das mensagens; sem alguém lendo, o pong nunca é processado e a
+   conexão morre sozinha em 30 segundos;
+2. **é o que detecta o cliente fechando.** Sem leitura, a queda do outro lado só
+   apareceria no próximo envio — que pode nunca vir, num quadro parado.
+
+As duas morrem juntas: um `context.WithCancel` por conexão, e quem terminar
+primeiro cancela o outro.
+
+#### O hub: salas por quadro, e o fan-out que não pode bloquear
+
+O [`hub`](../backend/internal/adapter/realtime/hub/hub.go) é um mapa de salas —
+uma por quadro — e cada sala é um conjunto de assinantes. Quem não participa do
+quadro nunca é registrado, então **nunca recebe nada**: o isolamento é
+estrutural, não um filtro que alguém pode esquecer.
+
+A decisão central está em `Publicar`:
+
+```go
+select {
+case a.Eventos <- e:   // coube na fila: entregue
+default:               // fila cheia: este cliente é derrubado
+    lentos = append(lentos, a)
+}
+```
+
+O `default` é o que separa este desenho de um que trava. **Quem publica não é um
+processo de fundo: é a requisição HTTP de outra pessoa.** Se o envio esperasse
+por um cliente lento, mover um card ficaria pendurado até um notebook do outro
+lado do mundo resolver ler. Com fila cheia, a conexão lenta é fechada e a
+requisição segue.
+
+A fila é de **32** eventos: nem zero (que derrubaria qualquer um numa rajada
+legítima, como arrastar rápido) nem grande (que guardaria memória por conexão
+morta e ainda entregaria um passado longo quando ela voltasse).
+
+Duas sutilezas que só aparecem quando dá errado:
+
+- **derrubar alguém muda quem está no quadro**, então a sala é avisada logo em
+  seguida. Sem isso o avatar de quem caiu por lentidão ficava preso na tela dos
+  outros — o `defer Cancelar` do handler roda depois e encontra o assinante já
+  fora da sala, então não anuncia nada, e ninguém mais o faria;
+- **o anúncio sai FORA do lock.** `anunciarPresenca` chama `Publicar`, e fazer
+  isso com o mutex na mão travaria o processo em si mesmo.
+
+#### Reconexão sem buraco e sem duplicata
+
+É a parte mais sutil, e o que a torna possível é o **`seq`**: um `BIGSERIAL` do
+banco, atribuído no log de eventos. Ordem total — nada de UUID (que não ordena)
+nem de timestamp (que empata).
+
+O cliente guarda o maior `seq` que aplicou. Ao reconectar, manda `?desde=N`:
+
+```
+1ª conexão   ── sem ?desde ──►  servidor responde `sincronizado` com o seq atual
+                                (nada de história: só "você está aqui")
+
+reconexão    ── ?desde=41 ──►  servidor entrega 42, 43, 44… e então o ao vivo
+
+intervalo    ── ?desde=7  ──►  mais de 200 eventos perdidos: em vez de
+grande demais                   reproduzir, manda `recarregue.tudo`
+```
+
+**A ordem importa mais do que parece.** O assinante entra na sala **antes** de o
+histórico ser reposto. Parece errado — vai receber evento ao vivo no meio da
+reposição — e é exatamente o ponto:
+
+```
+  assina  ────────────────────────────────────►  eventos ao vivo vão para a fila
+             repõe 42,43,44 ──►
+                                ▲
+                    aqui pode chegar o 45 ao vivo; ele espera na fila
+```
+
+Se a assinatura viesse **depois** da reposição, um evento que acontecesse no
+meio cairia no vão entre os dois e **se perderia para sempre** — e ninguém
+perceberia, porque o cliente não tem como saber o que não recebeu.
+
+A escolha é deliberada: **preferir repetir a arriscar buraco**. E a repetição é
+inofensiva porque o cliente descarta evento com `seq` menor ou igual ao último
+aplicado — ver `onmessage` em
+[`conexao.svelte.ts`](../frontend/src/lib/realtime/conexao.svelte.ts).
+
+#### Conexão morta não avisa
+
+Um notebook que fecha a tampa deixa o socket aberto do lado do servidor **para
+sempre**. Nada no TCP avisa. O hub continuaria entregando eventos para ninguém.
+
+O ping de 30s transforma isso em erro: sem pong em 10s, a conexão cai. É a única
+forma de descobrir — não existe "está vivo?" no protocolo além dela.
+
+#### Autorizar no handshake não basta
+
+O handshake pergunta uma vez; a conexão dura horas. Nesse meio-tempo **duas
+coisas mudam sem que a conexão saiba**:
+
+- a pessoa faz **logout** — a sessão morre no banco, e o socket continua
+  transmitindo o quadro;
+- o dono a **remove do quadro** — e ela segue vendo tudo até fechar a aba.
+
+Por isso um segundo `ticker`, de 30s, reconfere as duas. É separado do ping de
+propósito: detectar cliente morto e reconferir permissão são perguntas
+diferentes, e uma não deve reger a cadência da outra.
+
+#### O caminho de volta: o cliente fala
+
+Até a funcionalidade de "quem está editando", o canal era mão única. Hoje o
+cliente manda **uma** coisa:
+
+```json
+{ "tipo": "foco", "colunaId": "..." }
+```
+
+Sendo a primeira entrada vinda de fora por esse canal, ela veio com o que
+entrada de fora exige: formato fechado (um `tipo`, e não um mapa aberto), teto
+de **512 bytes** por mensagem no lugar dos 32 KB padrão da biblioteca, e limite
+no tamanho do id — que é **redistribuído para toda a sala**, então um valor de
+dez mil caracteres seria multiplicado por cada pessoa conectada.
+
+Mensagem malformada é **ignorada**, não derruba a conexão: o canal carrega o
+quadro ao vivo, e perder isso por um JSON torto seria trocar o essencial pelo
+acessório.
+
+#### As três armadilhas que já morderam este projeto
+
+⚠️ **WebSocket não obedece CORS.** Nenhum navegador aplica a política de mesma
+origem a um handshake de WebSocket. Sem `OriginPatterns`, qualquer site que a
+vítima visitar abre uma conexão **autenticada com o cookie dela** e lê o quadro
+inteiro em tempo real — é o _Cross-Site WebSocket Hijacking_. O `SameSite=Lax` é
+a segunda camada, não a primeira.
 
 ⚠️ **`WriteTimeout` do `http.Server` mata conexão longa.** Ele vale para a
-conexão inteira, não por requisição. Os 15s que existiam derrubavam o quadro
-sempre no mesmo tempo, sem erro no cliente e sem nada no log. Hoje é zero, e o
-que protege está descrito em [`config/server.go`](../backend/config/server.go).
+conexão **inteira**, não por requisição — e uma conexão de tempo real é uma
+requisição só que dura horas. Os 15s que existiam derrubavam o quadro sempre no
+mesmo tempo, sem erro no cliente e sem nada no log. Hoje é zero, e o que protege
+está em [`config/server.go`](../backend/config/server.go).
 
-📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — seções 1 e 4; o resto é referência
+⚠️ **Escrever de dois lugares corrompe o frame.** Já explicado acima; está aqui
+de novo porque é o erro mais fácil de cometer ao acrescentar um envio novo.
+
+#### Como estudar isso na prática
+
+```bash
+make run                        # noutro terminal
+cd backend && make test-tempo-real    # duas conexões de verdade, sem navegador
+cd backend && go test -race ./test/realtime/   # o hub sob concorrência
+```
+
+Os testes do hub rodam com `-race` de propósito: a peça existe para ser usada
+por muitas goroutines ao mesmo tempo, e um teste sequencial provaria pouco sobre
+ela. O de duas abas fica atrás da build tag `tempo_real` porque exige a API no
+ar — ele exercita o handshake de verdade, com cookie real e checagem de origem.
+
+Para ver os frames: DevTools → Network → filtro **WS** → a conexão → aba
+**Messages**. É a forma mais rápida de entender o `seq` na prática — feche a aba,
+mexa no quadro noutra, reabra e observe o `?desde=` no handshake.
+
+📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — leia as seções 1 (visão geral) e 4 (handshake); o resto é referência
 📝 [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat) — `hub.go` e `client.go` são a referência canônica do padrão hub em Go, e o desenho daqui vem deles
 📝 [Go Concurrency Patterns, de Rob Pike](https://go.dev/talks/2012/concurrency.slide) — o modelo mental de canais que o hub usa
 📝 [OWASP — WebSockets](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets) — a seção do Cross-Site WebSocket Hijacking
+📝 [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) — o lado do navegador, que é o que `conexao.svelte.ts` usa
 
 ### Log de eventos (o outbox)
 
@@ -421,7 +632,7 @@ do que o domínio assume ao gerar a chave. `"C"` é a ordem de BYTES — a mesma
 collation da consulta: com collations diferentes o Postgres nem o usa, e a
 ordenação vira sort em memória a cada leitura do quadro.
 
-📚 [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) — o algoritmo, e o termo para pesquisar depois é *LexoRank*
+📚 [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) — o algoritmo, e o termo para pesquisar depois é _LexoRank_
 📚 [PostgreSQL — collation support](https://www.postgresql.org/docs/current/collation.html)
 
 ### Testcontainers

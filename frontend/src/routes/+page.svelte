@@ -42,7 +42,7 @@
 			icone: 'papeis',
 			titulo: 'Papéis conferidos no servidor',
 			texto:
-				'Dono, editor e leitor. Convite por email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
+				'Dono, editor e leitor. Convite por link associado ao email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
 		}
 	] as const;
 </script>
@@ -130,7 +130,8 @@
 			Crie um quadro e chame a equipe
 		</h2>
 		<p class="max-w-md text-sm leading-relaxed text-mute">
-			A conta leva menos de um minuto. O convite vai por email e a pessoa entra direto no quadro.
+			A conta leva menos de um minuto. Quem já tem conta entra direto; para quem ainda não tem, você
+			envia o link do convite por onde preferir.
 		</p>
 		<a href="/cadastro" class="botao mt-1 w-auto px-6">Criar conta</a>
 	</section>

@@ -82,6 +82,13 @@ O `README.md` é enxuto — cartão de visitas: badges, stack resumida, quick st
 - `docs/tecnologias.md` — guia de estudo do stack (o que é, por que está no projeto, fontes oficiais para aprofundar)
 - `docs/testes.md` — instruções detalhadas de cada camada de teste (build tags, Testcontainers, Playwright)
 - `docs/regra-de-negocio.md` — modelo de negócio
+- `docs/producao.md` — arquitetura no VPS, primeiro deploy, backup e operação
+- `docs/entrega-continua.md` — CI, segurança de dependências, publicação e deploy
+
+O `PLANO.md` começa pelo estado atual das fases e depois preserva o roteiro e as
+retrospectivas. Backlog de produto fica nele; procedimento operacional fica em
+`docs/producao.md`. Números históricos de migration precisam ser marcados como
+tais e apontar para `backend/migrations/README.md`, que é a sequência vigente.
 
 Ao adicionar uma tecnologia nova ou uma decisão de arquitetura relevante, documentar em `docs/tecnologias.md` seguindo o padrão já estabelecido (o que é → por que está aqui, com referência a arquivo real do código → fontes para estudo), não só mencionar em passant no README.
 

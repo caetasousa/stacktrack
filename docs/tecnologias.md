@@ -9,8 +9,9 @@ referência a um arquivo real — e onde aprofundar.
 
 ### Go 1.26
 
-A linguagem escolhida pelo eixo do projeto: goroutines e canais são o assunto da
-fase 5, e o resto do stack existe para chegar até lá.
+A linguagem escolhida pelo eixo do projeto: goroutines e canais sustentam o hub
+de tempo real, e o restante do stack existe para tornar essa concorrência útil e
+segura no produto.
 
 O toolchain é fixado em `go.mod` (`go 1.26.6`). Não é decoração, e já foi a
 correção **duas vezes**: seis das sete vulnerabilidades que o `govulncheck`
@@ -34,8 +35,8 @@ fora**. As interfaces de repositório são declaradas em
 [`internal/usecase/board/repositorio.go`](../backend/internal/usecase/board/repositorio.go),
 no pacote que as **consome**, e não no que as implementa. É isso que permite os
 testes rodarem contra fakes em memória sem subir banco — e é a mesma costura que
-vai receber a porta `Publicador` do WebSocket na fase 5, sem que nenhum usecase
-saiba que WebSocket existe.
+recebe a porta `Publicador`: os usecases emitem eventos sem saber que o hub os
+entrega por WebSocket.
 
 📚 [Ports & Adapters, de Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/) — o texto original
 📝 [Hexagonal architecture in Go, de Matthias Noback](https://matthiasnoback.nl/2017/08/hexagonal-architecture/) — com o passo a passo de como as portas nascem
@@ -219,8 +220,9 @@ por isso que os botões do cabeçalho da coluna não disparam arraste sem querer
 
 ### Docker Compose
 
-Um arquivo para desenvolvimento (hot reload, bind mount, Mailpit) e outro para
-produção (imagens prontas, sem porta publicada, contenção). Ver
+Um arquivo para desenvolvimento (hot reload, bind mount e Mailpit reservado
+para um canal de email futuro) e outro para produção (imagens prontas, sem
+porta publicada, contenção). Ver
 [producao.md](producao.md).
 
 ### coder/websocket — o tempo real, por dentro
@@ -664,7 +666,8 @@ site em `/home/deploy/caddy/sites`. Ver
 ### Playwright
 
 Ponta a ponta em navegador de verdade, sobre a stack do `docker compose`. A
-configuração NÃO sobe a stack (`webServer`): ela são quatro serviços com
+configuração NÃO sobe a stack (`webServer`): são cinco serviços, contando o job
+de migration e o Mailpit reservado, com
 dependências na ordem certa, e o `make run` já os orquestra — duplicar isso
 criaria uma segunda forma de subir o projeto, que divergiria da primeira.
 

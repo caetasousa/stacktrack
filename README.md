@@ -11,12 +11,12 @@ Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado e
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
 
-> **Fase atual: 11 — o quadro conversa.** Duas pessoas no mesmo quadro veem a
-> mudança uma da outra na hora, veem o avatar de quem está junto, e quem grava
-> por último num card em disputa é avisado em vez de sobrescrever. Quem cai e
-> volta recebe o que perdeu, pelo log de eventos do quadro. Cada card tem
-> responsável, o filtro responde "o que é meu?", e cada card tem **conversa** e
-> **histórico** — quem moveu de onde para onde, quem renomeou o quê.
+> **Estado atual: fases 0–11 concluídas, com ajustes de escopo.** O quadro tem
+> colaboração ao vivo, presença, replay após reconexão, bloqueio otimista,
+> responsáveis, comentários, histórico completo e link público de
+> acompanhamento. A fase 12 (aplicar eventos sem recarregar o quadro) está
+> adiada porque a medição ainda não justificou o risco. O estado de todas as
+> fases está no início do [PLANO.md](PLANO.md).
 
 ## Documentação
 
@@ -50,6 +50,9 @@ cada escolha está em [docs/tecnologias.md](docs/tecnologias.md).
 
 ## Quick start
 
+Requer Docker com Compose, Node/npm e OpenSSL. Go só é necessário para executar
+os testes do backend diretamente no host.
+
 ```bash
 make run
 ```
@@ -62,7 +65,7 @@ pode repetir à vontade.
 |---|---|
 | Frontend | http://localhost:5173 |
 | API | http://localhost:8080 |
-| Mailpit (emails de dev) | http://localhost:8025 |
+| Mailpit (reservado para envio futuro) | http://localhost:8025 |
 | Postgres | `localhost:5432` |
 
 As portas são as mesmas do agendaGo — rodando os dois ao mesmo tempo, o segundo
@@ -125,7 +128,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
 | `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
-| `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida por email. |
+| `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida informando o email. Se ainda não houver conta, devolve o link para o dono enviar. |
 | `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
 | `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). |
 | `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro. |

@@ -43,7 +43,7 @@ revelar em que etapa da cadeia a busca parou.
 
 ## Convites
 
-O dono convida **por email**. Duas situações:
+O dono convida **informando o email**. Duas situações:
 
 - **já existe conta com aquele email** → a pessoa entra no quadro na hora;
 - **não existe** → nasce um convite com token, e o dono copia o link e envia por

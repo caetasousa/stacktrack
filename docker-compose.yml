@@ -62,10 +62,10 @@ services:
       flyway:
         condition: service_completed_successfully
 
-  # Captura os emails da fase 1 (confirmação de cadastro, recuperação de senha)
-  # em vez de enviá-los de verdade: UI em http://localhost:8025.
-  # Já sobe aqui na fase 0 para o ambiente não mudar quando a auth chegar — por
-  # ora nenhum serviço fala com ele.
+  # Reservado para quando o produto ganhar envio de email em desenvolvimento.
+  # Hoje cadastro e recuperação não enviam mensagem, e o convite é entregue por
+  # link; nenhum serviço fala com o Mailpit. Mantê-lo na stack evita mudar o
+  # ambiente quando esse canal entrar. UI em http://localhost:8025.
   mailpit:
     image: axllent/mailpit
     container_name: stacktrack_mailpit

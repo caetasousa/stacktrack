@@ -14,7 +14,9 @@ import "time"
 type Tipo string
 
 const (
-	// Estrutura do quadro — são estes que a tela aplica direto.
+	// Estrutura do quadro. Os payloads já permitem aplicação direta, mas hoje a
+	// tela ainda junta os eventos numa rajada e recarrega o quadro; a aplicação
+	// incremental ficou adiada para a fase 12.
 	ColunaCriada   Tipo = "coluna.criada"
 	ColunaAlterada Tipo = "coluna.alterada"
 	ColunaApagada  Tipo = "coluna.apagada"
@@ -121,9 +123,9 @@ type Evento struct {
 	CardID     string
 	AutorID    string
 	OcorridoEm time.Time
-	// Dados carrega o que a tela precisa para aplicar a mudança sem perguntar
-	// de novo — o card movido, a coluna criada. Pode ser nil: nos tipos que
-	// pedem recarga, não há o que carregar.
+	// Dados carrega o retrato útil da mudança — o card movido, a coluna criada ou
+	// os nomes históricos usados pela auditoria. Pode ser nil nos tipos em que o
+	// evento serve apenas como aviso de recarga.
 	Dados any
 }
 

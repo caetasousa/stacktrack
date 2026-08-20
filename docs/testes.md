@@ -1,7 +1,7 @@
 # 🧪 Testes
 
-Oito camadas hoje, e uma que falta. Este documento diz o que cada uma cobre,
-o que ela **não** cobre, e onde isso já custou caro.
+Oito camadas hoje e uma lacuna E2E conhecida. Este documento diz o que cada uma
+cobre, o que ela **não** cobre e onde isso já custou caro.
 
 ```bash
 make test            # backend (rápidos) + frontend
@@ -243,7 +243,7 @@ eventos da fase 7: ordem do `seq`, o intervalo do `Desde`, o payload
 sobrevivendo ao JSONB, e o `ON DELETE CASCADE` levando a história junto com o
 quadro.
 
-### O guard da coluna sem SQL, e a órfã declarada
+### O guard da coluna sem SQL, e como declarar uma órfã
 
 `sql_cobre_as_colunas_test.go` cobra que toda coluna criada nas migrations
 apareça em algum SQL do repositório. É grosseiro de propósito — não sabe se ela
@@ -253,11 +253,18 @@ por onde `cards.prazo` e `boards.fundo` passaram.
 Existe um caso legítimo de coluna sem SQL, e ele aparece quando uma
 funcionalidade é **retirada**: entre parar de usar a coluna e derrubá-la vão
 dois deploys, e no meio-tempo ela fica no banco sem ninguém que a leia. A
-declaração vive em `backend/migrations/COLUNAS-ORFAS.md`:
+declaração vive em `backend/migrations/COLUNAS-ORFAS.md`. Durante a retirada do
+arquivamento, por exemplo, ela teve estas duas linhas:
 
 ```
-- ORFA: cards.arquivado_em, colunas.arquivado_em
+- ORFA: cards.arquivado_em
+- ORFA: colunas.arquivado_em
 ```
+
+Hoje a lista está vazia: o banco de produção foi zerado antes do contract, as
+migrations foram consolidadas e as duas colunas deixaram de existir. O arquivo
+continua porque o mecanismo será necessário na próxima retirada que ocorrer
+com dados reais.
 
 ⚠️ **E ela não pode morar dentro da migration.** Foi a primeira tentativa: o
 Flyway guarda o checksum de cada migration aplicada e valida na partida, então

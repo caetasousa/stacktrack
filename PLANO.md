@@ -1,12 +1,47 @@
 # stacktrack — quadro Kanban colaborativo em tempo real
 
-## Contexto
+## Estado atual
 
-`/home/caetasousa/projectX` está vazio. O objetivo é um **projeto de aprendizagem**: o
-agendaGo já cobriu CRUD + auth + testes + deploy, então mais um CRUD ensinaria pouco. Este
-projeto força um eixo novo — **concorrência de verdade em Go e sincronização de estado entre
-clientes** — reaproveitando o esqueleto que já é domínio conhecido (hexagonal, chi, pgx,
-Postgres, Flyway, SvelteKit, Tailwind).
+Este documento tem dois papéis: registra por que cada fase existiu e mantém o
+backlog do produto. O estado de cada uma fica resumido aqui; dentro das fases,
+os blocos de retrospectiva preservam decisões e armadilhas que já aconteceram.
+
+| Fase | Estado | Observação |
+|---|---|---|
+| 0 — Fundação | ✅ concluída | ambiente, API, frontend e comandos locais |
+| 1 — Contas e sessão | ✅ concluída com escopo alterado | sem confirmação e recuperação por email; o cadastro já abre sessão |
+| 2 — Quadro, colunas e cards | ✅ concluída | CRUD e autorização por recurso |
+| 3 — Convites e colaboração | ✅ concluída com escopo alterado | convite por link; o projeto não envia email |
+| 4 — Arrastar e ordenar | ✅ concluída | a posição fracionária depois foi substituída pela chave textual da fase 9 |
+| 5 — Tempo real | ✅ concluída | falta apenas o E2E específico de arrastar com mouse entre duas abas |
+| 6 — Presença e conflito | 🟡 parcial/evoluída | presença e bloqueio otimista feitos; o indicador mostra edição de coluna, não de card |
+| 7 — Reconexão e replay | ✅ concluída | log de eventos, retomada por `seq` e reconexão |
+| 8 — Produtização | ✅ concluída no repositório | pendências operacionais ficam em `docs/producao.md` |
+| 9 — Chave textual | ✅ concluída | ciclo expand/contract encerrado e migrations depois consolidadas |
+| 10 — Responsáveis e filtro | ✅ concluída | filtros combináveis no cliente |
+| 11 — Comentários e histórico | ✅ concluída e ampliada | inclui auditoria completa do quadro |
+| 12 — Aplicação incremental | ⏸️ adiada | a medição ainda não justificou o risco; a tela recarrega por rajada de eventos |
+| 13 — Arquivamento | ❌ retirada | foi implementada e removida por decisão de produto; não deixou contract pendente |
+| 14 — Limite WIP | ⬜ pendente | próximo incremento funcional planejado |
+| 15 — Múltiplas APIs | ⬜ opcional | só faz sentido quando houver mais de uma instância |
+
+Também foram feitos fora da sequência original: etiquetas, prazo, checklists,
+anexos, link público de acompanhamento, auditoria do quadro, indicador de edição
+de coluna, confirmação própria para ações destrutivas e cobertura móvel.
+
+> **Migrations consolidadas.** O repositório chegou a ter 21 migrations e foi
+> consolidado quando o banco de produção pôde ser zerado. Números citados nas
+> retrospectivas são históricos; a sequência atual e o motivo da consolidação
+> estão em [backend/migrations/README.md](backend/migrations/README.md).
+
+## Contexto original
+
+O projeto nasceu em `/home/caetasousa/projectX` como um **projeto de
+aprendizagem**. O agendaGo já havia coberto CRUD + auth + testes + deploy, então
+mais um CRUD ensinaria pouco. O stacktrack força um eixo novo — **concorrência
+de verdade em Go e sincronização de estado entre clientes** — reaproveitando o
+esqueleto que já era domínio conhecido (hexagonal, chi, pgx, Postgres, Flyway,
+SvelteKit e Tailwind).
 
 O produto: um quadro estilo Trello onde várias pessoas movem cards e todos veem na hora, sem
 recarregar a página.
@@ -28,8 +63,9 @@ recarregar a página.
 
 | Decisão | Escolha |
 |---|---|
-| Autenticação | Completa, como no agendaGo (confirmação por email, recuperação de senha, rate limiting, convites) |
-| Infra inicial | Postgres + Docker Compose + Flyway. Testcontainers e CI entram na fase 8 |
+| Autenticação | Conta e sessão com Argon2id, cookie seguro e rate limiting. Confirmação e recuperação ficaram de fora porque o projeto não envia email |
+| Convites | Por email como identificador, mas entregues por link: o dono copia e envia por onde quiser |
+| Infra | Postgres + Docker Compose + Flyway; Testcontainers, CI, produção e backup já fazem parte do repositório |
 | Documentação da API | A tabela de rotas do `README.md`, e só ela. **Swagger ficou de fora em definitivo** — ver a fase 8 |
 | Proxy e TLS | **Caddy** — o que já atende o agendaGo no mesmo VPS, roteando por domínio. O plano original dizia nginx; na fase 8 ficou claro que o VPS já rodava Caddy, e enfiar um segundo proxy em série só somaria timeouts para depurar. O stacktrack deposita um bloco de site em `deploy/caddy/` e o Caddy do vizinho o importa |
 | WebSocket | `github.com/coder/websocket` (API sobre `context`, casa com o shutdown gracioso) |
@@ -45,7 +81,7 @@ README enxuto com tabela de rotas, detalhe em `docs/`.
 
 ---
 
-## Arquitetura alvo
+## Arquitetura atual
 
 ```
 backend/
@@ -53,31 +89,31 @@ backend/
   config/                      # env vars tipadas, pool pgx
   internal/
     domain/                    # regra pura, sem I/O
-      usuario/ session/ signup/ passwordreset/
-      board/ coluna/ card/ membro/ evento/
+      usuario/ session/ board/ coluna/ card/ membro/ evento/
+      convite/ etiqueta/ checklist/ comentario/ anexo/ publicacao/ ordem/ cor/
     usecase/                   # orquestra domínio + portas
-      auth/ board/ coluna/ card/ realtime/
+      auth/ board/
     adapter/
+      armazem/                 # arquivos anexados no disco
       http/handler/  http/dto/  http/middleware/
       http/ws/                 # handshake, auth por cookie, bombas de leitura/escrita
       realtime/hub/            # salas, fan-out, presença (implementa a porta Publicador)
       repository/              # Postgres via pgx
       security/                # argon2id
-      email/                   # go-mail + templates
-    pkg/                       # logging, token, paging
+    pkg/                       # logging e tokens
   migrations/                  # V1__..., V2__... (Flyway)
   test/                        # domain/ usecase/ handler/ repository/memoria (fakes)
 
 frontend/src/
   lib/api/                     # cliente fetch fino (espelha os DTOs do Go)
-  lib/realtime/                # store da conexão WebSocket, reconexão, aplicação de eventos
-  lib/stores/                  # sessão, quadro
-  lib/components/              # Quadro, Coluna, Card, Presenca
-  routes/                      # login, cadastro, quadros, quadros/[id]
+  lib/realtime/                # conexão WebSocket, replay e presença
+  lib/stores/                  # sessão e tema
+  lib/components/              # quadro, coluna, card, diálogos e seletores
+  routes/                      # entrada, painel, quadro, histórico, membros e link público
 ```
 
 **A regra que segura o desenho todo:** `domain` e `usecase` não sabem que WebSocket existe. O
-usecase depende de uma porta `Publicador` (uma interface com `Publicar(boardID, evento)`); quem
+usecase depende de uma porta `Publicador` (uma interface com `Publicar(evento)`); quem
 implementa é o hub, em `adapter/realtime`. Trocar WebSocket por SSE amanhã não toca em regra de
 negócio — é a mesma lição do `notificador` de email do agendaGo, agora com um adaptador vivo.
 
@@ -90,32 +126,32 @@ navegador A                 API Go                              navegador B
     │ (UI move na hora)        │                                     │
     │ PATCH /cards/{id}/mover  │                                     │
     ├─────────────────────────►│                                     │
-    │                          │ usecase: valida + version check     │
+    │                          │ usecase: autoriza + valida vizinhos│
     │                          │ TX: UPDATE card + INSERT evento     │
     │                          │ COMMIT                              │
-    │                          │ hub.Publicar("board:7", evento) ────┼──► card se move
+    │                          │ hub.Publicar(evento) ───────────────┼──► recarrega e move
     │◄─────────────────────────┤ 200 OK                              │    (sem F5)
     │ confirma (ou desfaz)     │                                     │
 ```
 
 ---
 
-## Fases
+## Registro fase a fase
 
-Cada fase termina com algo que funciona no navegador. Dá pra parar em qualquer uma sem ficar com
-projeto pela metade. As fases 0–3 são terreno conhecido (é onde você constrói a base); o
-aprendizado novo começa firme na 4 e explode na 5.
+O roteiro foi desenhado para que cada fase terminasse com algo funcionando no
+navegador. As fases 0–3 construíram o terreno conhecido; o aprendizado novo
+começou firme na 4 e virou o eixo do projeto na 5.
 
 ---
 
-### Fase 0 — Fundação
+### Fase 0 — Fundação ✅
 
 **Conceito novo:** nenhum. É montar o mesmo terreno do agendaGo, de propósito, para o resto ser
 sobre o que interessa.
 
 **Entrega:**
 - `docker-compose.yml`: `postgres` (16-alpine, healthcheck), `flyway` (migrate, depende do
-  healthcheck), `api` (Go), `web` (node), `mailpit` (a auth completa precisa de SMTP em dev)
+  healthcheck), `api` (Go), `web` (node) e `mailpit` (reservado para quando houver envio em dev)
 - Esqueleto Go: `cmd/api/main.go` com chi, `slog` configurado, `config/` lendo env, `GET /health`,
   shutdown gracioso via `signal.NotifyContext`
 - SvelteKit + Tailwind + TypeScript, `lib/api/client.ts` (o wrapper fino sobre `fetch` com
@@ -138,7 +174,12 @@ aparece em `:5173`, e `Ctrl+C` desliga sem erro no log.
 
 ---
 
-### Fase 1 — Contas e sessão
+### Fase 1 — Contas e sessão ✅ escopo alterado
+
+> **Feita sem confirmação nem recuperação por email.** As duas dependem de um
+> canal de envio que o produto não tem. O cadastro persiste a conta e já abre a
+> sessão; login, logout, perfil, Argon2id e os limites por IP/conta ficaram como
+> planejado. O texto abaixo preserva o escopo original para registrar a mudança.
 
 **Conceito novo:** nenhum grande, mas é a fase que fixa argon2id e cookie `__Host-` com você no
 comando (no agendaGo isso já existia pronto).
@@ -148,7 +189,7 @@ confirmação por email (capturado no Mailpit); login/logout; `GET /auth/me`; re
 rate limiting com `httprate`. Frontend: telas de cadastro, confirmação, login, recuperar/redefinir
 senha, e a store de sessão (`session.svelte.ts`).
 
-**Migrations:** `V1__cria_tabela_usuarios.sql`, `V2__cria_tabela_sessions.sql`,
+**Migrations planejadas originalmente:** `V1__cria_tabela_usuarios.sql`, `V2__cria_tabela_sessions.sql`,
 `V3__cria_tabela_cadastros_pendentes.sql`, `V4__cria_tabela_password_reset_tokens.sql`
 
 **Pronto quando:** cadastro → email no Mailpit (`localhost:8025`) → confirma → login → `/auth/me`
@@ -165,7 +206,7 @@ passando.
 
 ---
 
-### Fase 2 — Quadro, colunas e cards (ainda sem tempo real)
+### Fase 2 — Quadro, colunas e cards (ainda sem tempo real) ✅
 
 **Conceito novo:** modelagem de hierarquia com autorização por recurso (quem pode ver/editar
 *este* quadro), diferente do agendaGo onde o dono do dado era sempre o prestador logado.
@@ -175,7 +216,7 @@ completo; autorização checada no usecase (nunca só no handler). Frontend: lis
 tela do quadro renderizando colunas e cards em CSS grid, com criar/renomear/apagar — **com
 recarga manual mesmo**, para a fase 5 ter contraste.
 
-**Migrations:** `V5__cria_tabela_boards.sql`, `V6__cria_tabela_board_membros.sql`,
+**Migrations na sequência original:** `V5__cria_tabela_boards.sql`, `V6__cria_tabela_board_membros.sql`,
 `V7__cria_tabela_colunas.sql`, `V8__cria_tabela_cards.sql`
 
 Campos que já nascem pensando nas fases seguintes: `colunas.posicao`, `cards.posicao`
@@ -193,7 +234,11 @@ enxerga o quadro do outro (teste de autorização cobrindo isso).
 
 ---
 
-### Fase 3 — Convites e colaboração
+### Fase 3 — Convites e colaboração ✅ escopo alterado
+
+> **Feita com link em vez de envio.** O email identifica a pessoa convidada;
+> quando ela ainda não tem conta, o dono copia o link e o entrega por qualquer
+> canal. Quem já tem conta com aquele email entra imediatamente.
 
 **Conceito novo:** o quadro deixa de ser de uma pessoa. É o pré-requisito humano do tempo real —
 sem duas contas no mesmo quadro, não há o que sincronizar.
@@ -201,7 +246,7 @@ sem duas contas no mesmo quadro, não há o que sincronizar.
 **Entrega:** convidar por email para o quadro, aceitar convite (com token), listar/remover membros,
 papéis aplicados na autorização (leitor não move card). Frontend: painel de membros do quadro.
 
-**Migrations:** `V9__cria_tabela_convites_board.sql`
+**Migration na sequência original:** `V9__cria_tabela_convites_board.sql`
 
 **Pronto quando:** duas contas diferentes abrem o mesmo quadro em dois navegadores. (Ainda sem
 sincronia — cada uma precisa dar F5 para ver o que a outra fez. Guarde essa sensação: é o problema
@@ -214,7 +259,12 @@ que a fase 5 resolve.)
 
 ---
 
-### Fase 4 — Arrastar e soltar + ordenação fracionária
+### Fase 4 — Arrastar e soltar + ordenação fracionária ✅
+
+> **Feita e depois evoluída pela fase 9.** A API hoje recebe os ids dos
+> vizinhos, o servidor calcula uma chave textual e a UI continua otimista. A
+> posição em `double precision` abaixo é o primeiro desenho e a armadilha que
+> motivou a troca.
 
 **Conceito novo (o primeiro grande):** como ordenar itens quando várias pessoas inserem no meio ao
 mesmo tempo.
@@ -256,7 +306,11 @@ mesma posição. Deixe acontecer, escreva o teste que reproduz — a fase 9 cons
 
 ---
 
-### Fase 5 — Tempo real: WebSocket + hub
+### Fase 5 — Tempo real: WebSocket + hub ✅
+
+> **Feita.** O protocolo, o hub e o fluxo de duas pessoas estão cobertos. A
+> lacuna restante é mais estreita que a fase: o Playwright ainda não arrasta um
+> card com mouse entre colunas; ele prova a propagação por outras ações.
 
 **Conceito novo (o coração do projeto):** o servidor falando primeiro, e uma goroutine por
 conexão.
@@ -315,7 +369,11 @@ Hijacking*). O `OriginPatterns` do `coder/websocket` é a defesa — e o cookie 
 
 ---
 
-### Fase 6 — Presença e edição concorrente
+### Fase 6 — Presença e edição concorrente 🟡 parcial/evoluída
+
+> **Presença e bloqueio otimista estão feitos.** O aviso de edição entrou com
+> outro recorte: mostra quem está renomeando uma **coluna**. O aviso equivalente
+> dentro do editor de card continua no backlog.
 
 **Conceito novo:** estado efêmero (que **não** vai para o banco) e resolução de conflito.
 
@@ -341,7 +399,7 @@ devolve 409.
 
 ---
 
-### Fase 7 — Reconexão e replay de eventos
+### Fase 7 — Reconexão e replay de eventos ✅
 
 **Conceito novo:** entrega confiável sobre um canal que cai. É o mesmo raciocínio de *offset* do
 Kafka, na versão caseira — e o momento em que "tempo real" vira "tempo real **correto**".
@@ -358,10 +416,10 @@ aconteceu.
 - Reconexão com backoff exponencial + jitter no front, e indicador visual de "reconectando"
 - Idempotência no cliente: aplicar o mesmo evento duas vezes não pode duplicar card (o `seq`
   resolve — descarta o que for `<=` ao último aplicado)
-- Teste: derrubar a API com `docker compose stop api`, mexer no quadro pela outra aba, subir de
-  volta e verificar a convergência
+- Teste: derrubar o WebSocket de uma sessão, mexer no quadro pela outra aba, deixar a primeira
+  reconectar e verificar a convergência
 
-**Migrations:** `V10__cria_tabela_board_events.sql`
+**Migration na sequência original:** `V10__cria_tabela_board_events.sql`
 
 **Pronto quando:** matar a conexão, mexer no quadro pelo outro navegador e reconectar deixa as duas
 telas idênticas — sem F5.
@@ -377,7 +435,7 @@ telas idênticas — sem F5.
 
 ---
 
-### Fase 8 — Endurecer (produtização)
+### Fase 8 — Endurecer (produtização) ✅
 
 **Conceito novo:** nenhum — é trazer o rigor do agendaGo para um projeto que agora tem
 concorrência de verdade para proteger.
@@ -499,8 +557,10 @@ do domínio**, nunca por SQL na migration.
 
 ## Continuação — o produto
 
-As fases de 0 a 8 entregaram um quadro que funciona e sincroniza. O que segue é o que falta para
-ele ser usado por um time de verdade, na ordem em que cada peça passa a fazer falta.
+As fases de 0 a 8 entregaram um quadro que funciona e sincroniza. Esta foi a
+continuação desenhada naquele momento para aproximá-lo do uso por um time; as
+fases 10 e 11 já foram concluídas, a 12 foi adiada depois de medida e o estado
+das demais está na tabela do início.
 
 A ordem não é arbitrária: a **10** faz o quadro responder "o que é meu?", a **11** cria o primeiro
 fluxo em que recarregar tudo é obviamente desperdício, e a **12** cobra a fatura que a 11 gerou.
@@ -530,7 +590,8 @@ não *o que é meu*.
 - A leitura do quadro devolve os responsáveis de todos os cards **numa consulta só**, no mesmo
   molde de `EtiquetasDoBoardPorCard`
 
-**Migrations:** `V15__cria_tabela_card_responsaveis.sql`
+**Migration antes da consolidação:** `V15__cria_tabela_card_responsaveis.sql`
+(hoje é `V12__cria_tabela_card_responsaveis.sql`).
 
 **A decisão que não dá para adiar:** o que acontece com a atribuição quando a pessoa é removida do
 quadro. Manter gera uma lista de responsáveis que mente — nomes de quem não tem mais acesso.
@@ -609,7 +670,8 @@ provocar um `GET /boards/{id}`.
 - **Histórico de atividade do card, sem tabela nova:** `board_events` já guarda tipo, autor,
   payload e data. O feed é um *read model* sobre o que a fase 7 já escreve
 
-**Migrations:** `V16__cria_tabela_comentarios.sql`
+**Migration antes da consolidação:** `V16__cria_tabela_comentarios.sql`
+(hoje é `V13__cria_tabela_comentarios.sql`).
 
 **A armadilha, e ela é concreta:** o payload dos eventos estruturais **não basta para o feed**. O
 `card.movido` guarda o card já movido, com a coluna de destino — a coluna de origem se perde, e
@@ -636,7 +698,13 @@ quê desde que ele nasceu.
 
 ---
 
-### Fase 12 — Aplicação incremental de eventos
+### Fase 12 — Aplicação incremental de eventos ⏸️ adiada
+
+> **Não implementada, por decisão medida.** A janela de 150 ms já transforma
+> uma rajada em uma recarga, e o custo observado ainda não compensa manter um
+> aplicador por tipo com risco de divergência silenciosa. Antes de retomar,
+> medir um quadro grande com várias pessoas e alinhar o contrato de tipos de
+> evento entre Go e TypeScript.
 
 **Conceito novo:** deixar de recarregar e passar a aplicar diferença — e assumir o risco que isso
 traz, que é a tela poder divergir do banco **em silêncio**.
@@ -682,32 +750,14 @@ risco sem receber o benefício.
 > **Foi feita inteira e depois RETIRADA, por decisão de produto.** O texto
 > abaixo é o plano original, mantido porque o assunto pode voltar.
 >
-> O que sobrou no repositório, e não é esquecimento:
->
-> - **`V20` continua no `migrations/`.** O Flyway é forward-only e guarda o
->   checksum do que aplicou; apagar um arquivo já aplicado faz a validação
->   falhar no próximo start. A migration rodou em produção — o que já aconteceu
->   não se desfaz apagando o texto.
-> - **As colunas `arquivado_em` continuam no banco**, sem ninguém que as leia ou
->   escreva. Elas são exatamente o que o guard de SQL caça, então passaram a ser
->   declaradas em `migrations/COLUNAS-ORFAS.md`, e o guard aprendeu a diferença
->   entre uma órfã deliberada e o defeito que ele existe para pegar. A
->   declaração não é permanente: ele reprova se a coluna sumir e a linha ficar, e
->   reprova também se o código voltar a usá-la sem a linha sair.
->
-> ⚠️ **A declaração quase foi parar dentro da V20, e isso derrubaria o deploy.**
-> O Flyway guarda o checksum de cada migration aplicada e valida na partida:
-> acrescentar UM COMENTÁRIO a um arquivo já aplicado muda o checksum e o start
-> falha com `Migration checksum mismatch`. Aconteceu aqui, na stack local, antes
-> de virar commit. Migration aplicada é imutável inclusive nos comentários — daí
-> a declaração morar num `.md`, que o Flyway não recolhe.
->
-> ⏳ **Falta o contract — `V21`, e ele é do PRÓXIMO deploy.** Derrubar as colunas
-> no mesmo deploy que retira o código quebraria a versão que está no ar durante
-> a janela de publicação, que é também para onde um rollback volta: ela lê e
-> escreve `arquivado_em` em todo SELECT e INSERT de card e coluna. A mesma
-> doutrina da fase 9, agora na direção contrária — ali uma coluna nascia, aqui
-> uma morre, e nos dois casos são dois deploys.
+> Durante a retirada, a migration histórica `V20` e as colunas
+> `arquivado_em` precisariam sobreviver por um deploy, à espera do contract
+> `V21`. Antes desse contract, o banco de produção foi zerado e o conjunto de
+> migrations foi consolidado. Por isso hoje **não existe `V20`, não existem
+> colunas órfãs e não há `V21` pendente**. A história completa e a regra que
+> continua valendo estão em
+> [backend/migrations/README.md](backend/migrations/README.md) e
+> [backend/migrations/COLUNAS-ORFAS.md](backend/migrations/COLUNAS-ORFAS.md).
 >
 > **O que a fase deixou de bom, e fica:** a correção do vazamento de anexos no
 > disco (o `ON DELETE CASCADE` limpava a tabela e não o volume), que apareceu ao
@@ -726,7 +776,8 @@ não há como recuperar. O Trello arquiva.
 - Tela de arquivados do quadro, com desarquivar
 - Apagar de vez continua existindo, só do dono, e a partir da tela de arquivados
 
-**Migrations:** `V17__adiciona_arquivado_em_em_cards_e_colunas.sql`
+**Migration histórica:** `V20__adiciona_arquivado_em_em_cards_e_colunas.sql`,
+removida na consolidação feita com o banco vazio.
 
 **A armadilha:** **todo** `SELECT` existente precisa passar a filtrar, e um esquecido faz o card
 arquivado reaparecer no quadro. É exatamente o tipo de defeito que os fakes em memória não pegam —
@@ -737,7 +788,7 @@ arquivados, e desarquivar o devolve à mesma coluna e posição.
 
 ---
 
-### Fase 14 — WIP limit por coluna
+### Fase 14 — WIP limit por coluna ⬜ pendente
 
 **Conceito novo:** a primeira regra que **recusa** uma operação por política do quadro, e não por
 falta de permissão. E a primeira em que a contagem precisa acontecer dentro da transação.
@@ -747,7 +798,8 @@ falta de permissão. E a primeira em que a contagem precisa acontecer dentro da 
 - O domínio recusa criar e mover para uma coluna cheia; o handler responde **409** com a mensagem
 - A coluna mostra `3/5`, e muda de cor ao encher
 
-**Migrations:** `V18__adiciona_wip_limite_em_colunas.sql`
+**Migration futura:** será a próxima versão disponível no momento da
+implementação; não há arquivo reservado hoje.
 
 **A armadilha, e ela é do eixo do projeto:** duas pessoas movem um card ao mesmo tempo para uma
 coluna com **uma** vaga. Se a contagem for feita antes da transação, as duas passam e a coluna
@@ -764,7 +816,7 @@ uma vaga e prova que **exatamente um** passa.
 
 ---
 
-### Fase 15 (opcional) — Mais de uma instância da API
+### Fase 15 (opcional) — Mais de uma instância da API ⬜ pendente
 
 **Conceito novo:** o hub é um mapa em memória, e memória não é compartilhada entre processos.
 
@@ -792,12 +844,12 @@ diferentes, e o card move nos dois.
 
 ---
 
-### Depois disso, se der gosto
+### Fora do plano principal
 
 **Já foram feitos, fora de ordem:** etiquetas, prazo, checklist e anexos entraram junto com a
-adaptação do template do Trello, entre as fases 3 e 4. A consequência a pagar está na fase 5:
-cada uma dessas tabelas é uma fonte de eventos que o hub vai precisar propagar — etiqueta
-aplicada, item marcado, anexo enviado —, e isso não estava no desenho original daquela fase.
+adaptação do template do Trello, entre as fases 3 e 4. Link público, auditoria do quadro,
+confirmação própria para ações destrutivas, suporte móvel e o indicador de edição de coluna também
+entraram depois. Os eventos dessas ações já têm tipos próprios no log para alimentar a auditoria.
 
 Comentários, histórico de atividade, WIP limit e múltiplas instâncias saíram desta lista: viraram
 as fases 11, 14 e 15 acima. O que segue realmente de fora:
@@ -806,9 +858,10 @@ as fases 11, 14 e 15 acima. O que segue realmente de fora:
   frequência (dezenas de mensagens por segundo por pessoa) que não pode passar pelo mesmo caminho
   dos eventos do quadro, nem ser gravado. É estado efêmero levado ao extremo.
 - **"Fulano está editando este card"**, que a fase 6 previa e não foi feito: marca temporária com
-  TTL, renovada enquanto o campo tem foco. Depende de o cliente passar a **enviar** mensagens pelo
-  socket, coisa que hoje ele não faz — `lerAteMorrer` existe só para processar os pongs.
-- **Notificações** (por email ou push) e **quadros públicos por link**.
+  TTL, renovada enquanto o campo tem foco. O caminho cliente → WebSocket já existe para anunciar
+  edição de **coluna**; falta reaproveitá-lo no modal do card e decidir como representar título e
+  descrição sem criar cadeados enganosos.
+- **Notificações** por email ou push. O link público de acompanhamento já foi feito.
 - **Edição concorrente de texto de verdade** (dois digitando na mesma descrição): é o território
   de [CRDTs](https://crdt.tech/) — [Yjs](https://docs.yjs.dev/) e
   [Automerge](https://automerge.org/) são as implementações de referência.
@@ -824,17 +877,19 @@ make test              # domínio + usecases + handlers (fakes) + Vitest
 docker compose up -d   # postgres, flyway, api, web, mailpit
 ```
 
-- **Fase 1:** cadastro → Mailpit em `localhost:8025` → confirma → login → `/auth/me` → logout
+- **Fase 1:** cadastro já abre a sessão → `/auth/me` → logout. Não há etapa de
+  Mailpit enquanto o produto não enviar email
 - **Fase 2–3:** montar um quadro pela UI; segunda conta convidada abre o mesmo quadro; leitor não
   consegue mover card (403)
 - **Fase 4:** arrastar, dar F5, ordem preservada; um `UPDATE` por movimento
-- **Fase 5 em diante — o teste que importa:** dois navegadores lado a lado no mesmo quadro. Arrastar
-  em um move no outro em menos de um segundo, sem F5. Automatizado com dois `BrowserContext` no
-  Playwright (`make test-e2e`)
+- **Fase 5 em diante — o teste que importa:** dois navegadores lado a lado no mesmo quadro. Uma
+  ação em um aparece no outro em menos de um segundo, sem F5. A colaboração está automatizada com
+  dois `BrowserContext` no Playwright (`make test-e2e`); o gesto específico de arrastar com mouse
+  ainda é a lacuna descrita em `docs/testes.md`
 - **Fase 5 em diante, sempre:** `go test -race ./...` limpo. Concorrência sem `-race` é fé, não
   engenharia
-- **Fase 7:** `docker compose stop api`, mexer no quadro pela outra aba, `start api` — as duas telas
-  convergem sozinhas
+- **Fase 7:** interromper o WebSocket de uma sessão, mexer no quadro pela outra e deixar a primeira
+  reconectar — as duas telas convergem sozinhas. O Playwright simula isso com `routeWebSocket`
 
 ## Como estudar isto
 
@@ -843,6 +898,13 @@ as demais durante. Se for ler só três coisas no projeto inteiro, leia o post d
 `hub.go`+`client.go` do gorilla (fase 5) e o padrão Optimistic Offline Lock (fase 6) — são os três
 que mudam como você pensa, o resto é ferramenta.
 
-## Primeiro passo
+## Próximos passos recomendados
 
-Fase 0 inteira, num commit `chore:` por peça (compose, backend, frontend, Makefile).
+1. Fechar a lacuna E2E de arrastar um card com mouse entre duas sessões.
+2. Endurecer a operação: usuário do banco sem DDL, alerta de ausência do backup,
+   cópia fora do VPS e ensaio documentado de restauração.
+3. Implementar a fase 14 (limite WIP) se a próxima prioridade for produto.
+4. Retomar a fase 12 apenas depois de medir um quadro grande e alinhar o
+   contrato de eventos entre Go e TypeScript.
+5. Fazer a fase 15 somente quando a topologia realmente ganhar outra instância
+   da API.

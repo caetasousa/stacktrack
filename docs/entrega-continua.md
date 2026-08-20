@@ -14,6 +14,7 @@ push na main
      │
      ├─► backend            gofmt · go vet · go test -race · migrations não escrevem dado
      ├─► frontend           prettier · svelte-check · vitest
+     ├─► e2e                stack completa · Playwright · celular · duas pessoas
      ├─► seguranca-codigo   govulncheck · npm audit
      ├─► imagens            (matriz: api, web, migrations)
      └─► seguranca-imagens  Trivy por imagem → SARIF → portão em CRITICAL
@@ -190,7 +191,8 @@ correção é `rm -rf` no Dockerfile.
 **Cuidado:** o Flyway resolve os plugins por `ServiceLoader` e os carrega
 avidamente — remover o driver errado derruba o boot com `ClassNotFoundException`
 mesmo sem uso nenhum daquele banco. O teste que vale é `flyway migrate` contra um
-Postgres de verdade. Foi feito: 13 migrations aplicadas com os drivers removidos.
+Postgres de verdade. Naquela etapa, o ensaio aplicou as 13 migrations que
+existiam com os drivers removidos.
 
 ### Caso 3 — o bug que só apareceu porque o script rodou
 
@@ -258,17 +260,15 @@ processo que atende outro serviço em produção.
 
 ## ⚠️ O que esta esteira **não** cobre
 
-**Testes de integração contra Postgres de verdade.** Os testes usam fakes em
-memória, que copiam a struct inteira e nunca passam por SQL. Foi assim que
-`cards.prazo` e `boards.fundo` chegaram a existir no banco sem nunca serem
-gravados. Há um guard estático (`test/repository/sql_cobre_as_colunas_test.go`)
-que compara migrations e SQL do repositório, mas ele não sabe dizer se a coluna
-está no INSERT e falta no UPDATE. Os Testcontainers chegam na fase 8.
+**Arrastar com mouse no Playwright.** A suíte cobre a colaboração em duas
+sessões, a reconexão, o modal ao vivo, o link público e os gestos de toque. O
+caso que ainda falta é pegar um card com mouse, soltá-lo em outra coluna e
+verificar a mudança na segunda sessão.
 
-**Testes de ponta a ponta.** Sem Playwright ainda. É a lacuna que deixou passar
-uma alça de arrastar coluna que nunca funcionou e uma cor de card que não
-pintava — as duas verdes em todos os testes. Chega na fase 5, junto com o teste
-de duas abas que define o projeto.
+**Recuperação real de desastre.** O workflow executa o script de backup antes
+do deploy e agenda o cron, mas não restaura automaticamente um dump nem prova
+que os anexos e o banco formam um conjunto recuperável. O ensaio de restauração
+continua sendo operação manual documentada em `producao.md`.
 
 **Dependabot.** Não configurado. Hoje a atualização de dependência é manual, e
 quem avisa é a varredura semanal.

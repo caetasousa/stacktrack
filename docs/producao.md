@@ -55,7 +55,7 @@ Três coisas dependem disso, e nenhuma é estética:
 - o cookie `__Host-` exige `Secure`, `Path=/` e **nenhum** `Domain`;
 - a CSP de produção é `connect-src 'self'` — API noutra origem exigiria abrir
   exceção;
-- na fase 5, o `wss://` do quadro entra coberto por `self`, sem tocar em nada.
+- o `wss://` do quadro fica coberto por `self`, sem abrir uma origem adicional.
 
 ---
 
@@ -285,7 +285,7 @@ vizinho.
 Ele grava dois artefatos em `~/backups`:
 
 ```
-stacktrack-2026-08-07-032000-schema13.sql.gz   + .sha256 + .json
+stacktrack-2026-08-07-032000-schema<versao>.sql.gz   + .sha256 + .json
 stacktrack-anexos-2026-08-07-032000.tar.gz     + .sha256
 ```
 
@@ -411,10 +411,11 @@ o login falha em silêncio.
 aperta (`SET NOT NULL`, `DROP COLUMN`, `RENAME`, `UNIQUE` novo) exige dois
 deploys.
 
-**O `WriteTimeout` de 15s vai derrubar o WebSocket da fase 5.** O Caddy é
-transparente e não impõe timeout à conexão; quem derruba é o lado Go, em
-`backend/config/server.go`. O comentário no arquivo já marca o lugar. O sintoma
-é "cai sozinho, sempre no mesmo tempo".
+**`WriteTimeout` e `ReadTimeout` precisam continuar em zero.** Um timeout do
+`http.Server` vale para a conexão inteira, e o WebSocket é uma requisição que
+dura horas. Os dois já estão zerados deliberadamente em
+`backend/config/server.go`; reintroduzi-los faria o quadro cair sempre no mesmo
+intervalo. O ping/pong do próprio WebSocket é quem limita conexão morta.
 
 **O nome antigo sobrevive num comentário da migration V1.** O Flyway guarda
 checksum de cada `.sql` e recusa o `validate` se o arquivo mudar — por isso a

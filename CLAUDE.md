@@ -69,6 +69,34 @@ coluna nova obrigatória, coluna removida e coluna apertada.
 
 ---
 
+## Infraestrutura
+
+**Nada é configurado à mão no VPS. Se não está no playbook, não existe.**
+
+O servidor é descrito em `deploy/ansible/` — usuário, Docker, diretórios,
+`.env`, compose, cron do backup e o bloco do Caddy. Um comando dado por SSH que
+não tenha uma task equivalente é deriva: ele funciona hoje e desaparece no
+próximo servidor. Ao resolver algo no host, a correção vai para a role, e o
+`make infra-apply` é quem aplica.
+
+O VPS é dividido com o **agendaGo**, e a fronteira é regra, não cuidado:
+
+- nunca editar o `Caddyfile` do vizinho — só depositar em `~/caddy/sites/`
+- nunca reescrever o crontab inteiro — `ansible.builtin.cron` com `name:`
+  gerencia só o bloco marcado
+- nunca remover a rede `borda` nem `~/backups`, que são comuns aos dois
+- nunca atualizar o Docker por tabela: `apt upgrade` do `docker-ce` reinicia o
+  daemon e derruba os containers do agendaGo junto
+
+Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
+`POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:
+mudá-los no vault depois **não** muda o papel no banco, só quebra a conexão da
+API — trocar de verdade exige `ALTER ROLE`.
+
+Detalhes em [docs/infraestrutura.md](docs/infraestrutura.md).
+
+---
+
 ## README
 
 Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas no `README.md`, com a descrição do que ela faz — inclusive os códigos de erro que importam para quem chama (o 409 do card em disputa, o 404 de quem não participa).

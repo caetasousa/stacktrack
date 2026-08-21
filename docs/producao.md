@@ -66,7 +66,7 @@ O servidor guarda **três arquivos** e nada além:
 | Arquivo | Vem de | Contém |
 |---|---|---|
 | `~/stacktrack/docker-compose.prod.yml` | repositório, via CI | a topologia |
-| `~/stacktrack/.env` | **só existe no host** | segredos |
+| `~/stacktrack/.env` | **só existe no host**, escrito pelo Ansible | segredos |
 | `~/stacktrack/scripts/backup.sh` | repositório, via CI | operação |
 
 Mais o bloco de roteamento em `~/caddy/sites/stacktrack.caddy`, que pertence ao
@@ -120,61 +120,45 @@ o repositório funciona antes de o servidor existir. Sem `VPS_KNOWN_HOSTS`, ele
 **falha de propósito**: a alternativa seria aceitar a identidade de quem
 responder e entregar a chave de deploy junto.
 
-## 3️⃣ Criar o `.env` no servidor
+## 3️⃣ Provisionar o servidor
 
-Este é o **único arquivo que a esteira nunca envia** — ele guarda os segredos e
-mora só no host. Por isso precisa existir antes do primeiro deploy automático:
-sem ele, o `docker compose up` sobe com as variáveis vazias.
-
-⚠️ **Caminhos absolutos, e não `~`.** Se você estiver logado como `root`, o `~`
-aponta para `/root`: o arquivo é criado sem erro nenhum, no lugar errado e com o
-dono errado, e o deploy — que entra como `deploy` — nunca o encontra. O sintoma
-é o `docker compose up` subir com todas as variáveis vazias.
+**Este passo deixou de ser manual.** O `.env`, os diretórios, o compose, o
+`backup.sh`, o cron e o bloco do Caddy saem todos de um playbook Ansible:
 
 ```bash
-# no servidor, como root OU como deploy — funciona nos dois casos
-install -d -o deploy -g deploy \
-  /home/deploy/stacktrack/scripts /home/deploy/caddy/sites /home/deploy/backups
-
-senha=$(openssl rand -hex 24)
-
-cat > /home/deploy/stacktrack/.env <<EOF
-DOMINIO=stacktrack.duckdns.org
-POSTGRES_DB=stacktrack
-POSTGRES_USER=stacktrack
-POSTGRES_PASSWORD=$senha
-IMAGE_REPO=ghcr.io/caetasousa
-IMAGE_TAG=latest
-EOF
-
-chown deploy:deploy /home/deploy/stacktrack/.env
-chmod 600 /home/deploy/stacktrack/.env
+make infra-segredos    # UMA vez: gera e cifra a senha do banco
+make infra-check       # mostra o que mudaria, sem tocar em nada
+make infra-apply       # aplica
 ```
 
-Note que o heredoc é `<<EOF`, **sem aspas**: é isso que faz o `$senha` ser
-substituído. Com `<<'EOF'` o arquivo sairia com a string literal `$senha` — e o
-Postgres nasceria com essa senha, o que funciona até o dia em que alguém tentar
-entender por quê.
+Numa máquina nova, antes disso: `make infra-preparar`, que instala o Docker e
+cria o usuário `deploy` (é a única parte que exige root). O procedimento
+completo, os segredos e como recomeçar do zero estão em
+[infraestrutura.md](infraestrutura.md).
 
-Confira antes de seguir — com `ls -la`, e não `ls`: **arquivo que começa com
-ponto não aparece no `ls`**, e é fácil concluir que a criação falhou quando ela
-funcionou.
+O que continua valendo, e que o playbook não dispensa você de saber:
+
+**A senha do Postgres vale para o `initdb` do primeiro boot.** Trocá-la depois
+exige `ALTER ROLE` dentro do container — não basta mudar o vault. A role tem um
+`assert` que recusa a divergência em vez de deixar a API falhar a conexão no
+deploy seguinte.
+
+**O `.env` não é enviado pela esteira.** Ele mora só no host; a diferença é que
+agora quem o escreve é o Ansible, a partir do vault cifrado, e não um heredoc
+copiado à mão. O modelo comentado, com a explicação de cada variável, continua
+sendo o [`.env.prod.example`](../.env.prod.example).
+
+**Arquivo que começa com ponto não aparece no `ls`.** Para conferir o resultado,
+`ls -la`:
 
 ```bash
 ls -la /home/deploy/stacktrack/         # o .env aparece aqui
 grep -c . /home/deploy/stacktrack/.env  # 6 linhas
 ```
 
-Nesse mesmo `ls -la` dá para ler o estado do deploy:
-
-| O que você vê | O que significa |
-|---|---|
-| só `scripts/`, vazio | a esteira conectou e morreu no primeiro `scp` (chave SSH ou `VPS_KNOWN_HOSTS`) |
-| `scripts/backup.sh`, sem o compose | o `scp` do compose falhou — veja o log do job |
-| `.env` + compose + `scripts/backup.sh` | pronto para subir |
-
-O modelo comentado, com a explicação de cada variável, é o
-[`.env.prod.example`](../.env.prod.example) do repositório.
+E o job `implantar` da esteira agora **confere isto antes de qualquer coisa**:
+sem o `.env` ou sem a rede `borda`, ele falha com a instrução de rodar
+`make infra-apply`, em vez de subir a stack com todas as variáveis vazias.
 
 ### 🔐 Usuário de banco sem poder de DDL — ainda pendente
 
@@ -391,7 +375,7 @@ mantém as cinco capabilities mínimas para essa troca.
 - [ ] DNS resolvendo para o IP do VPS
 - [ ] agendaGo publicado com o Caddyfile que importa `sites/*.caddy`
 - [ ] segredos `VPS_*` e variável `DOMINIO` no repositório
-- [ ] `~/stacktrack/.env` criado à mão, senha aleatória, `chmod 600`
+- [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`)
 - [ ] imagens acessíveis ao servidor (públicas ou `docker login` feito)
 - [ ] esteira verde até o job `implantar`
 - [ ] certificado emitido (`https://` abre sem aviso)

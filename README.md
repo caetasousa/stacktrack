@@ -23,6 +23,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | | |
 |---|---|
 | [docs/producao.md](docs/producao.md) | arquitetura no ar, primeiro deploy, backup e operação |
+| [docs/infraestrutura.md](docs/infraestrutura.md) | o servidor como código: playbooks, segredos e recomeço do zero |
 | [docs/entrega-continua.md](docs/entrega-continua.md) | a esteira, a varredura de vulnerabilidades e o deploy automático |
 | [docs/tecnologias.md](docs/tecnologias.md) | o stack peça por peça: o que é, por que está aqui, onde estudar |
 | [docs/regra-de-negocio.md](docs/regra-de-negocio.md) | o que o produto faz — papéis, convites, cards e ordenação |
@@ -39,6 +40,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
 | Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · Caddy + Let's Encrypt |
+| Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — servidor provisionado por playbook, segredos em `ansible-vault` |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de
 cada escolha está em [docs/tecnologias.md](docs/tecnologias.md).

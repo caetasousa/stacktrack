@@ -663,6 +663,43 @@ site em `/home/deploy/caddy/sites`. Ver
 
 ---
 
+### Ansible
+
+O **servidor** descrito como código, em `deploy/ansible/`. Não substitui a
+esteira: o GitHub Actions continua levando o commit até o ar, e o Ansible cuida
+da máquina que o recebe — diretórios, `.env`, cron do backup, bloco do Caddy e a
+rede `borda`.
+
+Entrou por um motivo específico: o `.env` de produção, com a senha do Postgres,
+nascia de um heredoc copiado à mão. Era o único passo que impedia o servidor de
+ser remontado sozinho, e o único lugar onde a senha existia — perder o arquivo
+era perder o banco. Hoje ele sai de um template mais um vault cifrado
+(`roles/stacktrack/templates/env.j2`), e ninguém digita a senha.
+
+O ganho de fundo é a **idempotência declarada** em vez de reimplementada. O job
+`implantar` do CI já fazia gerenciamento de configuração — só que em shell, com
+`cmp -s` para o Caddy, `docker network inspect ||` para a rede e
+`crontab -l | grep -v | crontab -` para o cron, este último com um comentário no
+próprio workflow admitindo que um cancelamento no meio truncaria o agendamento.
+O `ansible.builtin.cron` faz a mesma coisa gerenciando um bloco marcado por
+`name:`, e a linha do agendaGo sobrevive por desenho, não por sorte.
+
+Duas escolhas que valem registro. `community.docker.docker_compose_v2` chama a
+CLI do Docker e por isso **não** exige o SDK Python no servidor; já
+`docker_network` e `docker_login` exigem, então esses dois saem por
+`ansible.builtin.command` com guarda — uma dependência a menos numa máquina
+compartilhada vale mais que duas tasks mais bonitas. E a coleção tem teto de
+versão (`<5.0.0`) porque o Ubuntu 24.04 empacota o ansible-core 2.16, e a série
+5 exige 2.17.
+
+Detalhes de uso, os segredos e o procedimento de recomeço estão em
+[infraestrutura.md](infraestrutura.md).
+
+📚 [Ansible — playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/index.html) · [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html) · [ansible-vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html)
+📝 [Idempotência](https://docs.ansible.com/ansible/latest/reference_appendices/glossary.html#term-Idempotency) — por que `changed=0` na segunda execução é o teste que importa
+
+---
+
 ### Playwright
 
 Ponta a ponta em navegador de verdade, sobre a stack do `docker compose`. A

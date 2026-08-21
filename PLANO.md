@@ -24,6 +24,7 @@ os blocos de retrospectiva preservam decisões e armadilhas que já aconteceram.
 | 13 — Arquivamento | ❌ retirada | foi implementada e removida por decisão de produto; não deixou contract pendente |
 | 14 — Limite WIP | ⬜ pendente | próximo incremento funcional planejado |
 | 15 — Múltiplas APIs | ⬜ opcional | só faz sentido quando houver mais de uma instância |
+| 16 — Infraestrutura como código | 🟡 etapa A feita | servidor em Ansible; migrar o deploy do CI é a etapa B |
 
 Também foram feitos fora da sequência original: etiquetas, prazo, checklists,
 anexos, link público de acompanhamento, auditoria do quadro, indicador de edição
@@ -841,6 +842,68 @@ diferentes, e o card move nos dois.
   [suporte do pgx](https://pkg.go.dev/github.com/jackc/pgx/v5#Conn.WaitForNotification)
 - [NATS](https://docs.nats.io/) ou [Redis Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/)
   — a saída industrial, para saber o que se está trocando
+
+---
+
+### Fase 16 — Infraestrutura como código 🟡 etapa A
+
+**Conceito novo:** gerenciamento de configuração declarativo. O playbook diz o
+que deve ser verdade no servidor; o Ansible decide o que fazer para chegar lá.
+
+**O que forçou a fase:** o `.env` de produção, com a senha do Postgres, nascia
+de um heredoc copiado à mão de `docs/producao.md`. Era o único passo que impedia
+o servidor de ser remontado sozinho, e o único lugar onde a senha existia —
+perder o arquivo era perder o banco.
+
+**Entrega:** `deploy/ansible/` com dois playbooks — `preparar-host.yml` (root,
+uma vez por máquina: Docker, plugin do Compose, usuário `deploy`) e
+`provisionar.yml` (como `deploy`, sem sudo: diretórios, `.env` do vault,
+compose, `backup.sh`, cron, bloco do Caddy e a stack no ar). Segredos em
+`ansible-vault`, gerados por `make infra-segredos`. Passo de pré-voo no job
+`implantar`, que recusa deployar num host não provisionado. Documentação em
+[docs/infraestrutura.md](docs/infraestrutura.md).
+
+**A verificação foi destrutiva de propósito.** A stack de produção foi apagada —
+`docker compose down -v`, volumes incluídos — e reconstruída pelo playbook.
+Derrubar e remontar é a única prova de que a infraestrutura virou código; um
+playbook que só roda contra o servidor que já existe descreve o passado.
+
+**Armadilha achada na hora:** `rm -rf ~/stacktrack` **não** apaga os dados. O
+banco e os anexos moram nos volumes `stacktrack_postgres_data` e
+`stacktrack_anexos`; sem o `-v` eles sobrevivem ao teardown, e a stack nova sobe
+com uma senha que não bate com a que o `initdb` gravou. Nem dados novos, nem os
+antigos acessíveis.
+
+**Duas decisões de desenho que a realidade impôs.** A primeira: o playbook
+conecta como `deploy`, e não como root — nada do que a aplicação precisa exige
+privilégio, então provisionar não amplia o raio de explosão de nada. A segunda,
+a divisória dia 0 / dia N: a esteira **nunca** vai poder provisionar um servidor
+do zero, porque ela faz login com `VPS_USER=deploy`, um usuário que num host
+novo ainda não existe. Um playbook que entra como `deploy` não pode criar o
+`deploy`.
+
+**Etapa B — pendente, com motivo.** Migrar o job `implantar` para um
+`implantar.yml` trocaria ~120 linhas de shell por ~6 tasks: some o `cmp -s` do
+Caddy, o `docker network inspect ||` e o `crontab -l | grep -v | crontab -`,
+este último com um comentário no próprio workflow admitindo que um cancelamento
+no meio truncaria o agendamento. Exige o secret `ANSIBLE_VAULT_PASSWORD`, o que
+põe os segredos de produção ao alcance de um workflow comprometido — e é a mesma
+escalada que um job de CI para validar o playbook exigiria, porque sem a senha
+do vault o Ansible nem carrega os `group_vars`. As duas coisas andam juntas e
+esperam a mesma decisão.
+
+**Também pendente:** endurecimento do host (fuso, `unattended-upgrades`, `sshd`,
+`ufw`). Ficou de fora para não juntar duas fontes de falha no mesmo run que
+precisava provar a reconstrução.
+
+**Estudo:**
+- [Ansible — playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/index.html)
+  e [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html)
+- [ansible-vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) — segredo cifrado
+  versionado junto do código que o consome
+- [community.docker](https://docs.ansible.com/ansible/latest/collections/community/docker/) —
+  `docker_compose_v2` chama a CLI e dispensa o SDK Python no servidor; `docker_network` e
+  `docker_login` não, e por isso saíram por `command` com guarda
 
 ---
 

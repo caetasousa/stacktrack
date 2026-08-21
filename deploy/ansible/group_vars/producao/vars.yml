@@ -1,0 +1,58 @@
+---
+# Variáveis não secretas do host de produção. Os segredos ficam ao lado, em
+# vault.yml, cifrado — gerado uma vez por `make infra-segredos`.
+
+# Domínio público. Precisa bater EXATAMENTE com o server_name do bloco em
+# deploy/caddy/stacktrack.caddy: é o que faz o cookie __Host- valer, porque ele
+# amarra a sessão a um host exato.
+dominio: stacktrack.duckdns.org
+
+# Usuário dono da aplicação no servidor. Não-root, no grupo `docker`. É o mesmo
+# que o agendaGo usa e o mesmo do `VPS_USER` da esteira.
+usuario_app: deploy
+grupo_app: deploy
+
+# Chave PÚBLICA cujo par privado é o secret VPS_SSH_KEY do GitHub. É o que dá
+# acesso à esteira num servidor recém-criado. Não é segredo — chave pública é
+# feita para ser publicada —, por isso fica aqui e não no vault.
+#
+# É a mesma chave de deploy do agendaGo, como docs/producao.md já previa.
+deploy_chave_publica: >-
+  ssh-ed25519
+  AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
+  github-actions-agendago
+
+pasta_base: /home/{{ usuario_app }}
+pasta_stack: '{{ pasta_base }}/stacktrack'
+pasta_scripts: '{{ pasta_stack }}/scripts'
+# Comum aos dois projetos: o que separa stacktrack de agendaGo é o PREFIXO do
+# nome do arquivo, e todos os globs de scripts/backup.sh são escopados por ele.
+pasta_backups: '{{ pasta_base }}/backups'
+# Onde o Caddy do agendaGo procura os blocos dos vizinhos. O Caddyfile dele faz
+# `import /etc/caddy/sites/*.caddy` e enxerga esta pasta por bind mount.
+pasta_caddy_sites: '{{ pasta_base }}/caddy/sites'
+
+# Imagens publicadas pela esteira no GHCR. `latest` segue a main; a esteira
+# sobrescreve com o SHA do commit no momento do deploy, sem tocar no .env.
+imagem_repo: ghcr.io/caetasousa
+imagem_tag: latest
+
+# Usuário do GHCR para o `docker login`. O token que o acompanha é secreto e
+# está no vault; só precisa de `read:packages`.
+ghcr_usuario: caetasousa
+
+# Os arquivos que a role instala no servidor vêm da RAIZ deste repositório —
+# docker-compose.prod.yml, scripts/backup.sh e deploy/caddy/stacktrack.caddy.
+# Copiá-los para roles/stacktrack/files/ criaria uma segunda cópia, que
+# divergiria da primeira no dia em que alguém editasse só uma.
+raiz_repo: '{{ playbook_dir }}/../..'
+
+# Rede Docker compartilhada com o Caddy do agendaGo. Declarada `external` no
+# compose, o que significa que o Compose NÃO a cria: quem garante é o playbook.
+rede_borda: borda
+
+# Deslocado do backup do agendaGo (03:00) de propósito: dois pg_dump no mesmo
+# minuto disputam CPU e disco sem necessidade. O cron do Debian não suporta
+# CRON_TZ — a expressão vale sempre no fuso do HOST, não no seu.
+backup_hora: '3'
+backup_minuto: '20'

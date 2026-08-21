@@ -1,0 +1,19 @@
+---
+# Coleções que as roles usam. Instaladas em `.collections/` pelo alvo
+# `infra-*` do Makefile, não globalmente: a versão fica presa ao repositório,
+# como o package-lock.json do frontend.
+#
+# Piso mínimo E TETO. O piso protege da API antiga, sem os módulos usados aqui;
+# o teto existe porque o Ubuntu 24.04 empacota o ansible-core 2.16, e a série 5
+# do community.docker exige 2.17 ou mais novo. Sem o teto, um `ansible-galaxy
+# install` numa máquina nova baixa a 5.x, avisa que não suporta este core e
+# falha em tempo de execução — bem depois do syntax-check passar.
+collections:
+  # docker_network e docker_compose_v2: substituem o `docker network inspect ||
+  # create` e o par `pull` + `up -d` que hoje são shell no job `implantar`.
+  - name: community.docker
+    version: '>=4.0.0,<5.0.0'
+
+  # authorized_key, para declarar a chave da esteira no usuário `deploy`.
+  - name: ansible.posix
+    version: '>=1.5.0'

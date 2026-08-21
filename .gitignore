@@ -20,3 +20,13 @@ blob-report/
 .env.*
 !.env.example
 !.env.prod.example
+
+# Ansible — estado local da máquina de quem opera, nunca versionado.
+#
+# A senha do vault é o que decifra os segredos de produção: ela fica fora do git
+# de propósito, senão o arquivo cifrado ao lado dela não protegeria nada. As
+# coleções, os fatos e o marcador de dependências são cache reconstruível.
+deploy/ansible/.senha-vault
+deploy/ansible/.collections/
+deploy/ansible/.fatos/
+deploy/ansible/.dependencias

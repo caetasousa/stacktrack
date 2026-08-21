@@ -194,7 +194,7 @@ git push
 
 A esteira testa, varre, publica as três imagens e implanta: sincroniza o
 compose e o `backup.sh`, instala o bloco do Caddy e o recarrega, tira um backup,
-garante a rede, sobe a stack fixando a tag no SHA do commit, agenda o cron e
+garante a rede, sobe a stack fixando a tag no SHA do commit, confere o cron e
 confere se `/api/health` e `/` respondem.
 
 **A ordem entre 4️⃣ e 5️⃣ tem um nó**: o `docker login` precisa das imagens
@@ -263,8 +263,10 @@ no mesmo deploy que estreia a coluna transforma o rollback num erro no primeiro
 
 `scripts/backup.sh` roda por cron às 03:20 — deslocado do agendaGo (03:00)
 porque dois `pg_dump` no mesmo minuto disputam CPU e disco sem necessidade. A
-esteira agenda o cron sozinha, de forma idempotente, preservando a linha do
-vizinho.
+agendamento é feito pelo Ansible (`make infra-apply`), com
+`ansible.builtin.cron`, que gerencia só o bloco marcado e preserva a linha do
+vizinho. A esteira apenas CONFERE que ele existe, e falha se não existir —
+escrever dos dois lados fazia os dois brigarem pelo mesmo arquivo.
 
 Ele grava dois artefatos em `~/backups`:
 
@@ -381,7 +383,7 @@ mantém as cinco capabilities mínimas para essa troca.
 - [ ] certificado emitido (`https://` abre sem aviso)
 - [ ] cadastro → login → criar quadro → F5
 - [ ] **o agendaGo continua no ar** depois do reload do Caddy
-- [ ] cron do backup agendado (a esteira faz) e **um backup restaurado em ensaio**
+- [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` com folga sobre a soma dos limites das duas stacks
 
 ---

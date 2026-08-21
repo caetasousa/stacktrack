@@ -110,6 +110,16 @@ O VPS é compartilhado, e o playbook nunca escreve fora do que é dele:
 | **Docker** | instalado só quando falta, **nunca atualizado**: `apt upgrade` do `docker-ce` reinicia o daemon e derruba os containers do vizinho junto |
 | **`~/backups`** | comum aos dois; a separação é o prefixo do nome do arquivo |
 
+O crontab tem **um dono só**: o Ansible. A esteira apenas confere que a entrada
+existe e falha se não existir. Enquanto os dois escreviam, brigavam: o
+`grep -v 'stacktrack/scripts/backup.sh'` do CI removia a linha do job sem
+remover o comentário `#Ansible:`, o marcador ficava órfão, e o `infra-check`
+seguinte acusava `changed` — reescrevia, e o deploy seguinte reescrevia de
+volta. Um `changed=0` que nunca estabiliza não prova nada.
+
+A variável `BACKUP_CRON` do GitHub deixou de ser lida; o horário agora sai de
+`backup_hora` e `backup_minuto` em `group_vars/producao/vars.yml`.
+
 ---
 
 ## ♻️ Recomeçar do zero

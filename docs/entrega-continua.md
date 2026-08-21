@@ -24,7 +24,7 @@ push na main
                     │
                     ▼
                 implantar           SSH → sincroniza config → BACKUP → pull → up -d
-                    │                     → agenda o cron → confere /api/health e /
+                    │                     → confere o cron → confere /api/health e /
                     ▼
         https://stacktrack.duckdns.org
 ```
@@ -266,7 +266,7 @@ caso que ainda falta é pegar um card com mouse, soltá-lo em outra coluna e
 verificar a mudança na segunda sessão.
 
 **Recuperação real de desastre.** O workflow executa o script de backup antes
-do deploy e agenda o cron, mas não restaura automaticamente um dump nem prova
+do deploy e confere o cron, mas não restaura automaticamente um dump nem prova
 que os anexos e o banco formam um conjunto recuperável. O ensaio de restauração
 continua sendo operação manual documentada em `producao.md`.
 

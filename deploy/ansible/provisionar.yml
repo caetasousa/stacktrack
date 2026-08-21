@@ -1,0 +1,47 @@
+---
+# Leva o servidor de "sem stacktrack nenhum" a "aplicação no ar".
+#
+#   make infra-check     mostra o que mudaria
+#   make infra-apply     aplica
+#
+# O playbook DECLARA estado, não executa um roteiro: cada task descreve o que
+# deve ser verdade. O que já existe é reconhecido e reportado como `ok`; o que
+# falta é criado. É por isso que ele serve igual para o servidor recém-limpo e
+# para o que já está montado — e é por isso que rodá-lo duas vezes seguidas tem
+# de terminar em `changed=0`.
+#
+# Conecta como `deploy` e NÃO usa sudo em lugar nenhum: tudo mora no home dele e
+# o acesso ao Docker vem do grupo. É o mesmo privilégio que a esteira já tem, o
+# que significa que este playbook não amplia o raio de explosão de nada.
+#
+# O que exige root — instalar o Docker, criar o usuário — está em
+# `preparar-host.yml`, que roda uma vez por máquina.
+#
+# O que ele deliberadamente NÃO faz, por dividir o VPS com o agendaGo: tocar no
+# Caddyfile do vizinho, reescrever o crontab inteiro ou remover a rede `borda`.
+
+- name: Provisiona a stack do stacktrack
+  hosts: producao
+  gather_facts: true
+
+  # Pré-requisitos que este playbook não pode criar sozinho, conferidos ANTES de
+  # qualquer escrita. Sem isto, a ausência do Docker só apareceria no fim, na
+  # task que sobe a stack, com uma mensagem sobre o binário e não sobre a causa.
+  pre_tasks:
+    - name: confere se o host já foi preparado
+      ansible.builtin.command: docker compose version
+      register: docker_pronto
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: exige um host preparado
+      ansible.builtin.assert:
+        that: docker_pronto.rc == 0
+        fail_msg: >-
+          O Docker ou o plugin do Compose não respondem como {{ ansible_user }}.
+          Este playbook não instala nenhum dos dois — isso exige root e está em
+          preparar-host.yml. Rode `make infra-preparar` primeiro.
+
+  roles:
+    - stacktrack

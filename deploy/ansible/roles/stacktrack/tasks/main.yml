@@ -1,0 +1,158 @@
+---
+# A stack do stacktrack no servidor: diretórios, .env, compose, backup, cron, o
+# bloco do Caddy e a stack no ar.
+#
+# O playbook JÁ conecta como `{{ usuario_app }}` (ver inventario/producao.yml),
+# então nenhuma task aqui usa `become`: os arquivos moram no home dele e o
+# acesso ao Docker vem do grupo. É exatamente o mesmo privilégio que o job
+# `implantar` da esteira já usa — esta role não amplia o raio de explosão.
+
+- name: diretórios da stack, dos scripts, dos backups e dos blocos do Caddy
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    mode: '0755'
+  loop:
+    - '{{ pasta_stack }}'
+    - '{{ pasta_scripts }}'
+    # Comum aos dois projetos: a separação é o prefixo do nome do arquivo.
+    - '{{ pasta_backups }}'
+    - '{{ pasta_caddy_sites }}'
+
+# --- segredos e configuração -------------------------------------------------
+
+# As imagens do GHCR nascem privadas. Sem autenticação o `pull` do primeiro
+# deploy falha — e falha DEPOIS de tudo o mais estar pronto, que é onde o erro
+# custa mais caro para diagnosticar.
+- name: confere se o servidor já está autenticado no GHCR
+  ansible.builtin.slurp:
+    src: '{{ pasta_base }}/.docker/config.json'
+  register: docker_config
+  failed_when: false
+  check_mode: false
+
+- name: autentica o servidor no GHCR
+  ansible.builtin.command:
+    cmd: docker login ghcr.io --username {{ ghcr_usuario }} --password-stdin
+    stdin: '{{ vault_ghcr_token }}'
+  when:
+    - vault_ghcr_token | length > 0
+    - "'ghcr.io' not in (docker_config.content | default('') | b64decode)"
+  # O token viajaria para o log em claro sem isto.
+  no_log: true
+  changed_when: true
+
+# A trava que existe por causa do initdb. Ela é PULADA num servidor vazio (não
+# há .env), e passa a valer do segundo dia em diante: assim que a stack sobe uma
+# vez, esses três campos ficam cravados no volume do Postgres, e trocá-los aqui
+# não muda o papel no banco — só quebra a conexão da API no deploy seguinte.
+- name: lê o .env que já esteja no servidor
+  ansible.builtin.slurp:
+    src: '{{ pasta_stack }}/.env'
+  register: env_atual
+  failed_when: false
+  check_mode: false
+  # O arquivo lido tem a senha do banco; o valor registrado não vai para o log.
+  no_log: true
+
+- name: recusa trocar credencial que o initdb já gravou no volume
+  ansible.builtin.assert:
+    that:
+      - "'POSTGRES_DB=' ~ vault_postgres_db in conteudo"
+      - "'POSTGRES_USER=' ~ vault_postgres_user in conteudo"
+      - "'POSTGRES_PASSWORD=' ~ vault_postgres_password in conteudo"
+    fail_msg: >-
+      O vault diverge do .env do servidor. POSTGRES_DB, USER e PASSWORD foram
+      gravados pelo initdb no volume do Postgres: mudá-los aqui não muda o papel
+      no banco, só quebra a conexão da API. Ajuste o vault para os valores que
+      estão no servidor, ou faça o ALTER ROLE de propósito e só então reaplique.
+  vars:
+    conteudo: '{{ env_atual.content | b64decode }}'
+  when: env_atual.content is defined
+
+# É esta task que faz o .env deixar de ser um arquivo que alguém escreve à mão.
+# DOMINIO, IMAGE_REPO e IMAGE_TAG convergem normalmente; os três campos do
+# initdb estão protegidos pelo assert acima.
+- name: instala o .env da stack
+  ansible.builtin.template:
+    src: env.j2
+    dest: '{{ pasta_stack }}/.env'
+    owner: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    # A senha do banco não é leitura para todo mundo.
+    mode: '0600'
+  no_log: true
+
+# --- arquivos que vêm do repositório -----------------------------------------
+
+- name: topologia da stack
+  ansible.builtin.copy:
+    src: '{{ raiz_repo }}/docker-compose.prod.yml'
+    dest: '{{ pasta_stack }}/docker-compose.prod.yml'
+    owner: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    mode: '0644'
+
+# Precisa estar no servidor ANTES do incidente que o torna necessário.
+- name: script de backup do banco e dos anexos
+  ansible.builtin.copy:
+    src: '{{ raiz_repo }}/scripts/backup.sh'
+    dest: '{{ pasta_scripts }}/backup.sh'
+    owner: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    mode: '0755'
+
+# O bloco de site vive no Caddy do agendaGo, que é quem tem as portas 80 e 443.
+# O reload só dispara pelo handler, ou seja, só quando o arquivo MUDA:
+# recarregar a cada aplicação seria mexer, sem necessidade, num processo que
+# atende outro serviço em produção.
+- name: bloco de roteamento no Caddy do agendaGo
+  ansible.builtin.copy:
+    src: '{{ raiz_repo }}/deploy/caddy/stacktrack.caddy'
+    dest: '{{ pasta_caddy_sites }}/stacktrack.caddy'
+    owner: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    mode: '0644'
+  notify: recarrega o Caddy
+
+# --- operação ----------------------------------------------------------------
+
+# `name:` faz o módulo gerenciar SÓ este bloco do crontab, preservando as outras
+# entradas — inclusive a do agendaGo, que divide a máquina. É a garantia que o
+# `crontab -l | grep -v | crontab -` da esteira tem por sorte, não por desenho.
+- name: agenda o backup diário do banco e dos anexos
+  ansible.builtin.cron:
+    name: backup do stacktrack
+    user: '{{ usuario_app }}'
+    hour: '{{ backup_hora }}'
+    minute: '{{ backup_minuto }}'
+    job: '{{ pasta_scripts }}/backup.sh >> {{ pasta_backups }}/backup.log 2>&1'
+    state: present
+
+# `state: present` sobe o que estiver parado e deixa quieto o que já está no ar.
+# `pull: missing` puxa só o que falta: `always` marcaria a task como alterada a
+# cada execução e destruiria o `changed=0` que é o critério de aceite da fase.
+#
+# A esteira continua dona dos deploys de versão — ela fixa IMAGE_TAG no SHA do
+# commit. Aqui a stack sobe na tag do .env, que é o que faz um servidor vazio
+# virar aplicação no ar sem esperar o próximo push.
+- name: verifica se a stack já existe no servidor
+  ansible.builtin.stat:
+    path: '{{ pasta_stack }}/docker-compose.prod.yml'
+  register: compose_no_servidor
+  check_mode: false
+
+- name: sobe a stack
+  community.docker.docker_compose_v2:
+    project_src: '{{ pasta_stack }}'
+    files:
+      - docker-compose.prod.yml
+    state: present
+    pull: missing
+  # Num --check contra servidor ainda sem a stack, as tasks acima apenas
+  # SIMULARAM criar o diretório e o módulo falharia com "is not a directory".
+  # Depois do primeiro apply o arquivo existe e o check volta a exercitar esta
+  # task — que é o que o critério de `changed=0` precisa medir.
+  when: not ansible_check_mode or compose_no_servidor.stat.exists

@@ -1,0 +1,20 @@
+---
+# Só dispara quando o bloco de site MUDA. O Caddy pertence ao agendaGo e atende
+# outro serviço em produção: recarregá-lo a cada aplicação do playbook seria
+# mexer num processo alheio sem motivo.
+- name: recarrega o Caddy
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      # Acha o container pelo RÓTULO do compose, sem depender de saber em qual
+      # stack ele mora nem qual é o nome dele. `-q` devolve só o id, o que evita
+      # um --format com template Go dentro de um arquivo que o Jinja processa.
+      caddy=$(docker ps --filter label=com.docker.compose.service=caddy -q | head -1)
+      if [ -z "$caddy" ]; then
+        echo "nenhum container de Caddy encontrado — o bloco foi instalado, mas o proxy não recarregou" >&2
+        exit 1
+      fi
+      # --config explícito: sem ele o reload usaria o último config carregado
+      # por API, e não o arquivo.
+      docker exec "$caddy" caddy reload --config /etc/caddy/Caddyfile
+  changed_when: true

@@ -612,29 +612,38 @@ jobs:
       # Idempotente: reescreve apenas a linha do stacktrack, preservando as
       # outras entradas do crontab — inclusive a do agendaGo, que divide a
       # máquina.
-      - name: agenda o backup diário do banco
+      # Este passo NÃO escreve mais no crontab — quem agenda o backup é o
+      # Ansible (deploy/ansible/roles/stacktrack).
+      #
+      # Escrever dos dois lados fazia os dois brigarem: o Ansible marca a
+      # entrada com `#Ansible: backup do stacktrack`, e o `crontab -l | grep -v
+      # 'stacktrack/scripts/backup.sh'` daqui removia a LINHA DO JOB sem remover
+      # o comentário, deixando o marcador órfão. O `make infra-check` seguinte
+      # acusava `changed`, reescrevia, e o deploy seguinte reescrevia de volta.
+      # Um `changed=0` que nunca estabiliza não prova nada.
+      #
+      # O que sobrou é o diagnóstico, que era a parte útil: o cron do
+      # Debian/Ubuntu não suporta CRON_TZ e interpreta a expressão sempre no
+      # fuso do HOST. Imprimir os dois juntos evita o erro silencioso de agendar
+      # "3h" achando que é horário de Brasília num servidor em UTC.
+      - name: confere o agendamento do backup
         if: steps.cfg.outputs.configurado == 'true'
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USUARIO: ${{ secrets.VPS_USER }}
           PORTA: ${{ secrets.VPS_PORT || '22' }}
-          # Deslocado do backup do agendaGo (03:00) de propósito: dois pg_dump
-          # no mesmo minuto disputam CPU e disco sem necessidade.
-          AGENDA: ${{ vars.BACKUP_CRON || '20 3 * * *' }}
         run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" "
-            mkdir -p \$HOME/backups
-            ( crontab -l 2>/dev/null | grep -v 'stacktrack/scripts/backup.sh'
-              echo '$AGENDA \$HOME/stacktrack/scripts/backup.sh >> \$HOME/backups/backup.log 2>&1'
-            ) | crontab -
-          "
-          # O cron do Debian/Ubuntu não suporta CRON_TZ: a expressão é sempre
-          # interpretada no fuso do HOST. Imprimir os dois juntos evita o erro
-          # silencioso de agendar "3h" achando que é horário de Brasília num
-          # servidor em UTC.
           echo 'agendamento efetivo no servidor:'
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            'printf "  fuso do servidor: %s (agora: %s)\n" "$(timedatectl show --property=Timezone --value 2>/dev/null || readlink -f /etc/localtime)" "$(date "+%F %T %Z")"; printf "  crontab: %s\n" "$(crontab -l | grep stacktrack)"'
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
+            printf "  fuso do servidor: %s (agora: %s)\n" \
+              "$(timedatectl show --property=Timezone --value 2>/dev/null || readlink -f /etc/localtime)" \
+              "$(date "+%F %T %Z")"
+            linha=$(crontab -l 2>/dev/null | grep "stacktrack/scripts/backup.sh") || {
+              echo "::error::backup do stacktrack não está agendado. Rode: make infra-apply"
+              exit 1
+            }
+            printf "  crontab: %s\n" "$linha"
+          '
 
       # Deploy sem verificação é deploy no escuro: se a aplicação não responder,
       # o job falha e o erro aparece no commit.

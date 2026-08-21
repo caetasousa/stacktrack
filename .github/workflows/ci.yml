@@ -462,9 +462,36 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      # Pré-voo. O deploy pressupõe um host já provisionado pelo Ansible
+      # (deploy/ansible) — ele não cria o .env nem sabe a senha do banco.
+      #
+      # Sem esta conferência, um host não provisionado deixa o `docker compose
+      # up` subir a stack com TODAS as variáveis vazias: o Postgres nasce sem
+      # senha definida, a API não conecta, e o job segue verde até a verificação
+      # final falhar por um motivo que não aponta para a causa. Falhar aqui
+      # custa um minuto; falhar lá custa uma tarde.
+      - name: confere se o host está provisionado
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
+            faltando=""
+            [ -f "$HOME/stacktrack/.env" ] || faltando="$faltando .env"
+            docker network inspect borda >/dev/null 2>&1 || faltando="$faltando rede-borda"
+            if [ -n "$faltando" ]; then
+              echo "::error::host não provisionado (faltando:$faltando). Rode: make infra-apply"
+              exit 1
+            fi
+            echo "host provisionado"
+          '
+
       # Mantém o compose e os scripts do servidor iguais aos do repositório: sem
       # isto, mudar o roteamento ou um limite de memória exigiria copiar arquivo
-      # na mão. O .env NUNCA é enviado — ele mora só no host.
+      # na mão. O .env NUNCA é enviado — ele mora só no host, escrito pelo
+      # Ansible a partir do vault.
       - name: sincroniza a configuração da stack
         if: steps.cfg.outputs.configurado == 'true'
         env:

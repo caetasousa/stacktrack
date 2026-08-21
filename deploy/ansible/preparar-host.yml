@@ -1,0 +1,38 @@
+---
+# O "dia zero" da MÁQUINA: instala o Docker e cria o usuário da aplicação.
+#
+#   make infra-preparar
+#
+# Roda uma vez por servidor, e só. Depois disso é `provisionar.yml` que manda, e
+# ele não precisa de privilégio nenhum.
+#
+# Está separado porque é a única parte que exige ROOT — e um playbook que entra
+# como `deploy` não pode criar o `deploy`. É o mesmo motivo pelo qual a esteira
+# nunca vai conseguir provisionar um servidor do zero: ela faz login com
+# `VPS_USER=deploy`, que num host novo ainda não existe.
+#
+# A credencial de root vem do provedor do VPS e não está no inventário nem no
+# vault: passe-a na hora, para ela não virar um segredo a mais para guardar.
+#
+#   cd deploy/ansible
+#   ansible-playbook preparar-host.yml -u root --ask-pass          # senha
+#   ansible-playbook preparar-host.yml -u root --key-file ~/.ssh/x # ou chave
+#
+# No VPS de hoje ele não tem o que fazer: Docker, plugin do Compose, rede
+# `borda` e o usuário `deploy` vieram do agendaGo. Rodá-lo aqui deve terminar
+# em `changed=0` — o que é justamente a prova de que ele descreve a máquina.
+
+- name: Prepara a máquina para receber o stacktrack
+  hosts: producao
+  gather_facts: true
+
+  # Sobrescreve o `ansible_user: deploy` do inventário. Root é o padrão aqui, e
+  # `-u` na linha de comando ainda tem precedência para quem entra por outro
+  # usuário administrativo.
+  remote_user: root
+
+  roles:
+    # A ordem importa: o pacote da engine é quem cria o grupo `docker`, e o
+    # usuário da role seguinte precisa entrar nele.
+    - docker
+    - usuario_deploy

@@ -1,0 +1,49 @@
+---
+# O usuário não-root dono da aplicação no servidor. É por ele que a esteira
+# entra (VPS_USER) e é dele o crontab do backup.
+#
+# Roda depois da role `docker` porque precisa do grupo `docker`, que nasce com o
+# pacote da engine.
+
+- name: exige a chave pública da esteira
+  ansible.builtin.assert:
+    that:
+      - deploy_chave_publica is defined
+      - deploy_chave_publica | length > 0
+    fail_msg: >-
+      Defina `deploy_chave_publica` em group_vars/producao/vars.yml com a chave
+      PÚBLICA cujo par privado está no secret VPS_SSH_KEY do GitHub. Sem ela o
+      usuário nasce sem acesso e a esteira falha no primeiro scp.
+
+- name: garante o grupo do usuário da aplicação
+  ansible.builtin.group:
+    name: '{{ grupo_app }}'
+    state: present
+
+# `groups` + `append: true`, e não `groups` sozinho: sobrescrever a lista tiraria
+# o usuário de qualquer outro grupo que o agendaGo tenha lhe dado.
+#
+# Pertencer ao grupo `docker` é equivalente a root nesta máquina (um
+# `docker run -v /:/host` basta). É assim desde o agendaGo e a esteira já depende
+# disso; fica registrado para não parecer descuido.
+- name: garante o usuário da aplicação
+  ansible.builtin.user:
+    name: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    groups: docker
+    append: true
+    shell: /bin/bash
+    home: '{{ pasta_base }}'
+    create_home: true
+    state: present
+
+- name: chave pública da esteira no usuário da aplicação
+  ansible.posix.authorized_key:
+    user: '{{ usuario_app }}'
+    key: '{{ deploy_chave_publica }}'
+    state: present
+    # `exclusive: false` de propósito: se a máquina já tiver outra chave
+    # autorizada — a sua, a do agendaGo —, esta role acrescenta a da esteira sem
+    # revogar as demais. Um provisionamento que tranca o operador do lado de
+    # fora é pior do que um que deixa uma chave a mais.
+    exclusive: false

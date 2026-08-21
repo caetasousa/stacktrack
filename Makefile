@@ -65,3 +65,59 @@ test-frontend:
 # divergiria da primeira no dia em que alguém mexesse só numa.
 test-e2e:
 	@cd frontend && npx playwright test
+
+
+# --- Infraestrutura (Ansible) ------------------------------------------------
+#
+# O servidor de produção descrito como código: usuário, Docker, diretórios,
+# .env, compose, backup, cron e o bloco do Caddy. A ordem de uso é
+#
+#   make infra-segredos   uma vez, cria e cifra a senha do banco e o token
+#   make infra-preparar   uma vez por MÁQUINA: Docker e usuário (exige root)
+#   make infra-check      mostra o que MUDARIA, sem tocar em nada
+#   make infra-apply      aplica
+#
+# Detalhes e o procedimento de recomeço estão em docs/infraestrutura.md.
+
+PASTA_ANSIBLE := deploy/ansible
+
+.PHONY: infra-segredos infra-preparar infra-check infra-apply
+
+# Falha cedo e com instrução, em vez de deixar o Ansible reclamar de um arquivo
+# de senha ausente já com a conexão SSH aberta.
+CONFERE_VAULT = @test -f $(PASTA_ANSIBLE)/group_vars/producao/vault.yml || { \
+		echo "segredos ainda não criados — rode antes:  make infra-segredos"; \
+		exit 1; }
+
+# Dependência é ARQUIVO, não alvo: o make só reinstala as coleções quando o
+# requirements.yml muda, então os alvos abaixo são baratos de repetir.
+#
+# O Ansible não vem no Ubuntu por padrão, e desde o 24.04 o PEP 668 bloqueia
+# `pip install --user` — por isso a mensagem aponta o apt, e não o pip.
+$(PASTA_ANSIBLE)/.dependencias: $(PASTA_ANSIBLE)/requirements.yml
+	@command -v ansible-playbook >/dev/null || { \
+		echo "ansible não encontrado. Instale com:"; \
+		echo "    sudo apt install ansible"; \
+		exit 1; }
+	@cd $(PASTA_ANSIBLE) && ansible-galaxy collection install -r requirements.yml
+	@touch $@
+
+infra-segredos: $(PASTA_ANSIBLE)/.dependencias
+	@$(PASTA_ANSIBLE)/segredos.sh
+
+# Dia zero da MÁQUINA: instala o Docker e cria o usuário `deploy`. Roda uma vez
+# por servidor, e é a única parte que exige root — por isso pede a credencial na
+# hora, em vez de guardá-la. No VPS de hoje não tem o que fazer.
+infra-preparar: $(PASTA_ANSIBLE)/.dependencias
+	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml -u root --ask-pass --diff
+
+# Passo obrigatório antes do apply. O critério de aceite desta fase é ele sair
+# com `changed=0` numa SEGUNDA execução, depois que o servidor já foi montado —
+# é o que prova que o playbook descreve o host, e não só o constrói uma vez.
+infra-check: $(PASTA_ANSIBLE)/.dependencias
+	$(CONFERE_VAULT)
+	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --check --diff
+
+infra-apply: $(PASTA_ANSIBLE)/.dependencias
+	$(CONFERE_VAULT)
+	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --diff

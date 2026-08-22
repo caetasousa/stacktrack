@@ -663,40 +663,256 @@ site em `/home/deploy/caddy/sites`. Ver
 
 ---
 
-### Ansible
+### Ansible — a infraestrutura, por dentro
+
+Esta seção é longa de propósito. Ansible tem pouca sintaxe e muito modelo
+mental, e quase todo erro de quem começa vem de imaginar a máquina errada
+executando o código.
 
 O **servidor** descrito como código, em `deploy/ansible/`. Não substitui a
 esteira: o GitHub Actions continua levando o commit até o ar, e o Ansible cuida
-da máquina que o recebe — diretórios, `.env`, cron do backup, bloco do Caddy e a
-rede `borda`.
+da máquina que o recebe.
 
 Entrou por um motivo específico: o `.env` de produção, com a senha do Postgres,
 nascia de um heredoc copiado à mão. Era o único passo que impedia o servidor de
 ser remontado sozinho, e o único lugar onde a senha existia — perder o arquivo
-era perder o banco. Hoje ele sai de um template mais um vault cifrado
-(`roles/stacktrack/templates/env.j2`), e ninguém digita a senha.
+era perder o banco.
 
-O ganho de fundo é a **idempotência declarada** em vez de reimplementada. O job
-`implantar` do CI já fazia gerenciamento de configuração — só que em shell, com
-`cmp -s` para o Caddy, `docker network inspect ||` para a rede e
-`crontab -l | grep -v | crontab -` para o cron, este último com um comentário no
-próprio workflow admitindo que um cancelamento no meio truncaria o agendamento.
-O `ansible.builtin.cron` faz a mesma coisa gerenciando um bloco marcado por
-`name:`, e a linha do agendaGo sobrevive por desenho, não por sorte.
+#### 1. Sem agente: onde o código roda
 
-Duas escolhas que valem registro. `community.docker.docker_compose_v2` chama a
-CLI do Docker e por isso **não** exige o SDK Python no servidor; já
-`docker_network` e `docker_login` exigem, então esses dois saem por
-`ansible.builtin.command` com guarda — uma dependência a menos numa máquina
-compartilhada vale mais que duas tasks mais bonitas. E a coleção tem teto de
-versão (`<5.0.0`) porque o Ubuntu 24.04 empacota o ansible-core 2.16, e a série
-5 exige 2.17.
+A primeira pergunta de todo mundo é "então instalo o Ansible no servidor?".
+**Não.** O servidor não sabe que o Ansible existe; ele vê uma sessão SSH comum.
 
-Detalhes de uso, os segredos e o procedimento de recomeço estão em
-[infraestrutura.md](infraestrutura.md).
+```
+sua máquina (WSL)                          VPS srv1856874
+─────────────────                          ──────────────
+$ make infra-apply
+   └─ ansible-playbook
+        ├─ lê inventário e group_vars
+        ├─ decifra o vault      ← o segredo só existe deste lado
+        ├─ renderiza env.j2 em memória
+        │
+        └─ ssh deploy@… ───────────────────► python3 -c "<módulo>"
+                                             (o módulo escreve o arquivo,
+                                              devolve JSON, e some)
+```
 
-📚 [Ansible — playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/index.html) · [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html) · [ansible-vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html)
+O que viaja pelo SSH é um **módulo Python** gerado na hora, executado no
+servidor, que devolve um JSON dizendo o que fez. Nada fica instalado lá. O único
+pré-requisito no alvo é um `python3` — que qualquer Debian/Ubuntu já tem.
+
+Três consequências que valem entender:
+
+- **A senha do vault nunca sai da sua máquina.** O que chega ao servidor é o
+  `.env` já renderizado, não a chave que o decifra.
+- **Sua máquina precisa alcançar o servidor.** Não há daemon esperando conexão;
+  é você que empurra. Por isso se chama modelo *push*.
+- **O que a esteira faz é o mesmo.** O runner do GitHub também abre SSH e manda
+  comandos. A diferença é que ela manda shell, e o Ansible manda módulos que
+  sabem dizer se mudaram alguma coisa.
+
+#### 2. Quem conecta como quem, e por quê
+
+| Playbook | Conecta como | Precisa de root? | Quando roda |
+| --- | --- | --- | --- |
+| `preparar-host.yml` | `root` | sim | uma vez por **máquina** |
+| `provisionar.yml` | `deploy` | **não** | sempre que quiser |
+
+A separação não é organização, é necessidade. `preparar-host.yml` **cria** o
+usuário `deploy` — e um playbook que entra *como* `deploy` não pode criá-lo.
+
+É a mesma razão pela qual a esteira nunca vai provisionar um servidor do zero:
+ela faz login com `VPS_USER=deploy`, um usuário que num host novo ainda não
+existe. Não é limitação do Ansible; é ovo e galinha.
+
+Do outro lado, `provisionar.yml` não usa `become` em lugar nenhum. Tudo mora em
+`/home/deploy` e o acesso ao Docker vem do grupo — **o mesmo privilégio que a
+esteira já tinha**. Provisionar não ampliou o poder de ninguém.
+
+#### 3. Declarar, não mandar
+
+A diferença que muda tudo:
+
+```bash
+# imperativo — o que o CI fazia
+mkdir -p ~/stacktrack/scripts        # e se já existir? e se for um arquivo?
+```
+
+```yaml
+# declarativo — o que a role faz
+- name: diretórios da stack
+  ansible.builtin.file:
+    path: '{{ pasta_stack }}'
+    state: directory
+    owner: '{{ usuario_app }}'
+    mode: '0755'
+```
+
+A task não diz "crie". Diz "isto deve ser um diretório, do `deploy`, com modo
+0755". O módulo verifica o estado atual e decide: se já bate, reporta `ok`; se
+não, corrige e reporta `changed`.
+
+É daí que vem o teste que vale mais que todos:
+
+```
+PLAY RECAP
+srv1856874 : ok=14  changed=0  failed=0
+```
+
+**`changed=0` na segunda execução** significa que o código descreve o servidor,
+e não apenas sabe construí-lo uma vez. Um playbook que sempre reporta `changed`
+é um script disfarçado — ele age sem olhar, e você perdeu a capacidade de
+perguntar "o servidor ainda é o que eu penso que é?".
+
+#### 4. O caminho de um `make infra-apply`
+
+O que aconteceu de verdade na reconstrução, em ordem:
+
+1. **`pre_tasks`** — `docker compose version` responde? Se não, o playbook para
+   ali com a instrução de rodar `make infra-preparar`. Falhar cedo, com a causa.
+2. **diretórios** — `~/stacktrack`, `scripts/`, `~/backups`, `~/caddy/sites`.
+   O módulo `file` cria os pais recursivamente, como `mkdir -p`.
+3. **GHCR** — `slurp` do `~/.docker/config.json` para ver se já há login. As três
+   imagens estão públicas, o token no vault está vazio, e a task foi **pulada**.
+4. **o `assert` do `initdb`** — lê o `.env` que existir e compara com o vault.
+   Num servidor vazio não há `.env`, então ele é pulado pelo
+   `when: env_atual.content is defined`. A mesma role serve aos dois cenários.
+5. **`.env`** — `template` renderiza `env.j2` com as variáveis e o vault. Nasceu
+   `-rw------- deploy deploy`, que é o `mode: '0600'` declarado.
+6. **compose, `backup.sh`, bloco do Caddy** — `copy` a partir dos arquivos da
+   raiz do repositório. Nada é duplicado dentro da role.
+7. **cron** — e aqui está o resultado que prova o desenho:
+
+```
+0 1 * * * $HOME/agendago/scripts/backup.sh >> $HOME/backups/backup.log 2>&1
+#Ansible: backup do stacktrack
+20 3 * * * /home/deploy/stacktrack/scripts/backup.sh >> ...
+```
+
+A linha do agendaGo **intacta**. O `ansible.builtin.cron` não reescreve o
+arquivo: ele procura o marcador `#Ansible: <name>` e gerencia só aquele bloco.
+Compare com o que o CI fazia — `crontab -l | grep -v … | crontab -` —, que
+reconstruía o arquivo inteiro e tinha um comentário no próprio workflow
+admitindo que um cancelamento no meio truncaria o agendamento.
+
+8. **`docker compose up -d`** — Postgres → Flyway (aplica as migrations e sai) →
+   API → web. Três containers `healthy`, e os quatro do agendaGo em `Up 2 weeks`:
+   o reload do Caddy não reinicia nada.
+
+#### 5. Quando um módulo custa caro demais
+
+`community.docker` tem `docker_network` e `docker_login`, e os dois exigem o
+**SDK do Docker para Python instalado no servidor**. Numa máquina compartilhada,
+uma dependência a mais para ganhar duas tasks é mau negócio — então esses dois
+saem por `command`, com a idempotência escrita à mão:
+
+```yaml
+- name: verifica se a rede compartilhada do Caddy existe
+  ansible.builtin.command: docker network inspect {{ rede_borda }}
+  register: rede_existente
+  changed_when: false      # ler nunca é mudar
+  failed_when: false       # "não existe" é resposta, não erro
+  check_mode: false        # precisa rodar mesmo em --check
+
+- name: cria a rede compartilhada do Caddy
+  ansible.builtin.command: docker network create {{ rede_borda }}
+  when: rede_existente.rc != 0
+```
+
+Os quatro atributos são o vocabulário que transforma um comando cru em task
+honesta. Sem `changed_when: false`, a consulta apareceria como alteração e
+destruiria o `changed=0`. Sem `check_mode: false`, ela seria pulada em `--check`
+e a task seguinte decidiria com uma variável indefinida.
+
+`docker_compose_v2` é a exceção que ficou: ele chama a CLI do `docker compose`,
+que já está no servidor, e não precisa de SDK nenhum.
+
+#### 6. Handlers: agir só quando algo mudou
+
+O Caddy pertence ao agendaGo e atende outro serviço em produção. Recarregá-lo a
+cada `infra-apply` seria mexer num processo alheio sem motivo.
+
+```yaml
+- name: bloco de roteamento no Caddy do agendaGo
+  ansible.builtin.copy:
+    src: '{{ raiz_repo }}/deploy/caddy/stacktrack.caddy'
+    dest: '{{ pasta_caddy_sites }}/stacktrack.caddy'
+  notify: recarrega o Caddy
+```
+
+O `notify` **não** executa o handler. Ele o enfileira — e só se a task reportou
+`changed`. Os handlers rodam uma vez, no fim do play, mesmo que dez tasks os
+tenham notificado. É o `cmp -s` do CI, mas como propriedade da ferramenta em vez
+de condicional escrita à mão.
+
+#### 7. Os limites do `--check`
+
+`--check` é o ensaio: nenhuma escrita acontece, e cada módulo reporta o que
+*faria*. Com `--diff`, mostra o conteúdo linha a linha — foi assim que o diff do
+crontab acima apareceu antes de qualquer alteração real.
+
+Mas ele tem um limite que dá nó na cabeça na primeira vez. Num servidor vazio, a
+task que sobe a stack falhava com:
+
+```
+"/home/deploy/stacktrack" is not a directory
+```
+
+As tasks anteriores apenas **simularam** criar o diretório. O `docker compose`,
+que é um programa de verdade, não participa da simulação. Daí a guarda:
+
+```yaml
+  when: not ansible_check_mode or compose_no_servidor.stat.exists
+```
+
+Depois do primeiro apply o arquivo existe, e o `--check` volta a exercitar a
+task — que é o que o critério de `changed=0` precisa medir.
+
+#### 8. O vault
+
+`ansible-vault` cifra um arquivo de variáveis com AES-256 e o deixa versionado
+junto do código que o consome. `group_vars/producao/vault.yml` começa assim:
+
+```
+$ANSIBLE_VAULT;1.1;AES256
+33616337343837353130393237663438353462636663313362323538653362646534633536663832
+```
+
+A senha que o abre fica em `deploy/ansible/.senha-vault`, no `.gitignore`, e é
+declarada no `ansible.cfg` para que `ansible-playbook` rodado à mão funcione
+igual.
+
+O que isso muda: o segredo deixa de ser um artefato que só existe no servidor e
+passa a ser reproduzível. O custo é que a senha do vault vira o segredo que não
+pode se perder — sem ela o arquivo não abre, e a senha do banco existe apenas
+dentro do volume do Postgres, de onde não sai.
+
+**A armadilha específica deste projeto:** `POSTGRES_DB`, `POSTGRES_USER` e
+`POSTGRES_PASSWORD` são gravados pelo `initdb` no volume, na primeira subida.
+Mudá-los no vault depois **não** muda o papel no banco — só faz o `.env` mentir,
+e a API para de conectar no deploy seguinte. É o que o `assert` do passo 4
+recusa, com a instrução no texto do erro.
+
+#### Como estudar isto
+
+A ordem que funciona é mexer, não ler:
+
+1. `make infra-check` — leia o `PLAY RECAP`. Todo `ok` é uma coisa que o
+   servidor já tem; todo `changed` é uma diferença entre o código e a realidade.
+2. Mude `backup_minuto` no `group_vars` e rode `make infra-check`. Veja o diff do
+   crontab aparecer, e a linha do agendaGo continuar fora dele.
+3. Desfaça, e confirme que volta a `changed=0`.
+4. `cd deploy/ansible && ansible-vault view group_vars/producao/vault.yml` —
+   veja o segredo que a esteira nunca precisou conhecer.
+5. Apague `~/stacktrack/.env` no servidor e rode `make infra-check`. Uma task
+   `changed`, as outras `ok` — é a convergência funcionando: o Ansible conserta
+   o que falta, sem refazer o que está certo.
+
+📚 [Ansible — playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/index.html) · [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html) · [handlers](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html)
+📚 [ansible-vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) — segredo cifrado versionado junto do código que o consome
+📝 [Como os módulos são executados](https://docs.ansible.com/ansible/latest/dev_guide/developing_program_flow_modules.html) — o que realmente viaja pelo SSH, e por que não há agente
 📝 [Idempotência](https://docs.ansible.com/ansible/latest/reference_appendices/glossary.html#term-Idempotency) — por que `changed=0` na segunda execução é o teste que importa
+📚 [community.docker](https://docs.ansible.com/ansible/latest/collections/community/docker/) — `docker_compose_v2` chama a CLI e dispensa o SDK Python no servidor
 
 ---
 

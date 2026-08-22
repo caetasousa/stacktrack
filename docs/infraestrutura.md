@@ -8,6 +8,11 @@ A esteira que leva o commit até o ar continua sendo o GitHub Actions
 ([entrega-continua.md](entrega-continua.md)); o Ansible cuida do **servidor**,
 não da versão que roda nele.
 
+Este documento é **operacional** — como rodar, o que fazer quando dá errado. Se
+o que você quer é entender *como o Ansible funciona* (o modelo sem agente, o que
+viaja pelo SSH, por que `changed=0` é o teste que importa), o aprofundamento está
+em [tecnologias.md](tecnologias.md#ansible--a-infraestrutura-por-dentro).
+
 ---
 
 ## 🎯 O problema que isto resolve

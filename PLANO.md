@@ -1,973 +1,1934 @@
-# stacktrack — quadro Kanban colaborativo em tempo real
+# stacktrack — roadmap de aprimoramento para produção
 
-## Estado atual
+> **Estado deste documento:** roadmap ativo. Ele descreve o trabalho que ainda
+> precisa ser feito para o stacktrack operar profissionalmente no perfil de
+> produção definido abaixo. O caminho já percorrido foi condensado em
+> [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
 
-Este documento tem dois papéis: registra por que cada fase existiu e mantém o
-backlog do produto. O estado de cada uma fica resumido aqui; dentro das fases,
-os blocos de retrospectiva preservam decisões e armadilhas que já aconteceram.
+---
 
-| Fase | Estado | Observação |
-|---|---|---|
-| 0 — Fundação | ✅ concluída | ambiente, API, frontend e comandos locais |
-| 1 — Contas e sessão | ✅ concluída com escopo alterado | sem confirmação e recuperação por email; o cadastro já abre sessão |
-| 2 — Quadro, colunas e cards | ✅ concluída | CRUD e autorização por recurso |
-| 3 — Convites e colaboração | ✅ concluída com escopo alterado | convite por link; o projeto não envia email |
-| 4 — Arrastar e ordenar | ✅ concluída | a posição fracionária depois foi substituída pela chave textual da fase 9 |
-| 5 — Tempo real | ✅ concluída | falta apenas o E2E específico de arrastar com mouse entre duas abas |
-| 6 — Presença e conflito | 🟡 parcial/evoluída | presença e bloqueio otimista feitos; o indicador mostra edição de coluna, não de card |
-| 7 — Reconexão e replay | ✅ concluída | log de eventos, retomada por `seq` e reconexão |
-| 8 — Produtização | ✅ concluída no repositório | pendências operacionais ficam em `docs/producao.md` |
-| 9 — Chave textual | ✅ concluída | ciclo expand/contract encerrado e migrations depois consolidadas |
-| 10 — Responsáveis e filtro | ✅ concluída | filtros combináveis no cliente |
-| 11 — Comentários e histórico | ✅ concluída e ampliada | inclui auditoria completa do quadro |
-| 12 — Aplicação incremental | ⏸️ adiada | a medição ainda não justificou o risco; a tela recarrega por rajada de eventos |
-| 13 — Arquivamento | ❌ retirada | foi implementada e removida por decisão de produto; não deixou contract pendente |
-| 14 — Limite WIP | ⬜ pendente | próximo incremento funcional planejado |
-| 15 — Múltiplas APIs | ⬜ opcional | só faz sentido quando houver mais de uma instância |
-| 16 — Infraestrutura como código | 🟡 etapa A feita | servidor em Ansible; migrar o deploy do CI é a etapa B |
+## 1. Avaliação executiva
 
-Também foram feitos fora da sequência original: etiquetas, prazo, checklists,
-anexos, link público de acompanhamento, auditoria do quadro, indicador de edição
-de coluna, confirmação própria para ações destrutivas e cobertura móvel.
+O stacktrack já tem uma fundação técnica acima da média para um projeto desse
+porte. Há separação de domínio e infraestrutura, autenticação com sessão,
+autorização por recurso, colaboração em tempo real, histórico de eventos,
+anexos, testes de integração, imagens de produção, CI, Caddy, backup e
+provisionamento com Ansible.
 
-> **Migrations consolidadas.** O repositório chegou a ter 21 migrations e foi
-> consolidado quando o banco de produção pôde ser zerado. Números citados nas
-> retrospectivas são históricos; a sequência atual e o motivo da consolidação
-> estão em [backend/migrations/README.md](backend/migrations/README.md).
+Os melhores pontos da base atual são:
 
-## Contexto original
+- arquitetura hexagonal suficientemente clara para evoluir sem reescrever o
+  produto;
+- domínio com papéis, responsabilidades e regras de quadro já expressivos;
+- PostgreSQL, pgx, Flyway e Testcontainers usados como parte da solução, não
+  apenas como dependências;
+- WebSocket com replay persistente em vez de sincronização exclusivamente em
+  memória;
+- frontend tipado, testes de unidade e E2E, inclusive cenários com duas contas;
+- preocupação prévia com deploy, TLS, backup, rate limiting, shutdown gracioso
+  e infraestrutura como código;
+- documentação técnica extensa em
+  [docs/tecnologias.md](docs/tecnologias.md), operacional em
+  [docs/producao.md](docs/producao.md) e de infraestrutura em
+  [docs/infraestrutura.md](docs/infraestrutura.md).
 
-O projeto nasceu em `/home/caetasousa/projectX` como um **projeto de
-aprendizagem**. O agendaGo já havia coberto CRUD + auth + testes + deploy, então
-mais um CRUD ensinaria pouco. O stacktrack força um eixo novo — **concorrência
-de verdade em Go e sincronização de estado entre clientes** — reaproveitando o
-esqueleto que já era domínio conhecido (hexagonal, chi, pgx, Postgres, Flyway,
-SvelteKit e Tailwind).
+### Base concluída, em resumo
 
-O produto: um quadro estilo Trello onde várias pessoas movem cards e todos veem na hora, sem
-recarregar a página.
-
-```
-┌─────────────┬─────────────┬─────────────┬─────────────┐
-│  A fazer    │  Fazendo    │  Revisão    │   Pronto    │   👤👤 online
-├─────────────┼─────────────┼─────────────┼─────────────┤
-│ ┌─────────┐ │ ┌─────────┐ │ ┌─────────┐ │ ┌─────────┐ │
-│ │Migração │ │ │Login CSS│ │ │Fix #204 │ │ │Deploy v1│ │
-│ └─────────┘ │ │✏ ana    │ │ └─────────┘ │ └─────────┘ │
-│ ┌─────────┐ │ └─────────┘ │             │             │
-│ │Testes E2E│ │             │             │             │
-│ └─────────┘ │             │             │             │
-└─────────────┴─────────────┴─────────────┴─────────────┘
-```
-
-### Decisões já tomadas
-
-| Decisão | Escolha |
+| Área | O que já existe |
 |---|---|
-| Autenticação | Conta e sessão com Argon2id, cookie seguro e rate limiting. Confirmação e recuperação ficaram de fora porque o projeto não envia email |
-| Convites | Por email como identificador, mas entregues por link: o dono copia e envia por onde quiser |
-| Infra | Postgres + Docker Compose + Flyway; Testcontainers, CI, produção e backup já fazem parte do repositório |
-| Documentação da API | A tabela de rotas do `README.md`, e só ela. **Swagger ficou de fora em definitivo** — ver a fase 8 |
-| Proxy e TLS | **Caddy** — o que já atende o agendaGo no mesmo VPS, roteando por domínio. O plano original dizia nginx; na fase 8 ficou claro que o VPS já rodava Caddy, e enfiar um segundo proxy em série só somaria timeouts para depurar. O stacktrack deposita um bloco de site em `deploy/caddy/` e o Caddy do vizinho o importa |
-| WebSocket | `github.com/coder/websocket` (API sobre `context`, casa com o shutdown gracioso) |
-| Nome / caminho | `stacktrack` em `/home/caetasousa/projectX` |
+| Identidade | cadastro, login, logout, perfil, Argon2id e sessão por cookie |
+| Kanban | quadros, colunas, cards, papéis, convites por link e ordenação textual |
+| Colaboração | WebSocket, presença, replay, reconexão e bloqueio otimista |
+| Organização | etiquetas, prazos, checklists, responsáveis e filtros |
+| Conteúdo | comentários Markdown, anexos, histórico e auditoria |
+| Compartilhamento | membros do quadro e link público de acompanhamento |
+| Engenharia | testes Go/TypeScript/E2E, Testcontainers, Compose, CI, imagens, Caddy e Ansible |
 
-### Convenções herdadas do agendaGo
+O projeto, porém, **ainda não deve ser tratado como pronto para dados valiosos
+em produção**. Os riscos que mudam essa conclusão não são falta de
+funcionalidades: são autorização de convites, atomicidade concorrente,
+convergência do tempo real, limites de recursos, restauração não comprovada e
+reprodutibilidade do artefato implantado.
 
-Valem aqui sem discussão (copiar o `CLAUDE.md` e adaptar):
-comentários e doc comments em português · migration não escreve dado, sem `DEFAULT`/`CHECK` de
-regra de negócio · aperto de schema em dois deploys (expand → código → contract) · Conventional
-Commits em português, um contexto por commit · nunca commitar sem perguntar, nunca dar push ·
-README enxuto com tabela de rotas, detalhe em `docs/`.
-
----
-
-## Arquitetura atual
-
-```
-backend/
-  cmd/api/main.go              # wiring: pool, repos, usecases, hub, rotas, shutdown
-  config/                      # env vars tipadas, pool pgx
-  internal/
-    domain/                    # regra pura, sem I/O
-      usuario/ session/ board/ coluna/ card/ membro/ evento/
-      convite/ etiqueta/ checklist/ comentario/ anexo/ publicacao/ ordem/ cor/
-    usecase/                   # orquestra domínio + portas
-      auth/ board/
-    adapter/
-      armazem/                 # arquivos anexados no disco
-      http/handler/  http/dto/  http/middleware/
-      http/ws/                 # handshake, auth por cookie, bombas de leitura/escrita
-      realtime/hub/            # salas, fan-out, presença (implementa a porta Publicador)
-      repository/              # Postgres via pgx
-      security/                # argon2id
-    pkg/                       # logging e tokens
-  migrations/                  # V1__..., V2__... (Flyway)
-  test/                        # domain/ usecase/ handler/ repository/memoria (fakes)
-
-frontend/src/
-  lib/api/                     # cliente fetch fino (espelha os DTOs do Go)
-  lib/realtime/                # conexão WebSocket, replay e presença
-  lib/stores/                  # sessão e tema
-  lib/components/              # quadro, coluna, card, diálogos e seletores
-  routes/                      # entrada, painel, quadro, histórico, membros e link público
-```
-
-**A regra que segura o desenho todo:** `domain` e `usecase` não sabem que WebSocket existe. O
-usecase depende de uma porta `Publicador` (uma interface com `Publicar(evento)`); quem
-implementa é o hub, em `adapter/realtime`. Trocar WebSocket por SSE amanhã não toca em regra de
-negócio — é a mesma lição do `notificador` de email do agendaGo, agora com um adaptador vivo.
-
-**O caminho de um movimento de card:**
-
-```
-navegador A                 API Go                              navegador B
-    │                          │                                     │
-    │ arrasta o card ──────────┤                                     │
-    │ (UI move na hora)        │                                     │
-    │ PATCH /cards/{id}/mover  │                                     │
-    ├─────────────────────────►│                                     │
-    │                          │ usecase: autoriza + valida vizinhos│
-    │                          │ TX: UPDATE card + INSERT evento     │
-    │                          │ COMMIT                              │
-    │                          │ hub.Publicar(evento) ───────────────┼──► recarrega e move
-    │◄─────────────────────────┤ 200 OK                              │    (sem F5)
-    │ confirma (ou desfaz)     │                                     │
-```
+Este roadmap resolve primeiro esses riscos. E-mail, recuperação de senha e
+confirmação de conta ficam deliberadamente na última etapa, para que nenhuma
+melhoria anterior dependa de SMTP.
 
 ---
 
-## Registro fase a fase
+## 2. Perfil de produção desta rodada
 
-O roteiro foi desenhado para que cada fase terminasse com algo funcionando no
-navegador. As fases 0–3 construíram o terreno conhecido; o aprendizado novo
-começou firme na 4 e virou o eixo do projeto na 5.
+As decisões abaixo definem o alvo. Exceder esse perfil exige nova medição e,
+quando indicado, um novo plano arquitetural.
 
----
+Os números são metas de qualificação, não uma garantia do estado atual. O
+perfil só passa a ser declarado como suportado depois dos ensaios de A10 e do
+gate de go-live de A11.
 
-### Fase 0 — Fundação ✅
+| Dimensão | Meta desta rodada |
+|---|---|
+| Topologia | Uma instância da API em um único VPS compartilhado; sem alta disponibilidade |
+| Banco | PostgreSQL no ambiente atual, com papéis separados para aplicação e migrations |
+| Proxy/TLS | Caddy |
+| Armazenamento ativo | Disco local do VPS, com arquivos imutáveis |
+| Backup externo | Restic em armazenamento S3 compatível, fora do VPS |
+| Concorrência validada | 25 conexões simultâneas, sendo até 10 editores ativos |
+| Quadro de referência | Até 20 colunas e 1.000 cards |
+| Carga de escrita | 5 mutações/s sustentadas e rajadas de 20 mutações/s |
+| Disponibilidade inicial | SLO mensal de 99,5% |
+| Recuperação | RPO de 24 horas e RTO de 4 horas |
+| Histórico online | 365 dias; período anterior exportado e preservado externamente |
+| Observabilidade | OpenTelemetry/OTLP e serviço externo independente do VPS |
+| E-mail | Integração SMTP desacoplada, somente na etapa A12; Mailpit apenas em desenvolvimento e testes |
 
-**Conceito novo:** nenhum. É montar o mesmo terreno do agendaGo, de propósito, para o resto ser
-sobre o que interessa.
-
-**Entrega:**
-- `docker-compose.yml`: `postgres` (16-alpine, healthcheck), `flyway` (migrate, depende do
-  healthcheck), `api` (Go), `web` (node) e `mailpit` (reservado para quando houver envio em dev)
-- Esqueleto Go: `cmd/api/main.go` com chi, `slog` configurado, `config/` lendo env, `GET /health`,
-  shutdown gracioso via `signal.NotifyContext`
-- SvelteKit + Tailwind + TypeScript, `lib/api/client.ts` (o wrapper fino sobre `fetch` com
-  `credentials: 'include'`)
-- `Makefile` com `test-backend` / `test-frontend`, `.env.example`, `CLAUDE.md`, `README.md`
-
-**Arquivos:** `docker-compose.yml`, `backend/go.mod`, `backend/cmd/api/main.go`,
-`backend/config/*.go`, `frontend/` (scaffold), `Makefile`
-
-**Pronto quando:** `docker compose up` sobe tudo, `curl localhost:8080/health` responde, a home
-aparece em `:5173`, e `Ctrl+C` desliga sem erro no log.
-
-**Estudo:**
-- [How to Write Go Code](https://go.dev/doc/code) — módulos e layout
-- [chi](https://github.com/go-chi/chi) — router e middlewares
-- [log/slog](https://pkg.go.dev/log/slog) — logging estruturado
-- [Docker Compose file reference](https://docs.docker.com/reference/compose-file/) e
-  [Flyway — naming de migrations](https://documentation.red-gate.com/fd/migrations-271585107.html)
-- [SvelteKit — project structure](https://svelte.dev/docs/kit/project-structure)
+Não fazem parte deste alvo Kubernetes, múltiplas instâncias da API, Redis,
+broker distribuído, armazenamento ativo em object storage, alta
+disponibilidade do banco ou SMTP auto-hospedado.
 
 ---
 
-### Fase 1 — Contas e sessão ✅ escopo alterado
+## 3. Como executar este roadmap
 
-> **Feita sem confirmação nem recuperação por email.** As duas dependem de um
-> canal de envio que o produto não tem. O cadastro persiste a conta e já abre a
-> sessão; login, logout, perfil, Argon2id e os limites por IP/conta ficaram como
-> planejado. O texto abaixo preserva o escopo original para registrar a mudança.
+### 3.1 Estados
 
-**Conceito novo:** nenhum grande, mas é a fase que fixa argon2id e cookie `__Host-` com você no
-comando (no agendaGo isso já existia pronto).
+| Marcador | Significado |
+|---|---|
+| ⬜ | não iniciada |
+| 🟡 | em execução |
+| ✅ | concluída e com critérios de aceite comprovados |
+| ⛔ | bloqueada por dependência explícita |
 
-**Entrega:** domínio `usuario`, `session`, `signup`, `passwordreset`; hash argon2id; cadastro com
-confirmação por email (capturado no Mailpit); login/logout; `GET /auth/me`; recuperação de senha;
-rate limiting com `httprate`. Frontend: telas de cadastro, confirmação, login, recuperar/redefinir
-senha, e a store de sessão (`session.svelte.ts`).
+Uma etapa só muda para ✅ quando **todos** os critérios de aceite estiverem
+automatizados ou tiverem evidência operacional registrada. Código pronto sem
+teste de falha, migration reversível no rollout ou runbook correspondente não
+encerra a etapa.
 
-**Migrations planejadas originalmente:** `V1__cria_tabela_usuarios.sql`, `V2__cria_tabela_sessions.sql`,
-`V3__cria_tabela_cadastros_pendentes.sql`, `V4__cria_tabela_password_reset_tokens.sql`
+### 3.2 Prioridades
 
-**Pronto quando:** cadastro → email no Mailpit (`localhost:8025`) → confirma → login → `/auth/me`
-devolve o usuário → logout invalida a sessão. Testes de domínio e usecase (fakes em memória)
-passando.
+| Prioridade | Interpretação |
+|---|---|
+| P0 | risco de acesso indevido, corrupção, perda ou divergência silenciosa |
+| P1 | requisito para uma operação previsível e recuperável |
+| P2 | robustez, manutenção e qualidade profissional antes da abertura ampla |
+| ÚLTIMA | trabalho deliberadamente isolado por depender de e-mail |
 
-**Estudo:**
-- [alexedwards/argon2id](https://github.com/alexedwards/argon2id) e
-  [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
-- [MDN — Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
-  e [SameSite](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie/SameSite)
-  — atenção especial ao prefixo `__Host-`; ele volta na fase 5
-- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+### 3.3 Regras permanentes
 
----
+Estas invariantes valem para todas as etapas:
 
-### Fase 2 — Quadro, colunas e cards (ainda sem tempo real) ✅
-
-**Conceito novo:** modelagem de hierarquia com autorização por recurso (quem pode ver/editar
-*este* quadro), diferente do agendaGo onde o dono do dado era sempre o prestador logado.
-
-**Entrega:** domínio `board`, `coluna`, `card`, `membro` (papéis dono/editor/leitor); CRUD REST
-completo; autorização checada no usecase (nunca só no handler). Frontend: lista de quadros e a
-tela do quadro renderizando colunas e cards em CSS grid, com criar/renomear/apagar — **com
-recarga manual mesmo**, para a fase 5 ter contraste.
-
-**Migrations na sequência original:** `V5__cria_tabela_boards.sql`, `V6__cria_tabela_board_membros.sql`,
-`V7__cria_tabela_colunas.sql`, `V8__cria_tabela_cards.sql`
-
-Campos que já nascem pensando nas fases seguintes: `colunas.posicao`, `cards.posicao`
-(`double precision`) e `cards.version` (`integer`).
-
-**Pronto quando:** dá pra montar um quadro inteiro pela UI e ele sobrevive ao F5. Um usuário não
-enxerga o quadro do outro (teste de autorização cobrindo isso).
-
-**Estudo:**
-- [Atlassian — o que é Kanban](https://www.atlassian.com/agile/kanban) (o conceito, já que você
-  nunca usou o Trello) e [WIP limits](https://www.atlassian.com/agile/kanban/wip-limits)
-- [PostgreSQL — chaves estrangeiras](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK)
-- [pgx — CollectRows / RowTo](https://pkg.go.dev/github.com/jackc/pgx/v5) para montar as listas
-  aninhadas sem N+1
+1. Conhecer um e-mail nunca concede acesso a um quadro. O acesso nasce de uma
+   sessão autenticada e de uma autorização comprovável.
+2. Todo quadro possui ao menos um dono válido durante qualquer transição;
+   múltiplos donos continuam permitidos.
+3. Uma mutação observável e seu evento são confirmados na mesma transação.
+4. O cliente só confirma uma revisão que conseguiu aplicar ou substituir por
+   um snapshot consistente.
+5. Um arquivo só é removido fisicamente quando a exclusão lógica está
+   registrada e existe backup externo posterior à exclusão.
+6. O que vai para produção é o mesmo digest que foi testado, analisado e
+   aprovado.
+7. Produção precisa ser observável por fora e recuperável sem depender do VPS
+   original.
+8. Segredos, tokens, cookies, conteúdo de cards e e-mails completos não entram
+   em logs nem telemetria.
+9. Mudanças de schema seguem **expandir → preencher → contrair** quando houver
+   incompatibilidade entre versões. Este plano usa nomes lógicos; a versão
+   Flyway será sempre a próxima disponível no momento da implementação.
+10. Nenhuma etapa A1–A11 pode exigir entrega de e-mail para funcionar ou ser
+    testada.
 
 ---
 
-### Fase 3 — Convites e colaboração ✅ escopo alterado
+## 4. Visão geral e dependências
 
-> **Feita com link em vez de envio.** O email identifica a pessoa convidada;
-> quando ela ainda não tem conta, o dono copia o link e o entrega por qualquer
-> canal. Quem já tem conta com aquele email entra imediatamente.
+O número da etapa representa a ordem recomendada de entrega. Trabalho de
+investigação pode ocorrer em paralelo, mas uma etapa não entra em produção sem
+suas dependências.
 
-**Conceito novo:** o quadro deixa de ser de uma pessoa. É o pré-requisito humano do tempo real —
-sem duas contas no mesmo quadro, não há o que sincronizar.
+| Etapa | Prioridade | Resultado principal | Dependências | Estado |
+|---|---:|---|---|---|
+| A1 | P0 | contenção imediata de autorização e abuso | nenhuma | ⬜ |
+| A2 | P0 | mutações e eventos atomicamente consistentes | A1 | ⬜ |
+| A3 | P0 | tempo real convergente por revisão do quadro | A2 | ⬜ |
+| A4 | P1 | limites HTTP, WebSocket, banco e anexos | A1; coordena com A2 | ⬜ |
+| A5 | P1 | host e deploy com privilégio mínimo | A1 | ⬜ |
+| A6 | P0 | backup externo e restauração comprovada | A2, A4 e A5 | ⬜ |
+| A7 | P1 | deploy do artefato exato e cadeia de suprimentos | A5 e A6 | ⬜ |
+| A8 | P1 | observabilidade, SLO e alertas acionáveis | A3, A4, A6 e A7 | ⬜ |
+| A9 | P2 | contratos de API e cliente resiliente/acessível | A3 e A8 | ⬜ |
+| A10 | P1 | capacidade medida e estado incremental | A3, A4, A8 e A9 | ⬜ |
+| A11 | P2 | privacidade, ciclo de dados e qualificação de go-live | A1–A10 | ⬜ |
+| A12 | ÚLTIMA | verificação, recuperação e convites por e-mail | A11 | ⬜ |
 
-**Entrega:** convidar por email para o quadro, aceitar convite (com token), listar/remover membros,
-papéis aplicados na autorização (leitor não move card). Frontend: painel de membros do quadro.
-
-**Migration na sequência original:** `V9__cria_tabela_convites_board.sql`
-
-**Pronto quando:** duas contas diferentes abrem o mesmo quadro em dois navegadores. (Ainda sem
-sincronia — cada uma precisa dar F5 para ver o que a outra fez. Guarde essa sensação: é o problema
-que a fase 5 resolve.)
-
-**Estudo:**
-- [RBAC — NIST](https://csrc.nist.gov/projects/role-based-access-control) (visão geral do modelo
-  de papéis)
-- [crypto/rand](https://pkg.go.dev/crypto/rand) — tokens de convite imprevisíveis
-
----
-
-### Fase 4 — Arrastar e soltar + ordenação fracionária ✅
-
-> **Feita e depois evoluída pela fase 9.** A API hoje recebe os ids dos
-> vizinhos, o servidor calcula uma chave textual e a UI continua otimista. A
-> posição em `double precision` abaixo é o primeiro desenho e a armadilha que
-> motivou a troca.
-
-**Conceito novo (o primeiro grande):** como ordenar itens quando várias pessoas inserem no meio ao
-mesmo tempo.
-
-Se a posição for `1, 2, 3, 4`, arrastar um card para o meio obriga a reescrever todas as linhas
-abaixo — muitas linhas alteradas e corrida garantida com dois usuários. Com **fractional
-indexing**, a posição é fracionária e inserir entre `2.0` e `3.0` é gravar `2.5`: **uma linha
-alterada, nenhuma corrida.**
-
-```
-antes:   A(1.0)   B(2.0)   C(3.0)
-                     ▲ solta aqui
-depois:  A(1.0)   B(2.0)  X(2.5)  C(3.0)     ← só X foi escrito
+```text
+A1 ──▶ A2 ──▶ A3 ───────────────┐
+ │      │      │                 │
+ ├─────▶A4 ────┤                 ▼
+ └─────▶A5 ──▶ A6 ──▶ A7 ──▶ A8 ──▶ A9 ──▶ A10 ──▶ A11 ──▶ A12
 ```
 
-**Entrega:** `PATCH /cards/{id}/mover` recebendo `{colunaDestino, posicao}`; o front calcula a
-posição como a média dos vizinhos; `svelte-dnd-action` no arrastar; **atualização otimista** —
-a UI move na hora e desfaz se a API recusar.
-
-**Pronto quando:** arrastar entre colunas e dentro da coluna persiste; o F5 mantém a ordem; e o
-log do Postgres mostra **um** `UPDATE` por movimento.
-
-**A armadilha, de propósito:** ficar dividindo o mesmo intervalo (`2.5`, `2.75`, `2.875`…) esgota a
-mantissa de 53 bits do `double precision` em ~50 inserções no mesmo ponto e dois cards colidem na
-mesma posição. Deixe acontecer, escreva o teste que reproduz — a fase 9 conserta.
-
-**Estudo:**
-- [Figma — Realtime editing of ordered sequences](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
-  — leitura obrigatória desta fase, explica exatamente esse problema
-- [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
-  — a versão com chaves textuais (o destino da fase 9); o termo para pesquisar depois é *LexoRank*,
-  a solução do Jira para o mesmo problema
-- [svelte-dnd-action](https://github.com/isaacHagoel/svelte-dnd-action) — a lib de drag & drop
-- [Svelte 5 — runes](https://svelte.dev/docs/svelte/what-are-runes) (`$state`, `$derived`) — a
-  atualização otimista vive aqui
-- [IEEE 754 / precisão de ponto flutuante](https://docs.python.org/3/tutorial/floatingpoint.html)
-  — a explicação mais didática que existe do limite que você vai bater (é em Python, mas o
-  problema é do padrão, não da linguagem)
-
 ---
 
-### Fase 5 — Tempo real: WebSocket + hub ✅
-
-> **Feita.** O protocolo, o hub e o fluxo de duas pessoas estão cobertos. A
-> lacuna restante é mais estreita que a fase: o Playwright ainda não arrasta um
-> card com mouse entre colunas; ele prova a propagação por outras ações.
-
-**Conceito novo (o coração do projeto):** o servidor falando primeiro, e uma goroutine por
-conexão.
-
-HTTP é pergunta-e-resposta: o servidor não tem como avisar ninguém. O WebSocket começa como um
-`GET` comum e **troca de protocolo** no meio (`101 Switching Protocols`), deixando um cano aberto
-nos dois sentidos.
-
-```
-navegador A ──WS──┐
-navegador B ──WS──┼──► hub ──► sala "board:7" ──► broadcast para as outras conexões
-navegador C ──WS──┘            (map[boardID]map[*conexao]struct{} + sync.RWMutex)
-```
-
-**Entrega:**
-- `GET /ws?board={id}` em `adapter/http/ws`: autentica pelo **mesmo cookie de sessão** (o
-  handshake é HTTP, o cookie viaja junto), valida que o usuário é membro do quadro, e faz o
-  `websocket.Accept` com `OriginPatterns` restrito
-- `adapter/realtime/hub`: registro/remoção de conexão, salas por quadro, `Publicar` sem bloquear
-  (canal com buffer; conexão lenta é derrubada, não segura o servidor)
-- Uma goroutine de leitura e **uma única** de escrita por conexão, com ping/pong para detectar
-  cliente morto
-- Porta `Publicador` no usecase; cada usecase de escrita publica **depois do commit**
-- Frontend: `lib/realtime/conexao.svelte.ts` — abre o socket ao entrar no quadro, aplica os eventos
-  recebidos no `$state`, fecha ao sair
-- **O teste que define o projeto:** Playwright com dois `BrowserContext`, um arrasta e o outro vê
-
-**Pronto quando:** `make test-e2e` passa com o teste de duas abas, e `go test -race ./...` está
-limpo.
-
-**Segurança que não pode passar batido:** WebSocket **não obedece CORS**. Sem checar `Origin`, um
-site qualquer abre um socket autenticado com o cookie da vítima (*Cross-Site WebSocket
-Hijacking*). O `OriginPatterns` do `coder/websocket` é a defesa — e o cookie `SameSite` da fase 1
-é a segunda camada.
-
-**Estudo:**
-- [coder/websocket — godoc](https://pkg.go.dev/github.com/coder/websocket) e os
-  [exemplos do repositório](https://github.com/coder/websocket/tree/master/internal/examples)
-- [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat)
-  — mesmo usando outra lib, `hub.go` e `client.go` são a referência canônica do padrão hub em Go;
-  leia os dois arquivos inteiros
-- [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — o handshake e os frames (leia as
-  seções 1 e 4; o resto é referência)
-- [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) para o lado
-  do navegador
-- [Go blog — Share memory by communicating](https://go.dev/blog/codelab-share) e
-  [Go Concurrency Patterns (Rob Pike)](https://go.dev/talks/2012/concurrency.slide) — o modelo
-  mental do hub
-- [pkg.go.dev/sync](https://pkg.go.dev/sync) — `RWMutex` para o mapa de salas
-- [Data Race Detector](https://go.dev/doc/articles/race_detector) — rode com `-race` desde o
-  primeiro teste desta fase
-- [Playwright — browser contexts](https://playwright.dev/docs/browser-contexts) — como abrir duas
-  sessões independentes no mesmo teste
-- [OWASP HTML5 Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets)
-  — a seção de WebSockets cobre o CSWSH
-
----
-
-### Fase 6 — Presença e edição concorrente 🟡 parcial/evoluída
-
-> **Presença e bloqueio otimista estão feitos.** O aviso de edição entrou com
-> outro recorte: mostra quem está renomeando uma **coluna**. O aviso equivalente
-> dentro do editor de card continua no backlog.
-
-**Conceito novo:** estado efêmero (que **não** vai para o banco) e resolução de conflito.
-
-**Entrega:**
-- Presença: avatares de quem está com o quadro aberto, derivados do próprio mapa de conexões do
-  hub; entrada/saída viram eventos; heartbeat limpa quem sumiu sem fechar direito
-- "Ana está editando este card": marca temporária com TTL, renovada enquanto o campo tem foco
-- **Bloqueio otimista:** todo `UPDATE` de card leva `WHERE id = $1 AND version = $2` e incrementa
-  a versão; zero linhas afetadas → `409 Conflict`. A UI mostra "alguém mudou este card" e recarrega
-  o card em vez de sobrescrever
-
-**Pronto quando:** dois navegadores abrem o quadro e cada um vê o avatar do outro; fechar uma aba
-remove o avatar em segundos; e um teste de handler prova que o segundo `UPDATE` com versão velha
-devolve 409.
-
-**Estudo:**
-- [Martin Fowler — Optimistic Offline Lock](https://martinfowler.com/eaaCatalog/optimisticOfflineLock.html)
-  — o padrão exato do `version`
-- [PostgreSQL — isolamento de transações](https://www.postgresql.org/docs/current/transaction-iso.html)
-  — por que `READ COMMITTED` (o padrão) não te salva sozinho
-- [MDN — Status 409 Conflict](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/409)
-- [time.Ticker](https://pkg.go.dev/time#Ticker) — a varredura periódica de presença morta
-
----
-
-### Fase 7 — Reconexão e replay de eventos ✅
-
-**Conceito novo:** entrega confiável sobre um canal que cai. É o mesmo raciocínio de *offset* do
-Kafka, na versão caseira — e o momento em que "tempo real" vira "tempo real **correto**".
-
-O wi-fi cai por 20 segundos e o cliente perde 3 eventos. Ao voltar, ele não pode fingir que nada
-aconteceu.
-
-**Entrega:**
-- Tabela `board_events` (`seq BIGSERIAL`, `board_id`, `tipo`, `payload JSONB`, `autor_id`,
-  `criado_em`), escrita **na mesma transação** da mudança do dado — é o *transactional outbox*
-  em miniatura: ou o card move e o evento existe, ou nenhum dos dois
-- O cliente guarda o último `seq` aplicado; ao reconectar, envia `?desde=41` e recebe o backlog
-  antes de voltar ao vivo
-- Reconexão com backoff exponencial + jitter no front, e indicador visual de "reconectando"
-- Idempotência no cliente: aplicar o mesmo evento duas vezes não pode duplicar card (o `seq`
-  resolve — descarta o que for `<=` ao último aplicado)
-- Teste: derrubar o WebSocket de uma sessão, mexer no quadro pela outra aba, deixar a primeira
-  reconectar e verificar a convergência
-
-**Migration na sequência original:** `V10__cria_tabela_board_events.sql`
-
-**Pronto quando:** matar a conexão, mexer no quadro pelo outro navegador e reconectar deixa as duas
-telas idênticas — sem F5.
-
-**Estudo:**
-- [microservices.io — Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html)
-- [AWS — Exponential backoff and jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/)
-  — por que o jitter importa quando 50 clientes reconectam juntos
-- [Idempotência — Stripe API](https://docs.stripe.com/api/idempotent_requests) — a explicação mais
-  clara do conceito em API real
-- [PostgreSQL — tipos JSON](https://www.postgresql.org/docs/current/datatype-json.html) para o
-  payload do evento
-
----
-
-### Fase 8 — Endurecer (produtização) ✅
-
-**Conceito novo:** nenhum — é trazer o rigor do agendaGo para um projeto que agora tem
-concorrência de verdade para proteger.
-
-**Entrega:** tabela de rotas no README, Testcontainers nos testes de
-repositório, `compatibilidade_schema_test.go` (o guard de expand/contract), CI no GitHub Actions
-rodando `-race`, `docker-compose.prod.yml` atrás do Caddy do VPS, e `docs/tecnologias.md` no formato de guia de
-estudo do agendaGo.
-
-**O Swagger saiu do plano.** Era entrega desta fase e não será feito: a tabela do README já
-responde à mesma pergunta, e uma segunda descrição das rotas — gerada de anotações no código —
-seria mais uma fonte da verdade para manter alinhada, ao custo de blocos `@Summary`/`@Router` em
-cada handler. A conta só muda se a API passar a ser consumida por terceiros.
-
-**Atenção específica deste projeto:** proxy reverso e conexão longa não se dão bem por padrão —
-timeout de leitura, buffering e keep-alive precisam de atenção, e é aqui que o ping/pong da fase 5
-prova seu valor.
-
-**Estudo:**
-- [Caddy — reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) — ele faz
-  o upgrade do WebSocket sozinho e não impõe timeout de leitura à conexão, ao contrário do nginx,
-  onde o `Upgrade` e o `Connection` precisam ser repassados à mão e o `proxy_read_timeout` padrão
-  de 60s derruba conexão longa em silêncio
-- [Testcontainers for Go](https://golang.testcontainers.org/)
-- [GitHub Actions — workflow syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
-- [net/http — Server timeouts](https://pkg.go.dev/net/http#Server) — `ReadTimeout` mata WebSocket se
-  configurado sem pensar
-
----
-
-### Fase 9 — Chaves de ordenação textuais ✅
-
-**Conceito novo:** consertar em produção uma escolha de tipo, usando a doutrina expand/contract do
-próprio agendaGo.
-
-Trocar `cards.posicao` de `double precision` para `text` (chaves estilo LexoRank: entre `"a"` e
-`"b"` cabe `"an"`, infinitamente). Em três passos: coluna nova anulável → código novo escrevendo
-nas duas → `SET NOT NULL` e `DROP` da antiga no deploy seguinte. O backfill roda **por um comando
-do domínio**, nunca por SQL na migration.
-
-**Estudo:** [Implementing Fractional Indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing)
-· o próprio `CLAUDE.md` do agendaGo, seção "Migration que aperta exige dois deploys"
-
-> **Feita, nos dois deploys.**
->
-> O limite era real e está medido: o float esgotava em **52 inserções** seguidas
-> no mesmo ponto. A chave textual leva o teto para perto de **750** — e esse
-> número só apareceu no contract, quando o domínio passou a conhecer o
-> `VARCHAR(200)` da coluna. Até então os testes prometiam "mil inserções nunca
-> esgotam", o que era falso: eles passavam porque ninguém perguntava ao banco se
-> a chave cabia. Sem essa amarração, o estouro sairia como erro de driver — 500
-> em vez do 409 previsto.
->
-> No caminho apareceu um desperdício do algoritmo: entre `"bq"` e `"c"` ele
-> estendia para três caracteres quando `"br".."bz"` cabiam com dois, gastando uma
-> letra POR inserção. Nesse padrão o teto era **199**, não 750. Corrigido, os
-> quatro padrões de reordenação convergem para perto de 750.
->
-> O teto ainda existe, e é assim que fica: uma coluna mais larga só o adiaria. O
-> conserto de verdade, no dia em que alguém alcançá-lo, é redistribuir as chaves
-> da lista — a reescrita em massa que o esquema evita no caso comum.
->
-> A invariante que sustenta o esquema: **nenhuma chave termina no menor
-> caractere**. Sem ela, `"a"` seria um beco sem saída, porque não existe string
-> entre `""` e `"a"` — e inserir no topo passaria a ser impossível. (O plano
-> ilustrava com "entre a e b cabe an"; na implementação `"a"` não é chave
-> válida, e o exemplo equivalente é entre `"b"` e `"c"`.)
->
-> O ciclo completo, nesta ordem:
->
-> 1. **expand** (`V18`): `chave` anulável em `cards` e `colunas`, com índice em
->    `COLLATE "C"`;
-> 2. **código novo**: escreve as duas colunas, o `mover` calcula pela chave, e a
->    leitura ordena por ela com a posição como desempate (`NULLS FIRST`, para a
->    linha ainda não preenchida aparecer onde aparecia);
-> 3. **backfill**: comando do domínio (`BackfillUseCase`), idempotente e
->    retomável, que rodava no start da aplicação. Preservava a ordem que a
->    posição ditava — um backfill que embaralhasse o quadro seria pior que
->    nenhum — e **não subia a `version`**, porque preencher a chave não é uma
->    edição feita por ninguém e subir a versão faria o bloqueio otimista recusar
->    a próxima gravação legítima;
-> 4. **contract** (`V19`): `SET NOT NULL` na chave e `DROP` de `posicao`, só
->    depois de o passo 3 ter rodado em produção. Fazê-lo junto quebraria a
->    versão anterior da aplicação, que continua no ar durante o deploy e é para
->    onde um rollback volta. O `BackfillUseCase` saiu no mesmo commit: um
->    backfill que já rodou e cuja coluna de origem não existe mais é código
->    morto.
->
-> O contract precisou **declarar-se ao guard**: `compatibilidade_schema_test.go`
-> reprova coluna apertada e coluna removida por padrão, e agora lê uma linha
-> `-- CONTRACT:` na migration listando exatamente o que está autorizado. Ele
-> falha nos dois sentidos — se a migration mexer em algo fora da lista, e se
-> sobrar declaração sem uso, porque autorização esquecida é a que passa
-> despercebida no dia do acidente.
->
-> ⚠️ **O erro que a fase 9 quase escondeu.** A implementação inicial estava
-> verde e **não funcionava**: o cálculo do float vinha antes do da chave, e o
-> `ErrSemEspaco` dele abortava o movimento — o mesmo 409 que a fase existia para
-> matar, na 53ª inserção. O teste não pegou porque movia sempre entre os
-> *mesmos* dois vizinhos, e aí o intervalo nunca apertava. A lição virou método:
-> **teste verde não é prova**. O que passou a valer é quebrar o código de
-> propósito e conferir que algum teste cai.
->
-> Duas coisas mais só apareceram assim. O backfill **reordenava** colunas mistas
-> — encadeava a partir de `UltimaChave` (o MAX), mas a leitura usava
-> `NULLS FIRST`, então as linhas antigas pulavam para o fim; e o teste disso só
-> checava a ordem, enquanto o defeito produzia chaves **duplicadas** que a
-> `posicao` desempatava. E duas pessoas soltando um card no mesmo ponto ao mesmo
-> tempo geravam a **mesma** chave, depois da qual não cabia mais nada entre
-> elas: a chave nova passou a ser sorteada dentro da folga em vez de fixada no
-> meio exato.
->
-> ⚠️ A armadilha que se confirmou: **a ordenação de texto no Postgres depende da
-> collation**. O `ORDER BY` e o índice usam `COLLATE "C"` — a ordem de bytes,
-> que é a que o domínio assume. Com collations diferentes entre índice e
-> consulta, o Postgres nem usaria o índice.
-
----
-
-## Continuação — o produto
-
-As fases de 0 a 8 entregaram um quadro que funciona e sincroniza. Esta foi a
-continuação desenhada naquele momento para aproximá-lo do uso por um time; as
-fases 10 e 11 já foram concluídas, a 12 foi adiada depois de medida e o estado
-das demais está na tabela do início.
-
-A ordem não é arbitrária: a **10** faz o quadro responder "o que é meu?", a **11** cria o primeiro
-fluxo em que recarregar tudo é obviamente desperdício, e a **12** cobra a fatura que a 11 gerou.
-As três formam um arco. As demais são independentes entre si.
-
----
-
-### Fase 10 — Responsável no card, e filtro ✅
-
-> **Feita.** O filtro trava o arraste enquanto está ligado, e isso é decisão, não
-> limitação: os vizinhos calculados a partir de uma lista incompleta colocariam o
-> card entre cards que não são os vizinhos reais. A tela diz isso na barra, em
-> vez de deixar o arraste falhar em silêncio.
-
-**Conceito novo:** nenhum grande no backend — é um vínculo N:N reaproveitando a autorização que já
-existe. O que muda é a pergunta que o quadro passa a responder: hoje ele mostra *o que existe*, e
-não *o que é meu*.
-
-**Entrega:**
-- Tabela `card_responsaveis` (`card_id`, `usuario_id`, `criado_em`), chave primária composta — a
-  mesma forma de `card_etiquetas`, e pelo mesmo motivo: ela já impede a atribuição repetida
-- Regra de domínio: **só dá para atribuir quem participa do quadro**. A checagem é do usecase,
-  como todas as outras; a chave estrangeira aponta para `usuarios`, não para `board_membros`
-- Avatar no card, no mesmo padrão da presença (iniciais em círculo)
-- Filtro na tela do quadro: por responsável, etiqueta e prazo — combináveis, aplicados no
-  cliente sobre o quadro já carregado
-- A leitura do quadro devolve os responsáveis de todos os cards **numa consulta só**, no mesmo
-  molde de `EtiquetasDoBoardPorCard`
-
-**Migration antes da consolidação:** `V15__cria_tabela_card_responsaveis.sql`
-(hoje é `V12__cria_tabela_card_responsaveis.sql`).
-
-**A decisão que não dá para adiar:** o que acontece com a atribuição quando a pessoa é removida do
-quadro. Manter gera uma lista de responsáveis que mente — nomes de quem não tem mais acesso.
-Recomendo remover o vínculo junto, na mesma transação da remoção do membro, e é a
-`UnidadeDeTrabalho` da fase 8 que torna isso barato.
-
-**Pronto quando:** duas contas no mesmo quadro, uma atribui a outra, e o avatar aparece na tela do
-outro navegador sem F5. O filtro "meus cards" esconde o resto e sobrevive ao recarregar.
-
-**Estudo:**
-- [pgx — CollectRows](https://pkg.go.dev/github.com/jackc/pgx/v5) para agregar sem N+1 (o
-  `EtiquetasDoBoardPorCard` já é o exemplo pronto dentro do projeto)
-- [Trello — atribuir membros a um cartão](https://support.atlassian.com/trello/docs/adding-members-to-a-card/)
-  para ver o que a referência faz com o caso de quem sai do quadro
-
----
-
-### Fase 11 — Comentários e histórico de atividade ✅
-
-> **Feita, as duas metades.** Conversa em markdown no card, com autor, data e
-> marca de edição; selo 💬 no card. As três permissões saíram como planejado —
-> escrever exige só participação (o leitor comenta), editar é **só do autor**, e
-> apagar o autor no próprio ou quem administra em qualquer um.
->
-> **A armadilha do payload foi resolvida pelo caminho recomendado.** O evento
-> passou a guardar o estado ANTERIOR onde ele importa: `card.movido` leva a
-> coluna de origem, `card.alterado` leva o título anterior, `card.apagado` leva o
-> nome (que some com o card). E guarda **nomes**, não só ids — um log registra o
-> que era verdade no momento, e resolver o id na leitura mostraria o título de
-> hoje numa frase sobre ontem.
->
-> O histórico não tem tabela: é um read model sobre `board_events`, com uma
-> coluna `card_id` (expand puro) para ele ser lido por índice em vez de varrer
-> o payload de todos os eventos do quadro.
->
-> Três defeitos apareceram só ao exercitar a API de verdade, todos da mesma
-> família (a borda HTTP): um erro de domínio sem tradução virando **500**, e dois
-> campos que o DTO declarava mas o conversor não copiava — um deles chegando
-> como `null` e quebrando a tela em tempo de execução. Os três estão trancados
-> por teste de handler.
->
-> **A fase nasceu muda, e isso só apareceu ao medir.** O quadro se atualizava
-> sozinho, mas o modal do card carregava os dados UMA vez, na abertura: duas
-> pessoas no mesmo card não viam o comentário uma da outra, e o histórico aberto
-> congelava. A recarga que o evento dispara atualiza o quadro ATRÁS do modal, e
-> o modal tem dados próprios — comentários, histórico, anexos — que o `GET` do
-> quadro nem traz.
->
-> O conserto é um contador (`pulso`) que a página incrementa a cada rajada de
-> mudanças alheias; o modal relê o card quando ele muda. Relê SEMPRE, sem olhar
-> de que card era o evento: filtrar exigiria um caminho por tipo para saber onde
-> procurar o id no payload, que é exatamente o que a fase 12 pesa antes de fazer.
->
-> Duas armadilhas de Svelte 5 no caminho, ambas caçadas pelo teste:
->
-> - ler `pulso` dentro do efeito do `cardId` torna aquele efeito dependente
->   dele, e cada mudança alheia reiniciava o modal inteiro — fechando o
->   histórico aberto. `untrack` resolve, e é o que declara a intenção;
-> - a versão do bloqueio otimista passou a ser **congelada na abertura do
->   editor**. Antes era `card.version` na hora de gravar, o que só funcionava
->   por acidente: nada relia o card durante a edição. Com o modal ao vivo, a
->   versão fresca chegaria a tempo de o servidor ACEITAR a gravação, apagando em
->   silêncio o que a outra pessoa acabou de escrever — o defeito exato que o
->   bloqueio existe para impedir.
-
-**Conceito novo:** o primeiro fluxo **append-only** do projeto, e o primeiro em que recarregar o
-quadro inteiro por um evento fica evidentemente errado — um comentário chegando não deveria
-provocar um `GET /boards/{id}`.
-
-**Entrega:**
-- Tabela `comentarios` (`id`, `card_id`, `autor_id`, `texto`, `criado_em`, `editado_em` anulável).
-  O `autor_id` **sem** `ON DELETE CASCADE`: apagar uma conta não pode reescrever a conversa
-- Renderização com o `lib/markdown.ts` que já existe
-- Tipo de evento novo, `comentario.criado`, com payload útil — este é o primeiro evento cujo
-  conteúdo a tela vai querer aplicar direto, e não usar como aviso
-- **Histórico de atividade do card, sem tabela nova:** `board_events` já guarda tipo, autor,
-  payload e data. O feed é um *read model* sobre o que a fase 7 já escreve
-
-**Migration antes da consolidação:** `V16__cria_tabela_comentarios.sql`
-(hoje é `V13__cria_tabela_comentarios.sql`).
-
-**A armadilha, e ela é concreta:** o payload dos eventos estruturais **não basta para o feed**. O
-`card.movido` guarda o card já movido, com a coluna de destino — a coluna de origem se perde, e
-sem ela não dá para escrever "moveu de *A fazer* para *Fazendo*". O mesmo vale para renomear, que
-não guarda o título anterior.
-
-São dois caminhos, e é melhor escolher com os olhos abertos:
-
-1. **Enriquecer o payload agora** — o evento passa a levar o antes e o depois. O feed fica bom, e
-   o custo é a tabela crescer mais rápido;
-2. **Aceitar um feed pobre** — "fulano moveu este card", sem de onde para onde.
-
-Recomendo o **1**, e fazê-lo *nesta* fase: mudar o formato do payload depois não corrige o
-histórico já gravado, e evento antigo não se reescreve.
-
-**Pronto quando:** ana comenta e bruno vê aparecer sem recarregar; o card abre mostrando quem fez o
-quê desde que ele nasceu.
-
-**Estudo:**
-- [PostgreSQL — tipos JSON](https://www.postgresql.org/docs/current/datatype-json.html), agora
-  para versionar o formato do payload sem quebrar o que já está gravado
-- [Event sourcing vs. event log](https://martinfowler.com/eaaDev/EventSourcing.html) — o suficiente
-  para ver que aqui o log é *derivado*, não a fonte da verdade, e por que essa diferença importa
-
----
-
-### Fase 12 — Aplicação incremental de eventos ⏸️ adiada
-
-> **Não implementada, por decisão medida.** A janela de 150 ms já transforma
-> uma rajada em uma recarga, e o custo observado ainda não compensa manter um
-> aplicador por tipo com risco de divergência silenciosa. Antes de retomar,
-> medir um quadro grande com várias pessoas e alinhar o contrato de tipos de
-> evento entre Go e TypeScript.
-
-**Conceito novo:** deixar de recarregar e passar a aplicar diferença — e assumir o risco que isso
-traz, que é a tela poder divergir do banco **em silêncio**.
-
-Hoje todo evento que não é presença cai numa recarga do quadro. A escolha foi deliberada e está
-certa para uma primeira versão: recarregar é sempre correto. O preço é que o servidor manda o tipo
-e o payload de cada evento, e o cliente joga os dois fora.
-
-> ⚠️ **O custo foi MEDIDO, e ele ainda não justifica a fase.** O `GET` do quadro com um card são
-> 554 bytes, e um comentário gera exatamente uma requisição — a janela de 150ms já junta rajadas.
-> O que realmente doía era outra coisa, e foi consertado sem tocar nesta fase: o modal do card não
-> escutava evento nenhum (ver o fecho da fase 11).
->
-> O argumento que sobra para a 12 não é tráfego, é o teto de requisições por sessão ser consumido
-> pelo movimento dos OUTROS num quadro grande. Vale refazer a medição com dezenas de cards e várias
-> pessoas antes de aceitar o risco de a tela divergir do banco em silêncio.
-
-**Entrega:**
-- Um caminho de aplicação por tipo de evento, sobre o `$state`
-- `recarregue.tudo` permanece como rede de segurança, e passa a ser usado também quando a
-  aplicação incremental encontra um evento que não sabe tratar
-- **Reconciliação:** ao reganhar o foco da aba, comparar o último `seq` aplicado com o do servidor
-  e recarregar se divergirem. É o que impede um erro de aplicação de durar para sempre
-
-**Pronto quando:** mover um card no navegador A **não gera requisição nenhuma** no navegador B —
-confira na aba Network — e o teste de duas abas continua verde.
-
-**A armadilha, que é a razão de esta fase vir depois da 11:** qualquer caminho de aplicação errado
-deixa a tela discordando do banco sem ninguém perceber, que é o pior defeito possível num quadro
-colaborativo. Faça só depois de ter um caso em que recarregar dói de verdade — senão você paga o
-risco sem receber o benefício.
-
-**Estudo:**
-- [Svelte 5 — runes](https://svelte.dev/docs/svelte/what-are-runes), agora `$state.snapshot` e
-  atualização granular de listas
-- [Convergência e reconciliação](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html)
-  — o vocabulário para pensar "a tela e o banco concordam?"
-
----
-
-### Fase 13 — Arquivar, com desfazer ❌ retirada
-
-> **Foi feita inteira e depois RETIRADA, por decisão de produto.** O texto
-> abaixo é o plano original, mantido porque o assunto pode voltar.
->
-> Durante a retirada, a migration histórica `V20` e as colunas
-> `arquivado_em` precisariam sobreviver por um deploy, à espera do contract
-> `V21`. Antes desse contract, o banco de produção foi zerado e o conjunto de
-> migrations foi consolidado. Por isso hoje **não existe `V20`, não existem
-> colunas órfãs e não há `V21` pendente**. A história completa e a regra que
-> continua valendo estão em
-> [backend/migrations/README.md](backend/migrations/README.md) e
-> [backend/migrations/COLUNAS-ORFAS.md](backend/migrations/COLUNAS-ORFAS.md).
->
-> **O que a fase deixou de bom, e fica:** a correção do vazamento de anexos no
-> disco (o `ON DELETE CASCADE` limpava a tabela e não o volume), que apareceu ao
-> levantar os motivos desta fase e não tem relação com arquivar.
-
-
-**Conceito novo:** exclusão reversível, e o ciclo expand/contract numa coluna nova que **não tem
-contract** — ela nasce anulável e assim fica.
-
-Hoje `DELETE /cards/{id}` é definitivo e leva checklists e anexos por cascata. Não há desfazer, e
-não há como recuperar. O Trello arquiva.
-
-**Entrega:**
-- `arquivado_em TIMESTAMPTZ` anulável em `cards` e `colunas`
-- Toda leitura passa a filtrar `arquivado_em IS NULL`
-- Tela de arquivados do quadro, com desarquivar
-- Apagar de vez continua existindo, só do dono, e a partir da tela de arquivados
-
-**Migration histórica:** `V20__adiciona_arquivado_em_em_cards_e_colunas.sql`,
-removida na consolidação feita com o banco vazio.
-
-**A armadilha:** **todo** `SELECT` existente precisa passar a filtrar, e um esquecido faz o card
-arquivado reaparecer no quadro. É exatamente o tipo de defeito que os fakes em memória não pegam —
-e é onde os testes de repositório contra Postgres real da fase 8 pagam o investimento.
-
-**Pronto quando:** arquivar um card o tira do quadro nos dois navegadores, ele aparece na tela de
-arquivados, e desarquivar o devolve à mesma coluna e posição.
-
----
-
-### Fase 14 — WIP limit por coluna ⬜ pendente
-
-**Conceito novo:** a primeira regra que **recusa** uma operação por política do quadro, e não por
-falta de permissão. E a primeira em que a contagem precisa acontecer dentro da transação.
-
-**Entrega:**
-- `colunas.wip_limite INTEGER` anulável (nulo = sem limite)
-- O domínio recusa criar e mover para uma coluna cheia; o handler responde **409** com a mensagem
-- A coluna mostra `3/5`, e muda de cor ao encher
-
-**Migration futura:** será a próxima versão disponível no momento da
-implementação; não há arquivo reservado hoje.
-
-**A armadilha, e ela é do eixo do projeto:** duas pessoas movem um card ao mesmo tempo para uma
-coluna com **uma** vaga. Se a contagem for feita antes da transação, as duas passam e a coluna
-estoura o próprio limite. Contar **dentro** da transação da escrita é o que resolve — e a
-`UnidadeDeTrabalho` da fase 8 já entrega os repositórios ligados a ela.
-
-**Pronto quando:** existe um teste que dispara dois movimentos concorrentes contra uma coluna com
-uma vaga e prova que **exatamente um** passa.
-
-**Estudo:**
-- [Atlassian — WIP limits](https://www.atlassian.com/agile/kanban/wip-limits)
-- [PostgreSQL — isolamento de transações](https://www.postgresql.org/docs/current/transaction-iso.html),
-  desta vez para valer: é aqui que `READ COMMITTED` não basta sozinho
-
----
-
-### Fase 15 (opcional) — Mais de uma instância da API ⬜ pendente
-
-**Conceito novo:** o hub é um mapa em memória, e memória não é compartilhada entre processos.
-
-Subir uma segunda réplica hoje quebra o tempo real **em silêncio**: quem está conectado na
-instância A não recebe o que aconteceu na B. Nada falha, nada aparece no log — a tela só para de
-atualizar para metade das pessoas.
-
-**Entrega:** o hub continua sendo a sala local; entra uma ponte por
-[LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) que avisa as outras
-instâncias.
-
-**O detalhe que faz o desenho ficar simples:** o `NOTIFY` tem teto de payload (8000 bytes), então
-**não mande o evento pelo canal — mande só o `seq`**. Cada instância lê o evento de
-`board_events`, que é a fonte da verdade e já está lá desde a fase 7. Some o problema de tamanho, e
-some também o de formato.
-
-**Pronto quando:** duas instâncias da API atrás do mesmo proxy, dois navegadores em instâncias
-diferentes, e o card move nos dois.
-
-**Estudo:**
-- [PostgreSQL — NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) e o
-  [suporte do pgx](https://pkg.go.dev/github.com/jackc/pgx/v5#Conn.WaitForNotification)
-- [NATS](https://docs.nats.io/) ou [Redis Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/)
-  — a saída industrial, para saber o que se está trocando
-
----
-
-### Fase 16 — Infraestrutura como código 🟡 etapa A
-
-**Conceito novo:** gerenciamento de configuração declarativo. O playbook diz o
-que deve ser verdade no servidor; o Ansible decide o que fazer para chegar lá.
-
-**O que forçou a fase:** o `.env` de produção, com a senha do Postgres, nascia
-de um heredoc copiado à mão de `docs/producao.md`. Era o único passo que impedia
-o servidor de ser remontado sozinho, e o único lugar onde a senha existia —
-perder o arquivo era perder o banco.
-
-**Entrega:** `deploy/ansible/` com dois playbooks — `preparar-host.yml` (root,
-uma vez por máquina: Docker, plugin do Compose, usuário `deploy`) e
-`provisionar.yml` (como `deploy`, sem sudo: diretórios, `.env` do vault,
-compose, `backup.sh`, cron, bloco do Caddy e a stack no ar). Segredos em
-`ansible-vault`, gerados por `make infra-segredos`. Passo de pré-voo no job
-`implantar`, que recusa deployar num host não provisionado. Documentação em
-[docs/infraestrutura.md](docs/infraestrutura.md).
-
-**A verificação foi destrutiva de propósito.** A stack de produção foi apagada —
-`docker compose down -v`, volumes incluídos — e reconstruída pelo playbook.
-Derrubar e remontar é a única prova de que a infraestrutura virou código; um
-playbook que só roda contra o servidor que já existe descreve o passado.
-
-**Armadilha achada na hora:** `rm -rf ~/stacktrack` **não** apaga os dados. O
-banco e os anexos moram nos volumes `stacktrack_postgres_data` e
-`stacktrack_anexos`; sem o `-v` eles sobrevivem ao teardown, e a stack nova sobe
-com uma senha que não bate com a que o `initdb` gravou. Nem dados novos, nem os
-antigos acessíveis.
-
-**Duas decisões de desenho que a realidade impôs.** A primeira: o playbook
-conecta como `deploy`, e não como root — nada do que a aplicação precisa exige
-privilégio, então provisionar não amplia o raio de explosão de nada. A segunda,
-a divisória dia 0 / dia N: a esteira **nunca** vai poder provisionar um servidor
-do zero, porque ela faz login com `VPS_USER=deploy`, um usuário que num host
-novo ainda não existe. Um playbook que entra como `deploy` não pode criar o
-`deploy`.
-
-**Etapa B — pendente, com motivo.** Migrar o job `implantar` para um
-`implantar.yml` trocaria ~120 linhas de shell por ~6 tasks: some o `cmp -s` do
-Caddy, o `docker network inspect ||` e o `crontab -l | grep -v | crontab -`,
-este último com um comentário no próprio workflow admitindo que um cancelamento
-no meio truncaria o agendamento. Exige o secret `ANSIBLE_VAULT_PASSWORD`, o que
-põe os segredos de produção ao alcance de um workflow comprometido — e é a mesma
-escalada que um job de CI para validar o playbook exigiria, porque sem a senha
-do vault o Ansible nem carrega os `group_vars`. As duas coisas andam juntas e
-esperam a mesma decisão.
-
-**Também pendente:** endurecimento do host (fuso, `unattended-upgrades`, `sshd`,
-`ufw`). Ficou de fora para não juntar duas fontes de falha no mesmo run que
-precisava provar a reconstrução.
-
-**Estudo:**
-- [Ansible — playbooks](https://docs.ansible.com/ansible/latest/playbook_guide/index.html)
-  e [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html)
-- [ansible-vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) — segredo cifrado
-  versionado junto do código que o consome
-- [community.docker](https://docs.ansible.com/ansible/latest/collections/community/docker/) —
-  `docker_compose_v2` chama a CLI e dispensa o SDK Python no servidor; `docker_network` e
-  `docker_login` não, e por isso saíram por `command` com guarda
-
----
-
-### Fora do plano principal
-
-**Já foram feitos, fora de ordem:** etiquetas, prazo, checklist e anexos entraram junto com a
-adaptação do template do Trello, entre as fases 3 e 4. Link público, auditoria do quadro,
-confirmação própria para ações destrutivas, suporte móvel e o indicador de edição de coluna também
-entraram depois. Os eventos dessas ações já têm tipos próprios no log para alimentar a auditoria.
-
-Comentários, histórico de atividade, WIP limit e múltiplas instâncias saíram desta lista: viraram
-as fases 11, 14 e 15 acima. O que segue realmente de fora:
-
-- **Cursor de cada pessoa flutuando na tela.** Bonito e caro: exige um canal de altíssima
-  frequência (dezenas de mensagens por segundo por pessoa) que não pode passar pelo mesmo caminho
-  dos eventos do quadro, nem ser gravado. É estado efêmero levado ao extremo.
-- **"Fulano está editando este card"**, que a fase 6 previa e não foi feito: marca temporária com
-  TTL, renovada enquanto o campo tem foco. O caminho cliente → WebSocket já existe para anunciar
-  edição de **coluna**; falta reaproveitá-lo no modal do card e decidir como representar título e
-  descrição sem criar cadeados enganosos.
-- **Notificações** por email ou push. O link público de acompanhamento já foi feito.
-- **Edição concorrente de texto de verdade** (dois digitando na mesma descrição): é o território
-  de [CRDTs](https://crdt.tech/) — [Yjs](https://docs.yjs.dev/) e
-  [Automerge](https://automerge.org/) são as implementações de referência.
-
----
-
-## Verificação
-
-Ao fim de cada fase:
-
-```bash
-make test              # domínio + usecases + handlers (fakes) + Vitest
-docker compose up -d   # postgres, flyway, api, web, mailpit
+# A1 — Contenção imediata de segurança
+
+> **Prioridade:** P0 · **Dependências:** nenhuma · **E-mail:** não utilizado
+
+## Objetivo
+
+Eliminar caminhos de acesso indevido e reduzir abuso barato antes de qualquer
+refatoração estrutural. Esta etapa deve ser pequena, compatível com o cliente
+atual e liberada separadamente.
+
+## Riscos tratados
+
+- uma pessoa ser adicionada diretamente a um quadro apenas porque o dono
+  conhece o e-mail da conta;
+- consultas repetidas ao banco por cookies ou sessões aleatórias;
+- tokens ou segredos aparecerem em logs por estarem no caminho da URL;
+- respostas privadas serem armazenadas por navegador, proxy ou CDN;
+- produção subir com configuração insegura;
+- novas contas aceitarem senhas curtas demais.
+
+## Entregas
+
+1. **Convite sempre comprovado por token**
+   - Manter `POST /boards/{boardId}/membros` para não quebrar o cliente.
+   - Remover o caminho que adiciona imediatamente uma conta já existente.
+   - Criar convite por link tanto para e-mail cadastrado quanto não cadastrado.
+   - Exigir, na aceitação, sessão válida, token válido e e-mail normalizado da
+     sessão igual ao e-mail do convite.
+   - Uma conta com outro e-mail recebe erro de autorização e não consome o
+     convite.
+   - A consulta pública do convite mostra e-mail mascarado, por exemplo
+     `a***@exemplo.com`, nunca o endereço completo.
+
+2. **Limitação antes da consulta de sessão**
+   - Aplicar um limitador por IP antes de procurar no banco um cookie que não
+     corresponde a sessão conhecida.
+   - Obter o IP do peer direto ou de header sobrescrito pelo Caddy confiável;
+     nunca aceitar `X-Forwarded-For` arbitrário vindo da internet.
+   - Manter limitadores mais específicos nas rotas de login, cadastro e
+     mutação.
+   - Definir resposta `429` com `Retry-After`.
+
+3. **Higiene de logs e cache**
+   - Sanitizar no Caddy **e** na aplicação o caminho registrado quando a rota
+     contém token, inclusive para prefixos secretos que não casam com uma rota
+     válida.
+   - Registrar o nome lógico da rota quando disponível, não a URL bruta.
+   - Adicionar `Cache-Control: no-store` a respostas autenticadas, convites e
+     qualquer resposta com dados privados.
+   - Adicionar `Referrer-Policy: no-referrer` às páginas e respostas que
+     recebem token de convite.
+
+4. **Configuração e senha**
+   - Falhar na inicialização de produção se origem pública, configuração do
+     banco, diretório de anexos ou flags de cookie seguro estiverem
+     ausentes/inseguras. Sessões continuam sendo tokens opacos com hash no
+     banco; não inventar uma “chave de sessão” sem finalidade criptográfica.
+   - Exigir no mínimo 15 caracteres e rejeitar uma lista local/versionada de
+     senhas comuns ou comprometidas para **novas** senhas.
+   - Não invalidar senhas existentes nesta etapa.
+
+## Contratos
+
+O contrato transitório de criação permanece reconhecível pelo frontend, porém
+`adicionado` passa a ser sempre `false`:
+
+```json
+{
+  "adicionado": false,
+  "convite": {
+    "id": "uuid",
+    "email": "pessoa@exemplo.com",
+    "papel": "editor",
+    "expiraEm": "2026-08-28T12:00:00Z",
+    "expirado": false
+  },
+  "link": "https://stacktrack.exemplo/convites/token-secreto"
+}
 ```
 
-- **Fase 1:** cadastro já abre a sessão → `/auth/me` → logout. Não há etapa de
-  Mailpit enquanto o produto não enviar email
-- **Fase 2–3:** montar um quadro pela UI; segunda conta convidada abre o mesmo quadro; leitor não
-  consegue mover card (403)
-- **Fase 4:** arrastar, dar F5, ordem preservada; um `UPDATE` por movimento
-- **Fase 5 em diante — o teste que importa:** dois navegadores lado a lado no mesmo quadro. Uma
-  ação em um aparece no outro em menos de um segundo, sem F5. A colaboração está automatizada com
-  dois `BrowserContext` no Playwright (`make test-e2e`); o gesto específico de arrastar com mouse
-  ainda é a lacuna descrita em `docs/testes.md`
-- **Fase 5 em diante, sempre:** `go test -race ./...` limpo. Concorrência sem `-race` é fé, não
-  engenharia
-- **Fase 7:** interromper o WebSocket de uma sessão, mexer no quadro pela outra e deixar a primeira
-  reconectar — as duas telas convergem sozinhas. O Playwright simula isso com `routeWebSocket`
+- O campo `membro` continua opcional durante a transição, mas não será
+  preenchido nesse endpoint.
+- `GET /convites/{token}` conserva quadro, papel e autor do convite, mas
+  devolve apenas `emailMascarado`.
+- Erros ainda podem usar o envelope atual; a consolidação do envelope ocorre
+  em A9.
 
-## Como estudar isto
+## Migrations e rollout
 
-A ordem que funciona: **ler a fonte principal da fase antes de escrever a primeira linha dela**, e
-as demais durante. Se for ler só três coisas no projeto inteiro, leia o post da Figma (fase 4), o
-`hub.go`+`client.go` do gorilla (fase 5) e o padrão Optimistic Offline Lock (fase 6) — são os três
-que mudam como você pensa, o resto é ferramenta.
+- Nenhuma migration é obrigatória para a contenção.
+- Caso o schema atual imponha unicidade incompatível com convite expirado, a
+  correção estrutural deve ser adiada para A2, sem relaxar a comprovação por
+  token.
+- Liberar backend e frontend juntos caso a troca de `email` por
+  `emailMascarado` afete a página pública.
 
-## Próximos passos recomendados
+## Testes obrigatórios
 
-1. Fechar a lacuna E2E de arrastar um card com mouse entre duas sessões.
-2. Endurecer a operação: usuário do banco sem DDL, alerta de ausência do backup,
-   cópia fora do VPS e ensaio documentado de restauração.
-3. Implementar a fase 14 (limite WIP) se a próxima prioridade for produto.
-4. Retomar a fase 12 apenas depois de medir um quadro grande e alinhar o
-   contrato de eventos entre Go e TypeScript.
-5. Fazer a fase 15 somente quando a topologia realmente ganhar outra instância
-   da API.
+- integração: convidar conta existente gera link e não cria participação;
+- integração: token correto + sessão de outro e-mail não aceita o convite;
+- integração: token correto + sessão correspondente aceita uma única vez;
+- integração: token inválido, expirado ou já usado não revela existência de
+  conta;
+- handler: detalhe público contém e-mail mascarado;
+- carga curta: cookies aleatórios atingem `429` antes de saturar o pool;
+- header de IP forjado não cria chaves ilimitadas nem contorna o limitador;
+- segurança: URLs válidas e inválidas com token não aparecem nos logs;
+- segurança: a mesma verificação cobre logs da aplicação e do Caddy;
+- configuração: todos os cenários inseguros de produção falham antes de abrir
+  a porta HTTP;
+- regressão: cadastro antigo continua funcionando com a nova regra de senha e
+  senha presente na denylist é recusada.
+
+## Critérios de aceite
+
+- [ ] Conhecer o e-mail de uma conta não concede participação.
+- [ ] Não há acesso sem sessão correspondente e token válido.
+- [ ] Repetir aceitação não duplica membro nem evento.
+- [ ] Cookies aleatórios são limitados antes de consultar o banco.
+- [ ] Nenhum token, cookie ou e-mail completo aparece em logs.
+- [ ] Respostas privadas enviam `Cache-Control: no-store`.
+- [ ] A etapa passa sem SMTP, Mailpit ou qualquer serviço de e-mail.
+
+---
+
+# A2 — Integridade transacional e concorrência
+
+> **Prioridade:** P0 · **Dependências:** A1 · **E-mail:** não utilizado
+
+## Objetivo
+
+Garantir que regras compostas continuem verdadeiras sob requisições
+concorrentes, falhas no meio da operação e reinício do processo.
+
+## Riscos tratados
+
+- duas operações simultâneas deixarem quadro sem dono;
+- duas escritas escolherem a mesma posição ou sobrescreverem atualização;
+- dado ser confirmado sem o respectivo evento, ou evento existir sem o dado;
+- convite aceito e revogado ao mesmo tempo;
+- remoção parcial de membro, responsabilidades ou sessões;
+- falha de evento ser ignorada e gerar divergência silenciosa.
+
+## Entregas
+
+1. **Unidades de trabalho explícitas**
+   - Criar uma unidade de trabalho para autenticação e outra para quadro, sem
+     expor `pgx.Tx` ao domínio.
+   - Executar na mesma transação:
+     - criação de usuário e sessão;
+     - criação de quadro e participação do dono;
+     - aceitação ou revogação de convite;
+     - remoção de responsabilidades e do membro;
+     - transferência/alteração do dono;
+     - toda mutação de quadro e a gravação dos seus eventos.
+   - Propagar erro de persistência do evento; nunca apenas registrar e seguir.
+
+2. **Serialização das invariantes por quadro**
+   - Bloquear a linha de `boards` com `SELECT ... FOR UPDATE` no início da
+     unidade de trabalho; não usar advisory lock enquanto a linha existir.
+   - A ordem de aquisição é sempre board → convite/membro → coluna/card →
+     agregados dependentes. Nenhum comando pode inverter essa ordem.
+   - Definir timeout de lock para falhar previsivelmente, sem espera ilimitada.
+
+3. **Concorrência de convites**
+   - Adicionar revogação explícita e verificar `RowsAffected` em aceitar e
+     revogar.
+   - Convite só muda de pendente para aceito/revogado se estiver válido,
+     não expirado e ainda não consumido.
+   - Permitir novo convite após expiração ou revogação sem conflito com índice
+     único histórico.
+
+4. **Atualizações sem perda**
+   - Usar comandos estreitos (`UPDATE` apenas dos campos alterados) para board,
+     coluna e item de checklist.
+   - Manter versão otimista no card, onde existe edição integral, e devolver
+     conflito estável quando a versão enviada estiver obsoleta.
+   - Uma nova entidade só recebe `versao` se surgir outra edição integral que
+     não possa ser expressa por comando estreito.
+
+5. **Ordenação determinística**
+   - Detectar e rebalancear chaves duplicadas ou sem espaço.
+   - Adicionar unicidade da posição dentro do contêiner correspondente.
+   - Repetir a geração de chave um número pequeno e limitado de vezes quando
+     houver conflito; depois devolver conflito tratável.
+
+6. **Restrições estruturais**
+   - Banco protege integridade referencial, unicidade e estados impossíveis.
+   - Domínio continua responsável pela mensagem e pela regra de negócio.
+   - Constraints não substituem o teste concorrente da operação completa.
+
+## Contratos
+
+- Conflito otimista devolve `409 Conflict`; o código estável será consolidado
+  em A9.
+- Aceitar convite já aceito/revogado/expirado é idempotente apenas quando não
+  cria nova participação. O cliente recebe resultado não ambíguo.
+- Operações de ordenação aceitam a intenção de posição; a chave final continua
+  sendo responsabilidade do servidor.
+- Nenhum contrato público passa a expor detalhes de lock ou transação.
+
+## Migrations e rollout
+
+Migrations lógicas, usando os próximos números reais:
+
+1. **expandir convites**
+   - `convites_board.revogado_em TIMESTAMPTZ NULL`;
+   - ajustar índice único para considerar somente convite realmente pendente;
+   - índices para busca/aceitação atômica por hash.
+2. **normalizar ordenação**
+   - reparar duplicidades em job controlado;
+   - criar `UNIQUE (board_id, chave COLLATE "C")` em colunas;
+   - criar `UNIQUE (coluna_id, chave COLLATE "C")` em cards.
+
+Cada migration deve trazer consulta de pré-condição, estimativa de lock e
+procedimento de rollback do deploy. Não apagar dados para “resolver” conflito.
+
+## Testes obrigatórios
+
+- Testcontainers com duas transações concorrentes tentando remover/transferir
+  o único dono;
+- aceitar × aceitar e aceitar × revogar o mesmo convite;
+- remover membro enquanto outro comando atribui responsabilidade;
+- duas criações e dois movimentos para a mesma posição;
+- falha injetada ao gravar evento causa rollback da mutação;
+- falha depois de gravar dado e antes do commit não deixa estado parcial;
+- atualização com versão antiga recebe conflito sem sobrescrever dados;
+- `go test -race ./...` nos pacotes relevantes;
+- teste de deadlock/timeout comprova ordem de aquisição dos locks.
+
+## Critérios de aceite
+
+- [ ] Nenhum interleaving testado deixa quadro sem ao menos um dono.
+- [ ] Toda mutação confirmada possui seu evento na mesma confirmação.
+- [ ] Falha do evento desfaz a mutação.
+- [ ] Convite concorrente tem um único resultado terminal.
+- [ ] Ordenação não produz posição duplicada.
+- [ ] Atualização obsoleta não sobrescreve dado mais novo.
+- [ ] Não há transação aberta durante chamada de rede ou escrita de arquivo.
+
+---
+
+# A3 — Revisão por quadro e convergência correta do tempo real
+
+> **Prioridade:** P0 · **Dependências:** A2 · **E-mail:** não utilizado
+
+## Objetivo
+
+Fazer todas as abas e dispositivos autorizados convergirem para o mesmo estado,
+inclusive duas conexões da **mesma conta**, reconexões e commits concluídos em
+ordem diferente da chegada das requisições.
+
+## Problema confirmado
+
+Hoje o servidor filtra eventos pelo `autorId` para todas as conexões da mesma
+conta, enquanto o cliente supõe que o autor já observou a mudança pelo caminho
+local. Isso quebra duas abas/dispositivos do mesmo usuário. No replay, uma aba
+offline pode ainda pular os eventos feitos no outro dispositivo e avançar o
+`seq` como se os tivesse aplicado.
+
+Além disso, `seq` global identifica o log e registra ordem de **alocação**, não
+necessariamente de commit. Ele não pode ser cursor novo nem revisão contígua de
+cada quadro. O protocolo precisa usar a revisão serializada do quadro também
+para paginação que não pode omitir commits tardios.
+
+## Entregas
+
+1. **Revisão monotônica por quadro**
+   - Adicionar `boards.revisao` e `board_events.revisao`.
+   - Sob o lock transacional de A2, cada mutação incrementa exatamente uma vez
+     a revisão do quadro e grava seus eventos com a revisão confirmada.
+   - Se uma mutação produzir vários eventos, definir e documentar se todos
+     compartilham a revisão com uma ordem interna ou se cada evento incrementa
+     a revisão. A escolha recomendada é **uma revisão por mutação**, com
+     `indice` quando houver mais de um evento.
+   - O cliente confirma a revisão somente depois de aplicar todos os índices
+     daquele grupo; grupo incompleto força replay ou snapshot.
+   - `seq` continua como identidade global imutável e campo de compatibilidade,
+     não como cursor dos contratos novos.
+   - Auditoria, histórico e exportação novos paginam pelo par
+     `(revisao, indice)` dentro do quadro.
+
+2. **Snapshot consistente**
+   - Ler quadro, colunas, cards e agregados em
+     `REPEATABLE READ, READ ONLY` (ou uma única consulta que prove o mesmo
+     snapshot), nunca em vários `SELECT`s independentes sob `READ COMMITTED`.
+   - Incluir `revisao` no snapshot.
+   - A revisão retornada deve corresponder exatamente ao estado lido.
+
+3. **Envelope versionado**
+
+   ```json
+   {
+     "versao": 1,
+     "seq": 1842,
+     "revisao": 73,
+     "indice": 0,
+     "quantidade": 1,
+     "tipo": "card.movido",
+     "boardId": "uuid",
+     "cardId": "uuid",
+     "autorId": "uuid",
+     "em": "2026-08-21T14:30:00Z",
+     "dados": {}
+   }
+   ```
+
+   - `dados` possui schema conhecido por `tipo`.
+   - `indice` começa em zero e `quantidade` informa quantos eventos formam a
+     revisão; replay nunca corta um grupo no meio.
+   - Campos desconhecidos de versão futura não quebram o transporte, mas evento
+     incompatível não é marcado como aplicado.
+   - Evento com revisão ausente, repetida indevidamente ou com lacuna força
+     reconciliação.
+
+4. **Handshake sem janela de perda**
+   - O HTTP entrega snapshot na revisão `N`.
+   - A conexão abre com `/ws?board={id}&revisao=N`.
+   - Depois de autorizar, o servidor **assina primeiro** o fluxo ao vivo em um
+     buffer limitado; então consulta o replay persistido após `N`.
+   - Mesclar replay e buffer por `(revisao, indice)`, deduplicar, confirmar cada
+     grupo completo e só depois liberar o fluxo ao vivo.
+   - Overflow do buffer durante o handshake encerra com instrução de novo
+     snapshot; nunca tenta adivinhar o intervalo perdido.
+   - Conexão iniciada sem snapshot recebe uma mensagem que obriga snapshot
+     inicial antes de aplicar eventos.
+
+5. **Publicação após commit**
+   - Um dispatcher local busca grupos completos confirmados e os entrega na
+     ordem de revisão/índice por quadro.
+   - Nunca publicar antes do commit.
+   - Wake-up perdido é corrigido por polling curto do outbox; o banco é a fonte
+     da verdade.
+   - O dispatcher expõe atraso, último sucesso e tamanho do backlog.
+
+6. **Todas as conexões recebem**
+   - Remover o filtro por `autorId`.
+   - Enviar o evento para toda conexão autorizada, inclusive outras abas,
+     navegadores e dispositivos da mesma conta.
+   - O cliente trata a confirmação da própria mutação de forma idempotente.
+
+7. **Aplicação FIFO e cursor confirmado**
+   - Processar eventos em fila única por quadro.
+   - Avançar a revisão confirmada apenas depois de aplicar o evento com sucesso.
+   - Resposta HTTP otimista não autoriza pular o evento correspondente.
+   - Em falha de reducer, versão desconhecida ou lacuna, buscar snapshot; só
+     então substituir estado e revisão.
+   - `recarregue.tudo` sempre baixa snapshot novo e assume a revisão dele.
+
+8. **Revogação de acesso**
+   - Mudança de papel ou remoção encerra conexões que perderam autorização.
+   - Replay revalida acesso antes de revelar eventos.
+
+## Contratos e compatibilidade
+
+- Durante um deploy de transição, o servidor aceita
+  `?desde={seq}` e `?revisao={revisao}`.
+- O envelope inclui `seq` e `revisao`; o cliente novo prefere revisão.
+- `sincronizado` informa a revisão que o servidor reconhece, mas não faz o
+  cliente avançar além do que aplicou.
+- Após todas as versões antigas saírem de produção e a telemetria confirmar
+  ausência de `desde`, remover o protocolo legado em etapa contract.
+- Durante a compatibilidade, endpoints antigos ainda aceitam cursor por `seq`.
+  Endpoints novos usam cursor opaco que codifica `(revisao, indice)`; o legado
+  é removido depois da mesma janela de transição do WebSocket.
+
+## Migrations e rollout
+
+1. **Expand**
+   - adicionar `boards.revisao BIGINT NULL`;
+   - adicionar `board_events.revisao BIGINT NULL`, `indice SMALLINT NULL` e
+     `quantidade SMALLINT NULL`;
+   - criar índice `(board_id, revisao, indice)` sem remover o índice por
+     `seq`.
+   - instalar trigger/função temporária para inserts legados: sob lock do board,
+     inicializa a revisão-base pela quantidade de eventos históricos e preenche
+     evento nulo como grupo `(indice=0, quantidade=1)`. Assim, a janela de
+     rolling deploy não cria novos nulos.
+2. **Dual-write compatível**
+   - implantar backend que grava revisão/índice e ainda atende leitores antigos;
+   - drenar todas as instâncias da versão anterior antes do backfill;
+   - se houver rollback para a versão pré-dual-write, manter campos anuláveis e
+     repetir o catch-up antes de avançar.
+3. **Backfill e catch-up**
+   - atribuir revisões determinísticas por quadro aos eventos existentes;
+   - preencher `boards.revisao` com a última revisão;
+   - a ordenação histórica por `seq` cria somente uma **linha de base**; ela não
+     pretende reconstruir ordem de commit que nunca foi registrada;
+   - executar backfill sob o mesmo lock da linha do quadro usado pelas
+     mutações, repetir o catch-up até não haver linha nula e validar ausência
+     de lacunas e duplicações;
+   - obrigar clientes a obter snapshot/revisão nova ao mudar de protocolo.
+4. **Dual protocol**
+   - frontend passa a usar revisão com o backend já em dual-write;
+   - observar métricas de conexões legadas.
+5. **Contract**
+   - tornar revisão, índice e quantidade obrigatórios e validar
+     `0 <= indice < quantidade`;
+   - adicionar unicidade por quadro/revisão/índice;
+   - validar para cada revisão que todos os eventos informam a mesma quantidade
+     e que os índices formam exatamente `0..quantidade-1`;
+   - o rollback mínimo passa a ser a release dual-write, nunca uma versão que
+     desconhece as colunas obrigatórias;
+   - remover o trigger de escrita legado somente depois de drenar e observar
+     todas as instâncias antigas;
+   - remover suporte a `desde` somente após janela definida de compatibilidade.
+
+Não reservar números de migration neste documento.
+
+## Testes obrigatórios
+
+- duas abas da mesma conta: mutação em uma aparece na outra;
+- dois dispositivos da mesma conta, um offline: replay aplica tudo ao voltar;
+- snapshot `N` seguido de evento cometido durante o handshake não cria lacuna;
+- mutação confirmada entre duas consultas do snapshot não mistura revisões;
+- requisições iniciadas em ordem A/B e commits B/A são entregues na ordem das
+  revisões confirmadas;
+- queda depois do primeiro evento de uma revisão multievento não confirma o
+  grupo incompleto e o replay entrega o grupo inteiro;
+- escrita concorrente ao backfill recebe revisão válida e não deixa campo nulo;
+- insert no formato legado durante rolling deploy recebe revisão pelo trigger;
+- falha do reducer não avança revisão local;
+- confirmação da própria mutação não duplica card/comentário;
+- backlog acima do limite solicita snapshot sem marcar eventos ignorados;
+- remoção de membro encerra o socket e bloqueia replay;
+- reinício entre commit e publicação entrega o evento pelo dispatcher;
+- E2E com duas contas e E2E específico com a mesma conta em dois contextos.
+
+## Critérios de aceite
+
+- [ ] Todas as abas autorizadas convergem sem recarregamento manual.
+- [ ] Autor recebe seus próprios eventos em todas as conexões.
+- [ ] Revisão local nunca avança após evento não aplicado.
+- [ ] Snapshot + WebSocket não têm janela conhecida de perda.
+- [ ] Reinício após commit não perde publicação.
+- [ ] `seq` permanece apenas como identidade/compatibilidade; nenhum cursor
+      novo depende de sua ordem de commit.
+- [ ] O protocolo legado possui data/condição objetiva para remoção.
+
+---
+
+# A4 — Perímetro HTTP, WebSocket, banco e anexos
+
+> **Prioridade:** P1 · **Dependências:** A1; integração com A2 · **E-mail:** não utilizado
+
+## Objetivo
+
+Impedir que corpos lentos, sockets, queries bloqueadas, uploads concorrentes ou
+disco cheio derrubem a única instância de produção.
+
+## Entregas
+
+1. **Orçamentos de tempo**
+   - Requisições JSON: deadline total inicial de 10 segundos.
+   - Upload: deadline próprio de até 2 minutos.
+   - Query/statement: 5 segundos.
+   - Espera por lock e por conexão do pool: 2 segundos.
+   - WebSocket não herda o timeout HTTP comum; possui deadlines de frame,
+     ping/pong e encerramento próprios.
+   - Cancelamento do cliente cancela use case e query.
+
+2. **Limites de WebSocket**
+   - 10 tentativas de handshake por minuto por IP.
+   - Até 5 conexões simultâneas por conta.
+   - Limite global inicial de 100 conexões, configurável conforme memória do
+     VPS e validado no startup.
+   - Preservar o teto atual de 512 bytes por mensagem de cliente enquanto o
+     protocolo transportar somente foco/presença.
+   - Fila inicial de 32 eventos por conexão; ao enchê-la, desconectar e medir,
+     em vez de crescer sem limite.
+   - Consumidor lento é desconectado com motivo observável, não deixa a fila
+     crescer sem limite.
+
+3. **Validação na borda**
+   - UUIDs inválidos são rejeitados antes de entrar no caso de uso.
+   - JSON rejeita campos desconhecidos, múltiplos documentos e lixo após o
+     objeto.
+   - Content-Type, tamanho do corpo e campos obrigatórios são verificados de
+     forma uniforme.
+   - Erro de entrada não registra corpo sensível.
+
+4. **Upload realmente streaming**
+   - Usar `MultipartReader`; não materializar formulário ou arquivo inteiro
+     na memória.
+   - Ler cabeçalho limitado para detectar MIME pelo conteúdo.
+   - Nome original é metadado sanitizado, nunca caminho físico.
+   - Gravar em arquivo temporário no mesmo filesystem, calcular hash, validar e
+     renomear atomicamente para nome imutável.
+
+5. **Cotas e reservas**
+   - 10 MiB por arquivo.
+   - 20 anexos por card.
+   - 1 GiB de anexos por quadro.
+   - 2 uploads simultâneos por sessão e 4 por processo.
+   - Reservar cota em transação antes de receber o arquivo; expirar reserva
+     abandonada; confirmar somente após persistência completa.
+   - Devolver erro de domínio estável quando a cota for excedida.
+
+6. **Exclusão recuperável**
+   - A exclusão de anexo/card/quadro mantém o comportamento destrutivo do
+     domínio, mas grava antes do cascade as chaves físicas afetadas em
+     `arquivo_exclusoes`, na mesma transação.
+   - Não adicionar `arquivado_em`/soft delete a cards, colunas ou quadros.
+   - Worker consulta uma porta de cobertura e remove fisicamente apenas quando
+     ela comprovar que o **ID exato** de `arquivo_exclusoes` pertence a um
+     snapshot externo bem-sucedido.
+   - Timestamp, relógio do host ou simples `max(id)` nunca servem como prova.
+   - Sem cobertura real, produção opera em modo fail-closed: acumula o outbox e
+     não remove bytes. A4 entrega e testa o mecanismo; A6 o ativa.
+   - Falha de remoção é repetida com limite e aparece em métrica.
+   - Reconciliador encontra temporários antigos, reservas vencidas, arquivo sem
+     linha e linha sem arquivo; nunca apaga automaticamente um órfão sem
+     política documentada.
+
+7. **Proteção do disco**
+   - Um admission guard bloqueia uploads e demais mutações que aumentem uso
+     quando restarem menos de 2 GiB **ou** 10% do volume, o que for mais
+     conservador.
+   - A readiness informa `escrita: false`, mas só fica não saudável para todo
+     o tráfego quando nem leituras/downloads puderem ser servidos com segurança.
+   - A4 expõe estado e métricas antes do bloqueio; A8 transforma esses sinais
+     em alerta operacional externo.
+
+8. **Limpeza fora do caminho crítico**
+   - Retirar do login a exclusão global de sessões expiradas.
+   - Um job horário limpa sessões, convites terminais, reservas e temporários
+     em lotes de até 1.000, com cursor/índice, timeout e métrica.
+   - Falha de manutenção não impede login e não cria loop sem pausa.
+
+## Contratos
+
+- Upload mantém `multipart/form-data`, com limite publicado e resposta
+  contendo metadados, não caminho físico.
+- Respostas de limite usam `413`, `422`, `429` ou `503` conforme causa,
+  com `Retry-After` quando há repetição segura.
+- Readiness distingue indisponibilidade do banco, disco sem margem e migration
+  incompatível.
+- A exclusão HTTP confirma que o recurso saiu do domínio e que a limpeza física
+  foi enfileirada; não promete que os bytes já saíram de disco ou backup.
+
+## Migrations e rollout
+
+Migrations lógicas:
+
+- tabela de reservas de upload com tamanho, sessão, quadro, expiração e estado;
+- `arquivo_exclusoes` com chave física, instante da exclusão de domínio,
+  tentativas, próximo processamento e erro
+  sanitizado;
+- índices por expiração, estado e quadro.
+
+Primeiro implantar schema expansivo e worker desativado; depois ativar escrita
+do outbox. A4 pode ser encerrada com o worker validado por uma cobertura falsa e
+produção em fail-closed. A6 fornece a cobertura externa e é a etapa que liga a
+remoção física real.
+
+## Testes obrigatórios
+
+- slowloris/corpo lento libera recurso no deadline;
+- query bloqueada termina no timeout e devolve erro controlado;
+- frame e fila acima do limite encerram somente o socket infrator;
+- arquivo acima do limite não é mantido em memória nem no disco final;
+- MIME declarado diferente do conteúdo é rejeitado;
+- uploads concorrentes não ultrapassam cota;
+- queda do processo deixa temporário/reserva reconciliável;
+- com cobertura falsa, exclusão ausente do conjunto não remove arquivo e a
+  inclusão explícita do seu ID permite remover;
+- disco abaixo do limite torna escrita indisponível sem corromper download;
+- login não executa varredura/remoção global de sessões;
+- limpeza em lotes é retomável e não mantém lock longo;
+- teste mede memória durante upload no limite.
+
+## Critérios de aceite
+
+- [ ] Nenhuma entrada externa possui tamanho, quantidade ou tempo ilimitado.
+- [ ] Upload de 10 MiB não causa alocação equivalente ao multipart completo.
+- [ ] Cotas resistem a requisições concorrentes.
+- [ ] Arquivo publicado é imutável e tem nome não controlado pelo usuário.
+- [ ] Exclusão física depende da porta de cobertura exata e permanece
+      desativada em produção até A6.
+- [ ] Falha de banco, disco ou consumidor lento degrada de forma observável.
+
+---
+
+# A5 — Infraestrutura como código e privilégio mínimo
+
+> **Prioridade:** P1 · **Dependências:** A1 · **E-mail:** não utilizado
+
+## Objetivo
+
+Tornar o host reproduzível e reduzir o impacto de uma credencial ou processo
+comprometido.
+
+## Entregas
+
+1. **Ansible como autoridade**
+   - Ansible passa a ser o único responsável por pacotes, usuários, diretórios
+     persistentes, permissões, `.env`, timers/cron, firewall e configuração do
+     Caddy.
+   - Alterações manuais necessárias em incidente são registradas e depois
+     reconciliadas no playbook.
+   - Segunda execução sem mudança de inventário termina com `changed=0`.
+
+2. **Vault carregado explicitamente**
+   - Remover segredos do carregamento automático de `group_vars`.
+   - Incluir o vault apenas no playbook de provisionamento/deploy que realmente
+     precisa dele.
+   - Permitir `ansible-playbook --syntax-check` e lint no CI sem senha do
+     vault.
+   - Nenhum segredo é renderizado em diff ou log.
+
+3. **Papéis de banco**
+   - Flyway usa papel proprietário de schema, exclusivo para migrations.
+   - API usa papel de runtime com somente
+     `SELECT/INSERT/UPDATE/DELETE` e sequências necessárias.
+   - Definir `ALTER DEFAULT PRIVILEGES` para novas tabelas.
+   - Runtime não cria/altera tabela, extensão, role ou database.
+   - Timeouts de statement e lock são padrão do papel da aplicação.
+
+4. **Acesso SSH separado**
+   - Chave administrativa do Ansible fica fora do CI e é usada para
+     provisionamento controlado.
+   - Chave do CI é exclusiva do stacktrack e restrita em `authorized_keys`
+     por comando forçado de deploy, sem shell, forwarding, agent forwarding,
+     PTY ou acesso a outros projetos.
+   - O comando forçado aceita apenas versão/digest validado e delega operações
+     mínimas.
+   - Usuário de deploy não entra no grupo `docker` com shell genérico — acesso
+     ao socket equivale a root. O wrapper expõe somente as operações de release
+     necessárias, com argumentos validados.
+   - Definir rotação/revogação das chaves e exercitar a troca sem indisponibilidade.
+
+5. **Hardening do host**
+   - Desabilitar login SSH por senha e login direto de root.
+   - UFW expõe somente 22, 80 e 443; banco e métricas não ficam públicos.
+   - Atualizações automáticas apenas de segurança, sem reboot automático.
+   - Reboot necessário gera alerta e janela planejada.
+   - Serviço roda como usuário sem privilégios; diretórios usam menor
+     permissão possível.
+
+6. **Mudanças controladas**
+   - Postgres e Docker não são atualizados implicitamente junto de cada deploy
+     da aplicação.
+   - Caddy é validado antes da troca e aplicado de modo atômico, com cópia
+     anterior recuperável.
+   - Aprofundamento e procedimentos de Ansible permanecem em
+     [docs/tecnologias.md](docs/tecnologias.md), evitando duplicação aqui.
+
+7. **Proteção do repositório e dos segredos**
+   - Usar GitHub Environment `production`, com aprovação/proteção definida.
+   - Proteger `main` com os checks obrigatórios da release.
+   - Segredos de produção ficam escopados ao Environment e não chegam a jobs de
+     pull request ou validação comum.
+
+## Contratos operacionais
+
+- Inventário declara ambiente, domínio, diretórios e versões não secretas.
+- Vault contém somente valores secretos, com nomes documentados e sem defaults
+  inseguros.
+- O comando de deploy recebe referência de release/digests, nunca comando shell
+  arbitrário.
+- O runbook distingue chave administrativa, chave de deploy e credenciais do
+  banco.
+
+## Migrations e rollout
+
+- Não há migration de domínio.
+- Scripts idempotentes criam os papéis do PostgreSQL e transferem ownership
+  antes de revogar privilégios do runtime.
+- Fazer auditoria de grants antes e depois; manter janela de rollback que
+  restaure grants, sem devolver superusuário à API.
+
+## Testes obrigatórios
+
+- `ansible-lint`, syntax check e checagem de idempotência;
+- API consegue executar todas as operações normais;
+- tentativa de `CREATE TABLE`, `ALTER TABLE` e `DROP TABLE` pela API falha;
+- Flyway continua migrando com credencial própria;
+- chave do CI não abre shell, não faz forwarding e não lê `.env`;
+- chave de deploy é rotacionada e a anterior deixa de funcionar;
+- job de pull request não consegue ler segredo do Environment de produção;
+- varredura externa mostra somente portas esperadas;
+- configuração inválida do Caddy não substitui a ativa;
+- restauração das permissões é exercitada em ambiente isolado.
+
+## Critérios de aceite
+
+- [ ] Estado persistente do host é reproduzível por Ansible.
+- [ ] CI valida Ansible sem possuir a senha do vault.
+- [ ] Segunda aplicação do playbook é idempotente.
+- [ ] API não possui DDL nem privilégios administrativos.
+- [ ] Credencial de deploy não oferece shell genérico nem acesso a segredos.
+- [ ] `main` e o Environment de produção aplicam os gates definidos.
+- [ ] Portas internas não estão expostas à internet.
+
+---
+
+# A6 — Recuperação de desastre comprovada
+
+> **Prioridade:** P0 · **Dependências:** A2, A4 e A5 · **E-mail:** não utilizado
+
+## Objetivo
+
+Ser capaz de perder completamente o VPS e recuperar banco, anexos,
+configurações essenciais e versão da aplicação dentro de RPO 24 h / RTO 4 h.
+
+## Entregas
+
+1. **Snapshot externo coerente**
+   - Restic envia para armazenamento S3 compatível fora do VPS.
+   - Cada execução inclui:
+     - dump PostgreSQL validado;
+     - manifest da release e do schema;
+     - anexos imutáveis;
+     - inventário não secreto necessário à restauração.
+   - O dump define o corte lógico do banco. Como arquivos publicados são
+     imutáveis e o GC espera um backup posterior, a cópia pode conter um
+     superset seguro: a restauração usa as linhas do dump como conjunto ativo
+     e verifica que todo arquivo referenciado existe. Isso dispensa pausa de
+     manutenção sem fingir atomicidade entre PostgreSQL e filesystem.
+   - Abrir uma transação `REPEATABLE READ`, exportar seu snapshot e usar o
+     mesmo identificador em `pg_dump --snapshot`. Nessa mesma visão, gerar a
+     lista exata dos IDs pendentes em `arquivo_exclusoes`.
+   - Proteger o repositório com versionamento e, quando disponível, Object
+     Lock/imutabilidade.
+
+2. **Execução robusta**
+   - `flock` impede duas rotinas simultâneas.
+   - Arquivos intermediários ficam em diretório temporário dedicado e são
+     removidos com segurança.
+   - Falha do dump, validação, upload ou prune torna a execução inteira falha.
+   - Só depois de dump, arquivos, lista e manifest serem validados externamente,
+     o sucesso atualiza heartbeat e marca como cobertos os IDs exatos usados
+     pelo GC de anexos.
+
+3. **Manifest**
+   - Registrar data UTC, commit, digests completos das imagens, versão do
+     PostgreSQL, última migration, hashes/tamanhos do dump e política de
+     anexos.
+   - Manifest tem versão de schema e validação automática.
+   - Não incluir segredo.
+
+4. **Retenção**
+   - 14 snapshots diários;
+   - 8 semanais;
+   - 12 mensais;
+   - prune somente após `restic check` e nunca como substituto de
+     monitoramento de capacidade.
+
+5. **Kit de recuperação fora do VPS**
+   - Credenciais e senha do repositório armazenadas em cofre separado.
+   - Runbook, inventário mínimo e chaves de verificação acessíveis mesmo com o
+     Git/VPS indisponível.
+   - Definir responsáveis e procedimento de rotação.
+
+6. **Proteção antes de migration**
+   - Deploy que contém migrations verifica se há dados.
+   - Quando houver, exige snapshot externo recente e dispara backup
+     pré-migration.
+   - Migration não inicia se o backup/heartbeat falhar.
+
+7. **Restauração verificada**
+   - Restaurar em host/diretório isolado.
+   - Usar `psql -v ON_ERROR_STOP=1`.
+   - Reaplicar roles/grants e validar a versão das imagens.
+   - Conferir que cada `anexos.caminho` ativo possui arquivo e hash esperado.
+   - Executar smoke: login, abrir quadro, mutar card e baixar anexo.
+   - Fazer exercício mensal e registrar tempo real, falhas e ação corretiva.
+
+8. **Ativação do GC de arquivos**
+   - Conectar a porta de cobertura de A4 aos manifests remotos validados.
+   - Ativar o worker somente depois do primeiro restore drill aprovado.
+   - Comprovar em ambiente operacional que ID ausente não remove e ID listado
+     no snapshot converge, independentemente de timestamp ou clock skew.
+
+## Contratos operacionais
+
+O manifest precisa ter, no mínimo:
+
+```json
+{
+  "versao": 1,
+  "criadoEm": "2026-08-21T03:00:00Z",
+  "commit": "sha",
+  "imagens": {"api": "repo@sha256:...", "frontend": "repo@sha256:..."},
+  "postgres": "major.minor",
+  "migration": "versao-aplicada",
+  "dump": {"arquivo": "db.dump", "sha256": "...", "bytes": 123},
+  "anexos": {
+    "exclusoesCobertas": {
+      "arquivo": "arquivo-exclusoes.jsonl.gz",
+      "sha256": "...",
+      "quantidade": 42
+    }
+  }
+}
+```
+
+Heartbeat externo informa último sucesso, duração e identificador do snapshot;
+não depende da própria API nem do próprio VPS para alertar.
+
+## Migrations e rollout
+
+- Não há migration de domínio prevista.
+- Mudanças de metadados de anexo necessárias ao hash/imutabilidade seguem A4.
+- Antes de ativar GC, produzir pelo menos um snapshot externo e concluir uma
+  restauração bem-sucedida.
+
+## Testes obrigatórios
+
+- restaurar snapshot em ambiente vazio;
+- dump truncado ou hash divergente bloqueia restauração;
+- credencial sem acesso ao VPS ainda obtém o kit e o repositório;
+- falha do armazenamento externo não atualiza heartbeat/cobertura;
+- duas execuções concorrentes resultam em uma execução e uma saída segura;
+- caminho de anexo ausente faz o drill falhar;
+- cobertura externa real libera somente os IDs que ela enumera;
+- transação longa e relógio propositalmente divergente não fazem o GC liberar
+  exclusão ausente do snapshot compartilhado;
+- simulação de perda total mede RPO e RTO;
+- restauração em versão incompatível do Postgres é detectada antes da carga.
+
+## Critérios de aceite
+
+- [ ] Um VPS vazio é reconstruído sem consultar arquivos do VPS perdido.
+- [ ] O exercício completo termina em menos de 4 horas.
+- [ ] Nenhum dado confirmado há mais de 24 horas fica fora do snapshot.
+- [ ] Ausência de backup por 26 horas gera alerta externo.
+- [ ] Backup pré-migration bloqueia deploy quando não é confiável.
+- [ ] GC de anexo usa apenas cobertura exata do snapshot remoto confirmado.
+- [ ] O GC real foi ativado somente após restore drill e testado ponta a ponta.
+
+---
+
+# A7 — Artefato exato, rollback e cadeia de suprimentos
+
+> **Prioridade:** P1 · **Dependências:** A5 e A6 · **E-mail:** não utilizado
+
+## Objetivo
+
+Construir uma vez, testar exatamente o que será implantado, promover por digest
+e voltar à release anterior sem recompilar.
+
+## Entregas
+
+1. **Build único**
+   - API, frontend e migrations são construídos uma vez por release.
+   - Publicar candidato no registry e capturar digest completo.
+   - Testes, scanners, assinatura e deploy recebem esses digests.
+   - Proibido reconstruir depois da aprovação.
+
+2. **Ambiente de aprovação equivalente**
+   - E2E sobe as imagens finais da API, migrations e frontend/Node.
+   - Caddy interno usa TLS e a mesma topologia de rotas de produção.
+   - Banco nasce limpo, recebe migrations da imagem candidata e dados de teste.
+   - Rate limit pode ser elevado apenas por variável explícita do ambiente E2E.
+   - Encontrar `429` inesperado falha o teste; nunca usar `test.skip` para
+     esconder instabilidade.
+
+3. **Deploy por digest**
+   - Compose recebe referências completas
+     `registry/imagem@sha256:...`.
+   - Cada serviço pode ter digest diferente; não usar uma única tag mutável
+     como “versão”.
+   - `docker compose up -d --wait` só encerra após healthchecks.
+   - `/api/ready` valida banco, compatibilidade de migration, disco e
+     componentes críticos.
+   - Ansible prepara bundles versionados de Compose, fragmento Caddy e
+     configuração runtime com permissões restritas. O deploy só referencia e
+     ativa um bundle cujo hash consta no manifest; o CI não reescreve `.env`.
+
+4. **Rollback**
+   - Guardar manifest e bundle de configuração da release atual e anterior.
+   - Falha de readiness/smoke restaura atomicamente digests, Compose, Caddy e
+     configuração runtime anteriores, valida Caddy e repete o smoke.
+   - Migration incompatível com rollback precisa de expand/contract ou
+     procedimento manual aprovado antes do deploy.
+   - Postgres é fixado por digest e excluído do pull rotineiro da aplicação.
+
+5. **Verificações de qualidade**
+   - Go: testes, `go vet`, `staticcheck`, análise de segurança
+     (`gosec` ou CodeQL) e `govulncheck`.
+   - Frontend: typecheck, testes, ESLint, auditoria de dependências e build.
+   - Infra: ShellCheck, actionlint, hadolint, ansible-lint e validação Caddy.
+   - Scannear sistema operacional e dependências nas imagens.
+   - Secret scanning cobre histórico novo, imagens e artefatos de build.
+
+6. **Política de vulnerabilidade**
+   - CRITICAL bloqueia promoção.
+   - HIGH bloqueia ou exige exceção escrita, com mitigação, responsável e
+     validade máxima de 30 dias.
+   - Exceção expirada volta a bloquear.
+   - Dependabot abre atualizações semanais para Go, npm, Docker e Actions.
+   - Reescanear periodicamente o digest que está em produção, não somente
+     candidatos novos, porque a base de vulnerabilidades muda sem novo build.
+
+7. **Proveniência**
+   - Gerar SBOM por imagem.
+   - Gerar atestado de proveniência.
+   - Assinar de forma keyless quando o registry/CI suportar.
+   - Deploy verifica assinatura, proveniência e digest antes de executar o
+     comando remoto.
+   - Actions e imagens-base também ficam fixadas por SHA/digest.
+
+## Contratos operacionais
+
+O manifest de release relaciona commit, workflow, digests, SBOM, assinatura,
+migrations esperadas, release anterior, revisão da infraestrutura e hashes do
+Compose renderizado, fragmento Caddy e schema/bundle de configuração runtime.
+Ele é a única entrada aceita pelo deploy; valores secretos não entram nele.
+
+O endpoint de versão/readiness expõe somente identificadores não secretos:
+commit curto, release e estado de compatibilidade. Digests completos ficam no
+manifest e na telemetria operacional.
+
+## Migrations e rollout
+
+- Nenhuma migration de domínio.
+- O pipeline classifica release com migration como compatível ou não com
+  rollback.
+- Antes de promover, executar migration em cópia representativa e restaurar a
+  release anterior quando o ciclo expand/contract disser que isso é seguro.
+
+## Testes obrigatórios
+
+- comparar digest analisado, assinado e implantado;
+- alteração de tag após aprovação não muda o artefato implantado;
+- assinatura ou SBOM ausente bloqueia deploy;
+- healthcheck falho restaura release anterior;
+- smoke pós-deploy falho aciona rollback;
+- rollback restaura também o bundle de configuração e o Caddy anterior;
+- hash divergente em Compose/Caddy/runtime bloqueia a ativação;
+- migration incompatível bloqueia rollback automático antes da produção;
+- E2E roda com TLS, Caddy e imagens finais;
+- `429` inesperado faz o job falhar;
+- Postgres não é atualizado em deploy comum.
+
+## Critérios de aceite
+
+- [ ] O digest em produção é idêntico ao aprovado no CI.
+- [ ] Nenhuma etapa reconstrói o artefato promovido.
+- [ ] Rollback da aplicação foi exercitado com a release anterior.
+- [ ] Configuração e proxy restaurados pertencem ao mesmo manifest dos digests.
+- [ ] Release com migration declara estratégia de compatibilidade.
+- [ ] Vulnerabilidades seguem política comprovável, sem exceção permanente.
+- [ ] SBOM, proveniência e assinatura acompanham cada imagem.
+
+---
+
+# A8 — Observabilidade, SLO e alertas
+
+> **Prioridade:** P1 · **Dependências:** A3, A4, A6 e A7 · **E-mail:** não utilizado
+
+## Objetivo
+
+Detectar indisponibilidade, degradação e risco de perda antes do usuário, com
+evidência suficiente para localizar a release e o componente responsáveis.
+
+## Entregas
+
+1. **Instrumentação independente de fornecedor**
+   - OpenTelemetry no backend e nos pontos críticos do frontend.
+   - Exportação OTLP configurável para serviço externo.
+   - Métricas internas não ficam expostas à internet.
+   - Logs estruturados incluem `requestId`, release/digest, rota lógica,
+     status e duração.
+   - Frontend captura `window.onerror` e `unhandledrejection`, associa a release
+     e usa source maps privados, nunca publicados junto aos assets.
+
+2. **Métricas da aplicação**
+   - requisições por rota/status, latência e tamanho;
+   - espera, uso, timeout e erro do pool pgx;
+   - duração de transação e conflito/lock timeout;
+   - revisão, atraso e backlog do dispatcher;
+   - conexões, reconexões, fila, consumidor lento e fechamento de WebSocket;
+   - reservas, bytes, cota, órfãos e GC de anexos;
+   - idade/duração/resultado de backup e restore drill;
+   - memória, CPU, disco, inodes, OOM e reinícios do processo/host;
+   - falha de reducer, reconciliação, loop de reconexão e Web Vitals do cliente.
+
+3. **Tracing**
+   - Propagar correlação HTTP → caso de uso → SQL → evento/dispatcher.
+   - Não gravar statement com parâmetros sensíveis.
+   - Amostrar erros e operações lentas com taxa superior às operações comuns.
+   - Relacionar trace à release exata.
+
+4. **Sondas externas**
+   - Abrir página pública.
+   - Consultar `/api/ready`.
+   - Abrir WebSocket, receber handshake e encerrar.
+   - Executar fora do VPS e do provedor quando possível.
+
+5. **SLO e painéis**
+   - Disponibilidade mensal inicial: 99,5%.
+   - Antes da carga de A10, usar orçamentos provisórios já acionáveis:
+     snapshot p95 < 500 ms, mutação p95 < 300 ms e entrega realtime p95 < 1 s.
+     A10 confirma ou ajusta esses valores com baseline registrado, sem deixar
+     o alerta desativado entre as etapas.
+   - Painéis separados para experiência HTTP, banco, realtime, anexos, host e
+     proteção de dados.
+   - Registrar orçamento de erro e congelar releases de risco quando estiver
+     consumido.
+   - Reter inicialmente logs e sinais operacionais por 30 dias; qualquer prazo
+     diferente precisa ser justificado na matriz de A11.
+
+6. **Alertas acionáveis**
+   - 5xx acima de 2% por 5 minutos;
+   - latência p95 acima do orçamento por janela sustentada;
+   - espera do pool p95 acima de 100 ms ou timeout de aquisição;
+   - disco em 80% (aviso) e 90% (crítico);
+   - inodes próximos do esgotamento e certificado TLS a menos de 14 dias do
+     vencimento;
+   - último backup bem-sucedido acima de 26 horas;
+   - OOM/reinícios inesperados;
+   - crescimento de fila WebSocket ou atraso do dispatcher;
+   - loop de reconexão ou aumento anormal de reconciliações no frontend;
+   - falha da sonda externa.
+   - Cada alerta aponta para runbook e evita mensagem dependente de e-mail;
+     canal operacional não SMTP é escolhido na configuração.
+
+7. **Privacidade de telemetria**
+   - Não coletar corpo de card/comentário, nome de arquivo, token, cookie,
+     senha, link de convite ou e-mail completo.
+   - Identificador de usuário, quando indispensável, é pseudonimizado.
+   - Definir retenção e acesso do provedor de observabilidade.
+
+## Contratos operacionais
+
+- `requestId` entra no header de resposta e no envelope de erro de A9.
+- `/api/live` significa apenas processo vivo.
+- `/api/ready` significa apto a receber tráfego com dependências e espaço
+  mínimos.
+- Métricas têm nomes/unidades estáveis e labels de cardinalidade limitada;
+  nunca usar board/card/user ID como label.
+
+## Migrations e rollout
+
+- Nenhuma migration de domínio prevista.
+- Ativar exporters em modo controlado; validar custo/cardinalidade antes de
+  aumentar retenção e amostragem.
+- Instrumentar primeiro, criar painéis, depois ativar alertas com janela de
+  calibração curta e data de término.
+
+## Testes obrigatórios
+
+- derrubar banco em ambiente de teste e receber alerta em menos de 5 minutos;
+- interromper backup e receber alerta externo após o limiar;
+- provocar consumidor lento e observar métrica/fechamento;
+- localizar uma requisição de erro pelo `requestId` e pelo digest;
+- scanner de logs/telemetria confirma ausência de tokens, cookies e PII;
+- erro sintético de JavaScript é localizado pela release usando source map
+  privado;
+- teste de cardinalidade impede IDs livres em labels;
+- sonda WebSocket detecta proxy/API indisponível.
+
+## Critérios de aceite
+
+- [ ] Incidente de banco é detectado em menos de 5 minutos.
+- [ ] Ausência de backup é detectada mesmo com o VPS fora do ar.
+- [ ] Um erro de usuário pode ser ligado à rota, trace e release.
+- [ ] Painéis cobrem HTTP, banco, realtime, anexos, host e DR.
+- [ ] Alertas possuem limiar, responsável e runbook.
+- [ ] Telemetria não contém conteúdo de usuário ou segredo.
+
+---
+
+# A9 — Contratos, robustez do cliente e acessibilidade
+
+> **Prioridade:** P2 · **Dependências:** A3 e A8 · **E-mail:** não utilizado
+
+## Objetivo
+
+Tornar falhas previsíveis entre backend e frontend, impedir feedback incorreto
+ao usuário e estabelecer uma base acessível e testável para os fluxos críticos.
+
+## Entregas
+
+1. **Envelope de erro estável**
+
+   ```json
+   {
+     "erro": {
+       "codigo": "CARD_VERSAO_DESATUALIZADA",
+       "mensagem": "O card foi alterado em outra sessão.",
+       "requestId": "req_...",
+       "campos": {
+         "versao": "atualize os dados e tente novamente"
+       }
+     }
+   }
+   ```
+
+   - Código estável e linguagem independente.
+   - Mensagem segura para exibição.
+   - `campos` opcional para validação.
+   - Nunca expor SQL, stack trace ou erro interno.
+   - Status HTTP continua semanticamente correto.
+
+2. **Cliente HTTP tipado**
+   - `ApiError` contém status, código, requestId, campos e `Retry-After`.
+   - Parser transitório entende o envelope antigo e o novo.
+   - Todas as funções aceitam `AbortSignal`.
+   - Timeout padrão de 10 segundos; upload possui orçamento próprio.
+   - Somente `GET` pode ter uma repetição automática, com jitter, para erro de
+     rede, 502, 503 ou 504.
+   - Escritas nunca são repetidas automaticamente sem chave idempotente.
+
+3. **Contratos executáveis**
+   - Validar respostas críticas no frontend com Zod.
+   - Manter fixtures JSON versionadas e comprometidas no repositório.
+   - Testes Go produzem/validam as fixtures; testes TypeScript consomem as
+     mesmas fixtures.
+   - Cobrir sessão, snapshot, eventos, convites, erro e anexos.
+   - Não criar Swagger/OpenAPI manual ou uma segunda lista de rotas para
+     manter.
+
+4. **Resultado da mutação separado da atualização**
+   - Sucesso de criar/mover/comentar não é transformado em “falha” porque uma
+     atualização posterior do snapshot falhou.
+   - Mostrar “alteração salva; atualização pendente” e reconciliar.
+   - Para pesquisas e carregamentos concorrentes, somente a resposta mais nova
+     pode substituir o estado.
+   - Desabilitar duplo envio ou usar idempotência onde ele ainda for possível.
+
+5. **Estado de sessão honesto**
+   - Modelar `desconhecida`, `autenticada`, `anônima` e `indisponível`.
+   - Erro temporário em `/auth/me` não vira logout silencioso.
+   - Se logout falhar no servidor, limpar a experiência local com aviso de que
+     a sessão remota pode persistir e oferecer nova tentativa.
+
+6. **Redução de componentes críticos**
+   - Extrair stores/controllers da página do quadro e do maior modal.
+   - Separar aquisição de dados, comando, reducer e apresentação.
+   - Evitar mais regras de realtime diretamente em componentes Svelte.
+
+7. **Primitiva única de modal**
+   - Stack de modais, focus trap, `inert` no fundo, restauração do foco e
+     Escape apenas no modal superior.
+   - Título/descrição associados e scroll lock consistente.
+   - Confirmações destrutivas continuam específicas.
+
+8. **Acessibilidade e semântica**
+   - Remover elementos interativos aninhados e usos indevidos de `role`.
+   - Fluxos completos por teclado, foco visível e ordem previsível.
+   - `aria-live` para salvamento, conflito, reconexão e erro.
+   - Drag-and-drop possui alternativa por teclado.
+   - Contraste e estados não dependem somente de cor.
+
+## Contratos
+
+- Lista canônica de códigos de erro fica junto ao domínio/adapter e é testada.
+- Fixtures incluem versão quando o formato puder evoluir.
+- Alteração incompatível exige período de parser duplo ou deploy coordenado.
+- `Retry-After` é respeitado pelo cliente, mas não dispara repetição de
+  mutação.
+
+## Migrations e rollout
+
+- Nenhuma migration de banco prevista.
+- Liberar primeiro o **frontend com parser duplo**, ainda consumindo o envelope
+  antigo; depois ativar o envelope novo no backend.
+- Manter respostas antigas compatíveis durante a janela definida. Remover o
+  parser e o formato antigos apenas após telemetria confirmar ausência de
+  clientes legados, inclusive abas que ficaram abertas durante um deploy.
+
+## Testes obrigatórios
+
+- fixtures compartilhadas falham quando Go e TypeScript divergem;
+- resposta fora de ordem não substitui resultado mais novo;
+- timeout/cancelamento não deixa loading permanente;
+- duplo clique não cria duas entidades;
+- mutação bem-sucedida + refresh falho não exibe “não foi salvo”;
+- logout offline exibe estado verdadeiro;
+- modal aninhado restaura foco e Escape fecha apenas o topo;
+- smoke E2E em Chromium, Firefox e WebKit;
+- auditoria automatizada com axe nas páginas e modais críticos;
+- navegação completa por teclado e alternativa ao DnD.
+
+## Critérios de aceite
+
+- [ ] Todo erro crítico possui código, requestId e mensagem segura.
+- [ ] DTO incompatível falha de forma visível no teste e de forma recuperável
+      em produção.
+- [ ] Cliente não repete escrita automaticamente.
+- [ ] Estado de sessão não confunde indisponibilidade com anonimato.
+- [ ] Fluxos críticos passam em três engines e em axe sem violação séria.
+- [ ] Modais obedecem foco, pilha, Escape e restauração.
+
+---
+
+# A10 — Capacidade, estado incremental e ciclo de eventos
+
+> **Prioridade:** P1 · **Dependências:** A3, A4, A8 e A9 · **E-mail:** não utilizado
+
+## Objetivo
+
+Comprovar o perfil de capacidade definido neste plano e substituir
+recarregamentos amplos por atualização incremental segura, sem introduzir
+infraestrutura distribuída antes da necessidade.
+
+## Entregas
+
+1. **Read model eficiente**
+   - Snapshot executa consultas em lote e usa uma única conexão/transação.
+   - Eliminar N+1 de responsáveis, etiquetas, checklists e contagens.
+   - Card do quadro vira `CardResumo`: não inclui descrição, comentários,
+     histórico ou anexos completos.
+   - Detalhe pesado é carregado ao abrir o card.
+   - Snapshot inclui revisão e `ETag`; requisição sem mudança pode receber
+     `304`.
+
+2. **Paginação e índices**
+   - Comentários e históricos usam cursor estável, 50 itens por página.
+   - Índices cobrem último movimento, auditoria por quadro/card e consultas de
+     replay.
+   - Validar planos com volume representativo, não somente banco vazio.
+
+3. **Limites de produto**
+
+   | Recurso | Limite inicial |
+   |---|---:|
+   | Colunas por quadro | 50 |
+   | Cards por quadro | 1.000 |
+   | Membros por quadro | 100 |
+   | Etiquetas por quadro | 100 |
+   | Checklists por card | 20 |
+   | Itens de checklist por card | 200 |
+   | Anexos | limites definidos em A4 |
+
+   - Contagem e inserção são atômicas.
+   - Erro possui código de domínio estável e instrução útil.
+   - Limites são documentados como parte do perfil do produto.
+
+4. **Estado normalizado no frontend**
+   - Substituir `invalidateAll` por reducer tipado sobre entidades
+     normalizadas.
+   - Aplicar evento conhecido idempotentemente.
+   - Evento inválido/desconhecido ou lacuna de revisão busca snapshot.
+   - Modal aberto recebe apenas evento do card correspondente.
+   - Lista de membros/etiquetas é cacheada por revisão e invalidada por evento
+     específico.
+   - Reconciliar ao voltar foco, rede ou conexão, sem invalidar
+     `/auth/me` junto com o quadro.
+
+5. **Renderização sob volume**
+   - Medir DOM, scripting e memória com 1.000 cards em perfil de navegador e
+     hardware versionado junto ao ensaio.
+   - Se o orçamento não for atingido, usar
+     `@tanstack/svelte-virtual` ou solução equivalente.
+   - Virtualização precisa preservar teclado, foco, busca e drag-and-drop; não
+     entra apenas para reduzir número de nós.
+
+6. **Ciclo de vida de eventos**
+   - Manter 365 dias consultáveis no PostgreSQL para **quadros existentes**.
+     A exclusão destrutiva de um quadro é exceção explícita: o cascade atual
+     remove seu histórico online e a confirmação informa isso ao dono.
+   - Exportar período anterior como JSONL comprimido, com manifest, faixas de
+     `(boardId, revisao, indice)`, identidades `seq`, hashes e contagem. `seq`
+     não é usado para decidir que um commit já foi exportado.
+   - Em transação curta sob o lock do quadro, reservar uma faixa **contígua**
+     de revisões num ledger; gerar/enviar fora da transação; validar; marcar
+     concluída; só então excluir exatamente a faixa concluída em lotes.
+   - Enviar o pacote criptografado com chave por quadro/período. Remover nomes,
+     e-mails e outras cópias diretas de identidade; `autorId` fica pseudônimo e
+     títulos/comentários ficam classificados como conteúdo do quadro, com
+     acesso operacional restrito e a mesma proteção de segredo dos backups.
+     Esta é a política mínima obrigatória antes de ligar o exportador; A11 a
+     documenta na matriz e integra o ledger de anonimização, sem ser
+     pré-requisito oculto de A10.
+   - Reter o arquivo por 24 meses após a exportação, salvo requisito aprovado
+     que altere a matriz; nunca manter arquivo “para sempre” por omissão.
+   - Exclusão do quadro cancela exportação pendente e elimina as chaves
+     embrulhadas dos seus pacotes, produzindo apagamento criptográfico mesmo se
+     os objetos imutáveis expirarem depois.
+   - Validar primeiro e último evento e contagem após upload.
+   - Cliente offline além da retenção recebe snapshot completo, não erro ou
+     replay incompleto.
+
+7. **Teste de capacidade**
+   - Cenário: 25 conexões, 10 editores, 20 colunas, 1.000 cards.
+   - Repetir o teste de fronteira com 50 colunas e os mesmos 1.000 cards, pois
+     todo limite aceito pelo domínio precisa ser funcionalmente suportado.
+   - Sustentar 5 mutações/s, com rajadas de 20, por 10 minutos.
+   - Misturar movimento, comentário, checklist, responsável e leitura.
+   - Medir HTTP, SQL, pool, dispatcher, WebSocket, CPU, memória e DOM.
+
+## Orçamentos de aceite
+
+| Indicador | Orçamento inicial |
+|---|---:|
+| Snapshot do quadro p95 | < 500 ms |
+| Mutação p95 | < 300 ms |
+| Evento visível em outro cliente p95 | < 1 s |
+| Espera do pool p95 | < 100 ms |
+| Erros 5xx no ensaio | 0 |
+| Memória da API | < 80% do limite configurado |
+| Observadores limitados indevidamente | 0 respostas 429 |
+| Interação crítica no navegador p95 | < 200 ms |
+| Maior long task no quadro | < 200 ms |
+| Total blocking time após o snapshot | < 300 ms |
+| Nós DOM com 1.000 cards | < 3.000 |
+| Crescimento do heap do frontend | < 100 MiB |
+
+## Contratos
+
+- `CardResumo` e `CardDetalhe` são DTOs distintos.
+- Paginação usa cursor opaco; não promete número de página.
+- `ETag` representa a revisão do snapshot.
+- Códigos de limite são específicos, por exemplo
+  `BOARD_LIMITE_DE_CARDS`.
+- Evento exportado conserva envelope/versionamento de A3.
+
+## Migrations e rollout
+
+Migrations lógicas:
+
+- índices validados por `EXPLAIN (ANALYZE, BUFFERS)` em dataset de teste;
+- metadados de último movimento quando a consulta não puder ser obtida com
+  índice eficiente;
+- `event_export_ranges` com board, revisão inicial/final, estado, manifest,
+  hash, chave embrulhada e timestamps; unicidade impede reservar/exportar a
+  mesma revisão duas vezes.
+
+Criar índice de forma adequada ao tamanho real e remover índice antigo somente
+após confirmar uso. Exclusão de eventos acontece em lotes pequenos, com
+faixas concluídas no ledger e pausa sob pressão do banco.
+
+O contrato é implantado de forma aditiva:
+
+1. backend oferece `CardResumo`, detalhe e paginação novos sem retirar os campos
+   e endpoints consumidos por abas antigas;
+2. frontend novo migra para os contratos e envia a versão/capacidade esperada;
+3. telemetria e testes cruzados comprovam que não há cliente legado relevante;
+4. somente então uma release contract remove campos ou respostas não paginadas.
+
+## Testes obrigatórios
+
+- snapshot com 1.000 cards mantém quantidade limitada de queries;
+- reducer aplica duplicata sem duplicar entidade;
+- evento desconhecido ou revisão ausente força snapshot;
+- evento de outro card não altera modal aberto;
+- paginação não perde/duplica item em inserção concorrente;
+- limite resistindo a duas criações simultâneas;
+- exportar, verificar, restaurar e consultar pacote antigo;
+- mutação concorrente à reserva de exportação recebe revisão maior e não fica
+  fora do pacote atual nem do próximo;
+- nenhuma faixa é apagada antes do ledger concluído e reprocessar exportação é
+  idempotente;
+- excluir quadro cancela o pacote pendente e torna pacotes concluídos
+  criptograficamente inacessíveis;
+- cliente offline por mais de 365 dias recebe snapshot;
+- ensaio de 10 minutos cumpre todos os orçamentos;
+- perfil do navegador mede nós DOM, memória e long tasks;
+- frontend antigo funciona com backend expandido e frontend novo funciona
+  durante a janela de compatibilidade.
+
+## Critérios de aceite
+
+- [ ] O perfil alvo passa pelos orçamentos sem erro 5xx.
+- [ ] O cenário de fronteira com 50 colunas também respeita os orçamentos.
+- [ ] Frontend não recarrega todo o quadro a cada evento conhecido.
+- [ ] Snapshot não carrega conteúdo pesado de todos os cards.
+- [ ] Limites são atômicos e comunicados por código de domínio.
+- [ ] Eventos antigos só são removidos após exportação externa verificada.
+- [ ] Retenção de 365 dias e a exceção de exclusão do quadro estão explícitas e
+      testadas.
+- [ ] Não foi adicionada segunda API, Redis ou pub/sub distribuído.
+
+## Gatilhos para um plano de escala horizontal futuro
+
+Somente abrir um novo roadmap para múltiplas APIs se, **depois** destas
+otimizações, ocorrer de forma sustentada um dos casos:
+
+- CPU acima de 70% no perfil alvo;
+- pool de banco saturado ou espera acima do orçamento;
+- SLO/realtime falha com recursos verticais economicamente razoáveis;
+- disponibilidade exigida passa a ser incompatível com um VPS.
+
+Esse novo plano deverá tratar pub/sub, presença distribuída, rate limit
+compartilhado, afinidade/roteamento de sockets e armazenamento compartilhado.
+Nada disso pertence ao backlog ativo atual.
+
+---
+
+# A11 — Privacidade, ciclo de dados e qualificação sem e-mail
+
+> **Prioridade:** P2 · **Dependências:** A1–A10 · **E-mail:** não utilizado
+
+## Objetivo
+
+Definir como dados pessoais entram, permanecem, são exportados e são removidos,
+e comprovar que o sistema está operacionalmente pronto antes de adicionar
+fluxos dependentes de e-mail.
+
+## Entregas
+
+1. **Inventário e retenção**
+   - Mapear dado, finalidade, origem, tabela/arquivo/log, acesso, retenção e
+     destino na exclusão.
+   - Incluir conta, sessão, convite, participação, auditoria, comentário,
+     anexo, logs, traces, backups e exportações de eventos.
+   - Documentar o que precisa sobreviver anonimizado por integridade do quadro.
+
+2. **Minimização**
+   - Remover e-mail completo de logs e telemetria; usar máscara ou hash
+     rotacionável quando correlação for indispensável.
+   - Não duplicar PII em payload de evento quando ID/valor mascarado bastar.
+   - Restringir acesso operacional a dumps, traces e armazenamento externo.
+   - Manter um ledger externo de anonimizações/apagamentos, separado dos
+     snapshots que ele corrige; toda restauração o reaplica antes de liberar
+     acesso aos dados.
+
+3. **Exportação da conta**
+   - Usuário autenticado e com senha atual pode gerar exportação.
+   - Conteúdo inclui dados da própria conta e relações permitidas, sem revelar
+     PII privada de outros membros além do que o produto já autoriza.
+   - Geração tem limite, trilha de auditoria e arquivo temporário com expiração.
+   - Solicitação e download exigem sessão válida e confirmação da senha na
+     própria operação; não dependem de link por e-mail.
+
+4. **Exclusão/anomização**
+   - Exigir senha atual e confirmação destrutiva.
+   - Bloquear exclusão do único dono até transferir ou excluir seus quadros.
+   - Revogar sessões e convites emitidos/recebidos.
+   - Remover participações e responsabilidades conforme invariantes.
+   - Anonimizar a conta no lugar:
+     - nome e e-mail substituídos por valores não identificáveis e únicos;
+     - hash de senha torna-se inutilizável;
+     - preencher `excluido_em`;
+     - comentários, histórico e anexos preservados quando pertencem ao quadro,
+       exibindo “Conta removida”;
+     - limpar PII de payloads de auditoria que não precise permanecer.
+   - Registrar no ledger externo o identificador pseudônimo da conta; leitores
+     de arquivos históricos exibem “Conta removida” sem consultar cópia antiga
+     de nome/e-mail.
+   - Exclusão de quadro registra tombstone e destruição das chaves de arquivo
+     de A10. Depois de restore, o ledger elimina novamente as chaves antes de
+     qualquer pacote histórico ser acessado.
+   - Documentar que backups imutáveis expiram pela retenção, não são
+     reescritos.
+
+5. **Runbooks**
+   - incidente e comunicação;
+   - rollback de aplicação;
+   - restauração completa;
+   - rotação de chave/segredo;
+   - banco indisponível;
+   - disco cheio;
+   - backup atrasado;
+   - fila/dispatcher de realtime atrasado;
+   - vazamento de token ou credencial.
+
+6. **Gate de go-live**
+   - Sem P0/P1 aberto.
+   - Restore, rollback e teste de carga dentro do orçamento.
+   - E2E multi-browser e acessibilidade aprovados.
+   - Nenhuma vulnerabilidade CRITICAL/HIGH sem exceção válida.
+   - Alertas e sondas externos ativos.
+   - Documentação representa a release efetiva.
+
+## Contratos
+
+- Endpoints de exportação, download e exclusão exigem sessão válida e senha
+  atual verificada dentro da própria operação; não existe o conceito vago de
+  “sessão recente”.
+- Exportação pode ser assíncrona com consulta autenticada de status; nenhuma
+  notificação por e-mail.
+- Conta excluída recebe identificador técnico estável para referências, mas
+  nenhum dado que permita reidentificação na interface.
+- Respostas não confirmam dados de outras pessoas.
+
+## Migrations e rollout
+
+Migrations lógicas:
+
+- `usuarios.excluido_em TIMESTAMPTZ NULL`;
+- ajustes para manter e-mail normalizado único após anonimização;
+- estado/expiração de exportações, se o processamento for persistente;
+- índices para limpeza de sessões, convites e arquivos temporários.
+
+Executar anonimização em transação para banco e outbox para arquivos. Testar
+primeiro em cópia restaurada. Não apagar eventos em massa sem respeitar a
+exportação e retenção de A10.
+
+## Testes obrigatórios
+
+- exportação contém o que deve e não vaza dados privados de outro usuário;
+- senha incorreta ou sessão inválida bloqueia exportação/exclusão;
+- único dono não consegue deixar quadro órfão;
+- exclusão revoga todas as sessões e impede novo login;
+- duas exclusões/requisições concorrentes são idempotentes;
+- comentários/histórico preservam integridade com “Conta removida”;
+- pacote histórico não contém nome/e-mail direto e respeita o tombstone da
+  conta ao ser consultado;
+- busca por e-mail antigo não encontra conta ativa;
+- logs, traces, eventos e arquivos temporários respeitam a matriz;
+- restauração de backup reaplica anonimizações e destruições de chave do ledger
+  externo antes do smoke;
+- tabletop dos runbooks e go-live checklist em ambiente restaurado.
+
+## Critérios de aceite
+
+- [ ] Existe matriz de dados e retenção aprovada.
+- [ ] Usuário exporta e exclui a conta sem depender de e-mail.
+- [ ] Exclusão não quebra quadros nem apaga histórico necessário.
+- [ ] Sessões e acessos são revogados de forma atômica.
+- [ ] Backups têm tratamento de expiração explicitamente comunicado.
+- [ ] Arquivos históricos e restaurações respeitam o ledger externo de
+      anonimização/apagamento.
+- [ ] Todos os gates de produção A1–A10 possuem evidência.
+
+---
+
+# A12 — Serviço de e-mail, verificação e recuperação
+
+> **Prioridade:** ÚLTIMA · **Dependências:** A11 concluída · **Única etapa que depende de e-mail**
+
+## Objetivo
+
+Adicionar confiança no endereço de e-mail, recuperação de senha e entrega
+automática de convites sem tornar SMTP parte da transação principal ou um ponto
+único de falha.
+
+Esta etapa só começa depois da qualificação sem e-mail. Nenhuma etapa anterior
+deve ser reaberta para “aguardar o provedor”.
+
+## Entregas
+
+1. **Abstração de entrega**
+   - Interface interna de envio, independente do fornecedor.
+   - Adaptador SMTP com TLS obrigatório em produção.
+   - Mailpit somente em desenvolvimento e testes.
+   - Não operar servidor SMTP próprio.
+   - Templates versionados em texto e HTML, com URL pública validada.
+
+2. **Outbox assíncrono**
+   - Requisição grava intenção de e-mail na mesma transação do fluxo.
+   - Worker envia após commit.
+   - Retentativa exponencial com jitter, deduplicação e limite.
+   - Estado terminal/dead letter observável e reprocessável por operação
+     autorizada.
+   - A tabela de tokens guarda somente hash. O token bruto necessário para
+     montar o link existe temporariamente no payload criptografado do outbox,
+     cuja chave fica no vault; ele é purgado após envio ou expiração.
+   - Falha SMTP nunca desfaz criação de convite ou solicitação já confirmada.
+
+3. **Verificação de endereço**
+   - Pedido de cadastro novo fica em `cadastros_pendentes`, separado de
+     `usuarios`, e não contém senha nem outra credencial utilizável.
+   - O link comprova posse do endereço; só então a pessoa informa nome e senha,
+     e a transação cria `usuarios` já verificado e sua primeira sessão.
+   - Quem iniciou pedido para o e-mail de terceiro não escolhe a senha que será
+     ativada pela vítima.
+   - Respostas de cadastro/reenviar são genéricas para evitar enumeração.
+   - Tokens usam 256 bits aleatórios, são de uso único e expiram em 24 horas
+     para verificação.
+   - Reenvio invalida ou limita tokens anteriores conforme regra documentada.
+
+4. **Migração gradual das contas existentes**
+   - Contas atuais permanecem funcionais, marcadas como não verificadas.
+   - Não preencher `email_verificado_em` retroativamente sem prova.
+   - Verificar conta existente exige, na mesma conclusão, sessão autenticada,
+     senha atual e token recebido no e-mail. Token sozinho não transforma uma
+     conta pré-cadastrada por terceiro em identidade confiável.
+   - Fluxos novos que confiam no e-mail — recuperação, alteração sensível e
+     entrega automática — exigem verificação.
+   - Oferecer verificação progressiva sem bloquear o trabalho atual no quadro.
+
+5. **Recuperação de senha**
+   - Solicitação sempre responde de forma indistinguível.
+   - Token de 256 bits, uso único, hash no banco e validade de 30 minutos.
+   - Redefinição invalida o token e revoga todas as sessões da conta.
+   - Senha nova respeita a política atual.
+   - Limites por IP e por alvo pseudonimizado; `Retry-After` sem revelar
+     existência.
+
+6. **Convites automáticos**
+   - Criação de convite continua devolvendo link manual.
+   - Em paralelo, grava envio automático quando o endereço puder receber.
+   - Indisponibilidade SMTP não impede o dono de copiar e compartilhar o link.
+   - E-mail nunca contém informação além do necessário.
+
+7. **Entregabilidade**
+   - Configurar SPF, DKIM e DMARC no domínio.
+   - Definir remetente, reply-to, tratamento de bounce e reputação.
+   - Monitorar taxa de envio, falha, atraso, dead letter e reclamação sem
+     colocar endereço completo em labels/logs.
+
+## Contratos HTTP
+
+```text
+POST /auth/cadastro/solicitar
+POST /auth/cadastro/concluir
+POST /auth/email/verificacao/solicitar
+POST /auth/email/verificar
+POST /auth/senha/solicitar
+POST /auth/senha/redefinir
+```
+
+- Solicitações usam respostas genéricas e tempos semelhantes.
+- Links carregam o token no fragmento do navegador quando possível; o frontend
+  o envia no corpo de verificação/redefinição, reduzindo vazamento em Caddy,
+  histórico e header `Referer`.
+- `cadastro/concluir` recebe token, nome e senha e é o único ponto que cria a
+  conta/sessão de um novo endereço.
+- `email/verificar` para conta preexistente recebe token e senha atual em sessão
+  autenticada; não compartilha a semântica do cadastro pendente.
+- Cookies e páginas que recebem token usam `Referrer-Policy: no-referrer` e
+  `Cache-Control: no-store`.
+- Alteração futura do próprio e-mail deve ser um fluxo separado, provando senha
+  atual e o novo endereço; não entra automaticamente nesta entrega.
+
+## Migrations e rollout
+
+Migrations lógicas:
+
+1. `usuarios.email_verificado_em TIMESTAMPTZ NULL`;
+2. `cadastros_pendentes` com e-mail normalizado, expiração e timestamps, sem
+   senha ou hash de senha;
+3. `tokens_conta` com tipo, hash, usuário **ou** cadastro pendente, expiração,
+   consumo e tentativas, com constraint de sujeito exclusivo;
+4. `email_outbox` com template, payload criptografado, chave de deduplicação,
+   estado, tentativas, próximo envio e timestamps.
+
+Rollout:
+
+1. expandir schema sem alterar login atual;
+2. implantar uma release de compatibilidade que conhece o novo schema e pode
+   desativar o cadastro legado, ainda sem enviar e-mail;
+3. implantar frontend com o cadastro em duas etapas e worker desativado;
+4. configurar SMTP/DNS, testar com Mailpit e enviar apenas contas internas;
+5. desativar `POST /auth/cadastro` legado e ativar os novos cadastros; abas
+   antigas recebem erro de atualização obrigatória, nunca criam conta sem
+   verificação;
+6. depois desse corte, rollback automático nunca volta a release anterior à de
+   compatibilidade. Rollback excepcional para A11 bloqueia cadastro no Caddy
+   até o forward fix;
+7. oferecer verificação às contas existentes;
+8. ativar recuperação e e-mail automático de convite;
+9. observar entrega antes de remover qualquer compatibilidade transitória.
+
+## Testes obrigatórios
+
+- Mailpit valida destinatário, assunto, links e templates sem rede externa;
+- cadastro não permite enumeração por corpo, status ou diferença grosseira de
+  tempo;
+- atacante inicia cadastro com e-mail da vítima, mas não define credencial; a
+  vítima verificada escolhe a própria senha e o atacante não entra;
+- registro em `cadastros_pendentes` não é autenticável por uma release A11;
+- token expirado, usado, adulterado ou de outro tipo falha;
+- duas verificações concorrentes têm um único consumo;
+- em conta existente, token sem senha/sessão e senha/sessão sem token não
+  verificam; o cenário de e-mail pré-cadastrado permanece não verificado;
+- worker morre após SMTP aceitar e antes de confirmar: deduplicação evita efeito
+  incorreto ou torna duplicata tolerável;
+- falha SMTP entra em retentativa e depois dead letter sem rollback do domínio;
+- redefinição revoga todas as sessões;
+- limites de solicitação impedem abuso sem confirmar existência;
+- contas antigas continuam entrando e trabalhando sem SMTP;
+- rollback para a release de compatibilidade mantém login e bloqueia cadastro
+  sem verificação; rollback excepcional A11 é testado com cadastro bloqueado;
+- token bruto do outbox é purgado depois de envio ou expiração;
+- suites A1–A11 passam com adaptador de e-mail desativado;
+- configuração SPF/DKIM/DMARC é verificada antes da abertura ampla.
+
+## Critérios de aceite
+
+- [ ] Nenhuma resposta permite enumerar contas.
+- [ ] Tokens têm 256 bits, uso único e validade definida; somente o hash fica
+      em `tokens_conta`, e a cópia cifrada do outbox é temporária.
+- [ ] Cadastro pendente não possui senha utilizável e não existe em `usuarios`.
+- [ ] Falha ou duplicação de worker não corrompe estado do domínio.
+- [ ] Redefinir senha revoga todas as sessões existentes.
+- [ ] Contas antigas migram gradualmente e não são marcadas como verificadas
+      sem prova.
+- [ ] Convite manual continua disponível quando SMTP falha.
+- [ ] Produção usa TLS, SPF, DKIM e DMARC; desenvolvimento usa Mailpit.
+- [ ] Todas as etapas anteriores continuam independentes de SMTP.
+
+---
+
+# 5. Definition of Done transversal
+
+Além dos critérios específicos, cada entrega de código precisa cumprir o que se
+aplicar:
+
+- teste unitário de domínio e casos de borda;
+- teste de handler e contrato HTTP;
+- integração real com PostgreSQL via Testcontainers;
+- teste concorrente e `go test -race` para código compartilhado;
+- Vitest para reducer/store/cliente;
+- Playwright para fluxo crítico e realtime;
+- migrations testadas em banco vazio e banco vindo da versão anterior;
+- estratégia de expand/contract e rollback registrada;
+- métricas e logs da nova falha; depois de A8, alerta quando a falha exigir
+  ação operacional;
+- limite de tempo, tamanho e concorrência documentado;
+- runbook quando a operação puder exigir intervenção;
+- documentação pública/técnica atualizada no mesmo contexto;
+- `git diff --check`, linters, scanners e pipeline verdes;
+- evidência do critério de aceite anexada à issue/release.
+
+Teste não deve depender da ordem de execução, de SMTP real, do relógio local
+sem controle ou de serviço externo não simulado, exceto nos ensaios
+operacionais explicitamente marcados.
+
+---
+
+# 6. Política de migrations
+
+- Este documento descreve mudanças lógicas e **não reserva números**.
+- Usar sempre a próxima versão disponível no repositório.
+- Migration aplicada nunca é editada.
+- Mudança incompatível usa expandir → preencher → contrair em releases
+  separadas.
+- Backfill grande é retomável, limitado em lotes e observável.
+- Índice/constraint só entra após consulta de validação dos dados existentes.
+- Toda migration informa lock esperado, duração medida, compatibilidade com a
+  release anterior e caminho de recuperação.
+- O histórico das migrations já consolidadas permanece em
+  [backend/migrations/README.md](backend/migrations/README.md), não neste
+  roadmap.
+
+---
+
+# 7. Itens explicitamente fora do backlog ativo
+
+Os itens abaixo não são “pendências escondidas”. Foram retirados por decisão de
+produto ou por não corresponderem ao perfil de produção atual:
+
+- limite WIP;
+- arquivamento de cards/colunas;
+- CRDT;
+- cursor colaborativo;
+- indicador de edição de card;
+- múltiplas instâncias/APIs;
+- Redis, broker ou pub/sub distribuído;
+- Kubernetes;
+- object storage como armazenamento ativo de anexos;
+- Swagger/OpenAPI mantido manualmente;
+- SMTP auto-hospedado;
+- novas funcionalidades de produto antes de encerrar os P0/P1.
+
+Se algum deles voltar, precisa de problema mensurável, escopo próprio,
+dependências e critérios de aceite; não deve ser recolocado informalmente em
+uma etapa existente.
+
+---
+
+# 8. Ordem de encerramento
+
+1. **Gate de segurança e consistência:** A1–A3.
+2. **Gate operacional e recuperação:** A4–A8.
+3. **Gate de experiência, capacidade e dados:** A9–A11.
+4. **E-mail, por último:** A12.
+
+O primeiro go-live controlado com dados importantes acontece somente depois de
+A11. A12 amplia os fluxos de identidade e comunicação, mas não é pré-requisito
+para que segurança, recuperação, observabilidade ou colaboração sejam
+profissionais.
+
+Ao concluir uma etapa, atualizar a tabela da seção 4, registrar a evidência e
+mover aprendizados duráveis — não diários de implementação — para
+[docs/historico-do-projeto.md](docs/historico-do-projeto.md).

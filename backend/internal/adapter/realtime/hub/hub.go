@@ -70,9 +70,12 @@ type Assinante struct {
 // Hub distribui eventos por sala. A sala é o quadro: quem não participa dele
 // nunca é registrado, e por isso nunca recebe nada.
 type Hub struct {
-	mu      sync.RWMutex
-	salas   map[string]map[*Assinante]struct{}
-	fechado bool
+	mu sync.RWMutex
+	// derrubadosPorLentidao conta as conexões desligadas por não acompanharem o
+	// ritmo. É o sinal de degradação do tempo real — ver Publicar.
+	derrubadosPorLentidao int64
+	salas                 map[string]map[*Assinante]struct{}
+	fechado               bool
 }
 
 // Novo cria um hub vazio.
@@ -265,6 +268,12 @@ func (h *Hub) Publicar(e evento.Evento) {
 	for _, a := range lentos {
 		h.removerBloqueado(a)
 	}
+	// Consumidor lento derrubado é DEGRADAÇÃO, e degradação precisa ser
+	// contável. Sem isto ela era silenciosa: o socket fechava com um motivo que
+	// só o cliente via, e do lado do servidor não sobrava nada — nem para
+	// investigar depois, nem para alertar antes. O contador é o que A8 publica
+	// como métrica.
+	h.derrubadosPorLentidao += int64(len(lentos))
 
 	var presentes []Pessoa
 	if len(lentos) > 0 {
@@ -280,6 +289,18 @@ func (h *Hub) Publicar(e evento.Evento) {
 	if len(lentos) > 0 {
 		h.anunciarPresenca(e.BoardID, presentes)
 	}
+}
+
+// DerrubadosPorLentidao informa quantas conexões foram desligadas por não
+// acompanharem o ritmo desde que o processo subiu.
+//
+// Crescendo, significa que alguém está recebendo mais eventos do que consegue
+// aplicar — rede ruim, aba em segundo plano, ou um quadro produzindo eventos
+// rápido demais. É a métrica que A8 transforma em alerta.
+func (h *Hub) DerrubadosPorLentidao() int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.derrubadosPorLentidao
 }
 
 // Inscritos informa quantas CONEXÕES acompanham o quadro — não quantas pessoas.

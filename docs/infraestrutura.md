@@ -64,14 +64,27 @@ infraestrutura como código de um script que ninguém revisa.
 
 ## 🔐 Os segredos
 
-`make infra-segredos` gera `deploy/ansible/group_vars/producao/vault.yml`,
-cifrado com `ansible-vault`, contendo o nome do banco, o usuário, a senha
-(aleatória, de `openssl rand -hex 24`) e o token do GHCR.
+`make infra-segredos` gera `deploy/ansible/segredos/producao.yml`, cifrado com
+`ansible-vault`, contendo o nome do banco, o usuário, a senha (aleatória, de
+`openssl rand -hex 24`) e o token do GHCR.
+
+**Ele fica fora de `group_vars/` de propósito.** Lá dentro, o Ansible o
+decifraria ao montar as variáveis de qualquer playbook que apontasse para o
+grupo `producao` — inclusive o `preparar-host.yml`, que não usa segredo nenhum,
+e inclusive um `--syntax-check`, que passava a exigir a senha. Quem o carrega
+hoje é uma task `include_vars` no `provisionar.yml`: ela só abre o arquivo
+quando a play roda de verdade. É o que permite ao CI validar o playbook sem
+receber a chave dos segredos de produção.
+
+Pela mesma razão o `ansible.cfg` **não** declara `vault_password_file`: ali ela
+valeria para todo comando ansible do diretório, e um arquivo de senha ausente
+derruba o comando na partida. Quem precisa dela a passa explicitamente — os
+alvos `infra-*` do Makefile já o fazem.
 
 A **senha do vault** vai para `deploy/ansible/.senha-vault`, que está no
 `.gitignore`. Ela é o que decifra os segredos de produção:
 
-> **Guarde uma cópia fora desta máquina.** Sem ela o `vault.yml` não abre mais,
+> **Guarde uma cópia fora desta máquina.** Sem ela o vault não abre mais,
 > e a senha do banco existe apenas dentro do volume do Postgres — de onde não
 > sai.
 
@@ -79,8 +92,8 @@ Para ver ou editar:
 
 ```bash
 cd deploy/ansible
-ansible-vault view group_vars/producao/vault.yml
-ansible-vault edit group_vars/producao/vault.yml
+ansible-vault view --vault-password-file .senha-vault segredos/producao.yml
+ansible-vault edit --vault-password-file .senha-vault segredos/producao.yml
 ```
 
 ### O token do GHCR pode ficar vazio
@@ -171,20 +184,35 @@ O critério de aceite é a **reconstrução**, e ele não cabe num teste automat
 5. `curl -sI https://<dominio-do-agendago>` — o vizinho continua no ar
 6. `crontab -u deploy -l` — as **duas** linhas de backup
 
-### Por que não há job de CI para o playbook
+### O CI valida o playbook — sem a senha do vault
 
-Um `ansible-lint` ou `--syntax-check` no GitHub Actions precisa **carregar** os
-`group_vars` — e um deles é cifrado. Sem a senha do vault o Ansible nem começa:
+O job `infra` da esteira roda `--syntax-check` nos dois playbooks e
+`ansible-lint` no diretório, e o `publicar-imagens` depende dele: playbook que
+não passa não vira release.
+
+Isso não era possível enquanto o arquivo cifrado morava em `group_vars/`. Lá o
+Ansible o carregava ao montar as variáveis do grupo, e o comando morria antes de
+qualquer análise:
 
 ```
 ERROR! The vault password file .senha-vault was not found
 ```
 
-Ou seja: validar o playbook no CI exige o secret `ANSIBLE_VAULT_PASSWORD`, que é
-a mesma escalada de raio de explosão que a migração do job `implantar` para o
-Ansible exigiria. As duas coisas andam juntas e ficaram para o mesmo momento —
-ver `PLANO.md`, fase 16, etapa B. Até lá a validação é local, pelo
-`make infra-check`.
+A saída não foi dar a senha ao CI — seria trocar um problema de validação por um
+de raio de explosão. Foi tirar o segredo do carregamento automático: ele entra
+por `include_vars` no `provisionar.yml`, que só executa numa play de verdade. O
+job confere inclusive que `.senha-vault` **não** existe no runner, para o
+critério não passar por acidente um dia.
+
+O mesmo alvo roda na sua máquina, antes do push:
+
+```bash
+make infra-validar
+```
+
+O que continua fora do CI é o que exige o servidor: `--check` e `--diff` contra o
+host, e a prova de idempotência (`changed=0` na segunda aplicação). Esses
+seguem locais, pelo `make infra-check`.
 
 ---
 

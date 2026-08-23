@@ -158,7 +158,7 @@ suas dependências.
 | A2 | P0 | mutações e eventos atomicamente consistentes | A1 | ✅ |
 | A3 | P0 | tempo real convergente por revisão do quadro | A2 | ✅ |
 | A4 | P1 | limites HTTP, WebSocket, banco e anexos | A1; coordena com A2 | ✅ |
-| A5 | P1 | host e deploy com privilégio mínimo | A1 | ⬜ |
+| A5 | P1 | host e deploy com privilégio mínimo | A1 | 🟡 |
 | A6 | P0 | backup externo e restauração comprovada | A2, A4 e A5 | ⬜ |
 | A7 | P1 | deploy do artefato exato e cadeia de suprimentos | A5 e A6 | ⬜ |
 | A8 | P1 | observabilidade, SLO e alertas acionáveis | A3, A4, A6 e A7 | ⬜ |
@@ -914,6 +914,37 @@ remoção física real.
 # A5 — Infraestrutura como código e privilégio mínimo
 
 > **Prioridade:** P1 · **Dependências:** A1 · **E-mail:** não utilizado
+
+## Estado (em execução)
+
+**Entrega 2 — vault carregado explicitamente: pronta.** O arquivo cifrado saiu
+de `group_vars/producao/` e virou `segredos/producao.yml`, carregado por
+`include_vars` numa task do `provisionar.yml`; o `ansible.cfg` deixou de
+declarar `vault_password_file`, que agora vai no comando (`SENHA_VAULT`, no
+Makefile). Com isso o job `infra` da esteira roda `--syntax-check` e
+`ansible-lint` **sem a senha do vault** — e confere que `.senha-vault` não
+existe no runner, para o critério não passar por acidente. O lint passa no
+perfil `production`; o que ele apontou de real foi corrigido, não silenciado
+(registradores de role prefixados, `pipefail` no handler do Caddy). Falta apenas
+a evidência de execução verde na esteira, que depende de push.
+
+**O resto das entregas depende de decisões e de acesso que não estão no
+repositório**, e estão listadas em ordem de bloqueio:
+
+1. **Fronteira com o agendaGo (entrega 4).** Hoje a esteira entra com a chave do
+   vizinho (`deploy_chave_publica` é `github-actions-agendago`) e o usuário
+   `deploy` tem shell e grupo `docker` — que nesta máquina é equivalente a root.
+   A5 pede chave exclusiva, sem shell, sem forwarding e com comando forçado.
+   Apertar o `deploy` atinge o agendaGo; a saída provável é um usuário separado
+   só para a esteira do stacktrack. É decisão do dono do VPS.
+2. **Console do provedor testado (entrega 5).** Desabilitar senha no SSH, login
+   de root e subir UFW pode trancar o operador do lado de fora. Antes disso:
+   console web validado e inventário das portas que o agendaGo expõe.
+3. **Janela para os papéis de banco (entrega 3).** A API ainda conecta como dono
+   do banco. Criar o papel de runtime e transferir ownership exige `GRANT` no
+   container e reinício da API.
+4. **GitHub (entrega 7).** Environment `production`, proteção da `main` e
+   segredos escopados são configuração do painel, não do repositório.
 
 ## Objetivo
 

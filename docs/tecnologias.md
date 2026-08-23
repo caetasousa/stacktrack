@@ -1129,7 +1129,7 @@ As tasks anteriores apenas **simularam** criar o diretório. O `docker compose`,
 que é um programa de verdade, não participa da simulação. Daí a guarda:
 
 ```yaml
-  when: not ansible_check_mode or compose_no_servidor.stat.exists
+  when: not ansible_check_mode or stacktrack_compose_no_servidor.stat.exists
 ```
 
 Depois do primeiro apply o arquivo existe, e o `--check` volta a exercitar a
@@ -1138,16 +1138,32 @@ task — que é o que o critério de `changed=0` precisa medir.
 #### 8. O vault
 
 `ansible-vault` cifra um arquivo de variáveis com AES-256 e o deixa versionado
-junto do código que o consome. `group_vars/producao/vault.yml` começa assim:
+junto do código que o consome. `segredos/producao.yml` começa assim:
 
 ```
 $ANSIBLE_VAULT;1.1;AES256
 33616337343837353130393237663438353462636663313362323538653362646534633536663832
 ```
 
-A senha que o abre fica em `deploy/ansible/.senha-vault`, no `.gitignore`, e é
-declarada no `ansible.cfg` para que `ansible-playbook` rodado à mão funcione
-igual.
+A senha que o abre fica em `deploy/ansible/.senha-vault`, no `.gitignore`.
+
+**Onde o arquivo cifrado mora é uma decisão, não arrumação.** Em
+`group_vars/producao/` ele seria carregado por precedência, ao montar as
+variáveis de qualquer playbook do grupo — e o Ansible tenta decifrá-lo antes de
+saber se alguém vai usá-lo, o que fazia até um `--syntax-check` exigir a senha.
+Fora de lá, quem o carrega é uma task:
+
+```yaml
+    - name: carrega os segredos de produção
+      ansible.builtin.include_vars: segredos/producao.yml
+      no_log: true
+```
+
+`include_vars` roda dentro da play, não antes dela: analisar o playbook deixou
+de ser a mesma coisa que abrir os segredos de produção. Pelo mesmo motivo o
+`ansible.cfg` não declara `vault_password_file` — ali a senha valeria para todo
+comando do diretório, inclusive os do CI, que não a tem. Quem precisa dela passa
+`--vault-password-file`, e os alvos `infra-*` do Makefile já o fazem.
 
 O que isso muda: o segredo deixa de ser um artefato que só existe no servidor e
 passa a ser reproduzível. O custo é que a senha do vault vira o segredo que não
@@ -1169,8 +1185,8 @@ A ordem que funciona é mexer, não ler:
 2. Mude `backup_minuto` no `group_vars` e rode `make infra-check`. Veja o diff do
    crontab aparecer, e a linha do agendaGo continuar fora dele.
 3. Desfaça, e confirme que volta a `changed=0`.
-4. `cd deploy/ansible && ansible-vault view group_vars/producao/vault.yml` —
-   veja o segredo que a esteira nunca precisou conhecer.
+4. `cd deploy/ansible && ansible-vault view --vault-password-file .senha-vault segredos/producao.yml`
+   — veja o segredo que a esteira nunca precisou conhecer.
 5. Apague `~/stacktrack/.env` no servidor e rode `make infra-check`. Uma task
    `changed`, as outras `ok` — é a convergência funcionando: o Ansible conserta
    o que falta, sem refazer o que está certo.

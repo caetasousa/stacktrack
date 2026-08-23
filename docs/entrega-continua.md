@@ -16,6 +16,7 @@ push na main
      ├─► frontend           prettier · svelte-check · vitest
      ├─► e2e                stack completa · Playwright · celular · duas pessoas
      ├─► seguranca-codigo   govulncheck · npm audit
+     ├─► infra              ansible-lint · syntax-check — SEM a senha do vault
      ├─► imagens            (matriz: api, web, migrations)
      └─► seguranca-imagens  Trivy por imagem → SARIF → portão em CRITICAL
                     │
@@ -28,6 +29,22 @@ push na main
                     ▼
         https://stacktrack.duckdns.org
 ```
+
+### O job `infra`, e por que ele não tem a senha do vault
+
+A infraestrutura é código e passa pela mesma esteira: `--syntax-check` nos dois
+playbooks e `ansible-lint` no diretório, com `publicar-imagens` dependendo dele.
+
+O que o job **não** tem é a chave dos segredos de produção, e é por isso que ele
+existe nesta forma. Enquanto o arquivo cifrado morava em `group_vars/producao/`,
+o Ansible o decifrava ao montar as variáveis do grupo — validar o playbook aqui
+exigiria dar a senha do vault ao CI, que é justamente o raio de explosão que se
+está tentando reduzir. Hoje o vault entra por uma task `include_vars` no
+`provisionar.yml`, que só abre quando a play roda de verdade.
+
+O job confere que `.senha-vault` não existe no runner antes de validar: sem
+isso, um dia em que a senha vazasse para o ambiente faria o critério passar por
+acidente. Ver [infraestrutura.md](infraestrutura.md).
 
 ### Por que o cancelamento automático não vale para a main
 

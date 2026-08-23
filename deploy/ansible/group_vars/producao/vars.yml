@@ -42,12 +42,19 @@ usuario_esteira: stacktrack-deploy
 # role `acesso_esteira` avisa e NÃO instala chave nenhuma, deixando o acesso
 # antigo funcionando.
 #
-#   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy
+#   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
 #
 # A pública vai aqui; a privada vira o secret VPS_SSH_KEY do GitHub. Não
 # reaproveitar a do agendaGo: uma chave que abre os dois projetos faz o
 # comprometimento de um ser o comprometimento do outro.
-esteira_chave_publica: ''
+#
+# Sem passphrase de propósito: quem a usa é o GitHub Actions, que não tem como
+# digitar uma. O que limita o estrago não é a senha da chave — é o comando
+# forçado do outro lado.
+esteira_chave_publica: >-
+  ssh-ed25519
+  AAAAC3NzaC1lZDI1NTE5AAAAIB7HEidAXJSz86YOaV2jxVAIMcVyqHAcxJc2AydOSflp
+  github-actions-stacktrack
 
 pasta_base: /home/{{ usuario_app }}
 pasta_stack: '{{ pasta_base }}/stacktrack'

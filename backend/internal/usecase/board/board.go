@@ -56,7 +56,16 @@ type ColunaComCards struct {
 
 // Detalhado é o quadro inteiro: dados, papel de quem pediu e o conteúdo.
 type Detalhado struct {
-	Board   board.Board
+	Board board.Board
+	// Revisao é a posição do quadro na própria história, no instante em que
+	// este snapshot foi lido.
+	//
+	// É o que o cliente devolve ao WebSocket (`?revisao=N`) para pedir o que
+	// aconteceu depois. Vem da MESMA leitura que montou o estado: um número
+	// lido fora do instantâneo descreveria um quadro diferente do entregue, e o
+	// cliente aplicaria os eventos seguintes por cima de um estado errado sem
+	// nunca descobrir.
+	Revisao int64
 	Papel   membro.Papel
 	Colunas []ColunaComCards
 	// Publico informa se existe link público ligado. Vai para TODO membro, e
@@ -69,8 +78,12 @@ type Detalhado struct {
 
 // CardDetalhado é o que o modal do card mostra: o card e tudo que pende dele.
 type CardDetalhado struct {
-	Card         card.Card
-	BoardID      string
+	Card    card.Card
+	BoardID string
+	// Revisao carimba o modal com a posição exata do quadro no mesmo
+	// instantâneo em que card e agregados foram lidos. O cliente só pode
+	// confirmar um evento depois de quadro e modal alcançarem essa posição.
+	Revisao      int64
 	Responsaveis []Responsavel
 	Etiquetas    []etiqueta.Etiqueta
 	Checklists   []ChecklistComItens

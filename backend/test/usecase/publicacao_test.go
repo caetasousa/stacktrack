@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"stacktrack/internal/domain/evento"
 	dmembro "stacktrack/internal/domain/membro"
 	dpublicacao "stacktrack/internal/domain/publicacao"
 	ucboard "stacktrack/internal/usecase/board"
@@ -112,6 +113,53 @@ func TestPublicarDuasVezesDevolveOMesmoLink(t *testing.T) {
 	}
 }
 
+func TestPublicarERevogarIdempotentesNaoCriamEventoOuRevisaoFantasma(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Roadmap")
+	atomica := &escritaAtomicaFalsa{repos: escritaDoQuadro(q)}
+	espiao := &publicadorEspiao{}
+	q.publicacao.ComEscritaAtomica(atomica)
+	q.publicacao.ComPublicador(espiao)
+
+	primeira, err := q.publicacao.Publicar(context.Background(), boardID, "ana")
+	if err != nil {
+		t.Fatalf("primeira publicação: %v", err)
+	}
+	segunda, err := q.publicacao.Publicar(context.Background(), boardID, "ana")
+	if err != nil {
+		t.Fatalf("publicação idempotente: %v", err)
+	}
+	if segunda.Token != primeira.Token {
+		t.Fatal("a publicação idempotente trocou o token")
+	}
+	if len(atomica.registrados) != 1 || len(espiao.entregues) != 1 {
+		t.Fatalf("publicar duas vezes gerou eventos persistidos=%d publicados=%d", len(atomica.registrados), len(espiao.entregues))
+	}
+	if atomica.registrados[0].Tipo != evento.QuadroPublicado || atomica.registrados[0].Dados != nil {
+		t.Fatalf("evento de publicação = %#v; esperado tipo próprio e payload vazio", atomica.registrados[0])
+	}
+	if atomica.proximaRevisao != 1 {
+		t.Fatalf("revisão depois da publicação idempotente = %d, esperado 1", atomica.proximaRevisao)
+	}
+
+	if err := q.publicacao.Revogar(context.Background(), boardID, "ana"); err != nil {
+		t.Fatalf("primeira revogação: %v", err)
+	}
+	if err := q.publicacao.Revogar(context.Background(), boardID, "ana"); err != nil {
+		t.Fatalf("revogação idempotente: %v", err)
+	}
+	if len(atomica.registrados) != 2 || len(espiao.entregues) != 2 {
+		t.Fatalf("revogar duas vezes gerou eventos persistidos=%d publicados=%d", len(atomica.registrados), len(espiao.entregues))
+	}
+	ultimo := atomica.registrados[1]
+	if ultimo.Tipo != evento.QuadroPublicacaoRevogada || ultimo.Dados != nil {
+		t.Fatalf("evento de revogação = %#v; esperado tipo próprio e payload vazio", ultimo)
+	}
+	if atomica.proximaRevisao != 2 {
+		t.Fatalf("revisão depois da revogação idempotente = %d, esperado 2", atomica.proximaRevisao)
+	}
+}
+
 func TestTokensDeQuadrosDiferentesNaoSeRepetem(t *testing.T) {
 	q := novoQuadro()
 	um := q.publicar(t, q.criarQuadro(t, "ana", "Um"), "ana")
@@ -201,6 +249,28 @@ func TestQuadroNaoPublicadoNaoAbrePorTokenNenhum(t *testing.T) {
 		if _, err := q.publicacao.Ver(context.Background(), token); !errors.Is(err, dpublicacao.ErrNaoEncontrada) {
 			t.Errorf("token %q: erro = %v, esperado link inválido", token, err)
 		}
+	}
+}
+
+func TestVerPublicoValidaOTokenDentroDoInstantaneo(t *testing.T) {
+	q := novoQuadro()
+	boardID := q.criarQuadro(t, "ana", "Roadmap")
+	token := q.publicar(t, boardID, "ana")
+	usouInstantaneo := false
+	q.publicacao.ComInstantaneo(&instantaneoInterceptado{
+		leitura: escritaDoQuadro(q),
+		antes: func() {
+			usouInstantaneo = true
+			_ = q.publicacoes.Remover(context.Background(), boardID)
+		},
+	})
+
+	_, err := q.publicacao.Ver(context.Background(), token)
+	if !errors.Is(err, dpublicacao.ErrNaoEncontrada) {
+		t.Fatalf("erro = %v, esperado link revogado no início do snapshot", err)
+	}
+	if !usouInstantaneo {
+		t.Fatal("a projeção pública ignorou o InstantaneoConsistente")
 	}
 }
 

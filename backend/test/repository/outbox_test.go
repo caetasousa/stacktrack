@@ -14,7 +14,9 @@ package repository_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"stacktrack/internal/adapter/repository"
 	"stacktrack/internal/domain/card"
@@ -24,6 +26,23 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func novoQuadroUseCaseComTransacao() *ucboard.QuadroUseCase {
+	uc := ucboard.NovoQuadroUseCase(
+		repository.NovoBoardPostgres(pool),
+		repository.NovoMembroPostgres(pool),
+		repository.NovoColunaPostgres(pool),
+		repository.NovoCardPostgres(pool),
+		repository.NovoEtiquetaPostgres(pool),
+		repository.NovoChecklistPostgres(pool),
+		repository.NovoAnexoPostgres(pool),
+		repository.NovoResponsavelPostgres(pool),
+		repository.NovoComentarioPostgres(pool),
+		nil,
+	)
+	uc.ComEscritaAtomica(novaUnidade(3 * time.Second))
+	return uc
+}
 
 // contarEventos diz quantos eventos o quadro tem no log.
 func contarEventos(t *testing.T, boardID string) int {
@@ -49,18 +68,24 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 
 	antes := contarEventos(t, boardID)
 
-	unidade := repository.NovaUnidadeDeTrabalho(pool)
+	unidade := novaUnidade(3 * time.Second)
 	c.Mover(colunaID, "t")
 	e := evento.Novo(evento.CardMovido, boardID, usuarioID, c)
 
-	seq, err := unidade.Escrever(ctx, e, func(esc ucboard.Escrita) error {
+	carimbado, err := unidade.Escrever(ctx, e, func(esc ucboard.Escrita) error {
 		return esc.Cards.Atualizar(ctx, c)
 	})
 	if err != nil {
 		t.Fatalf("escrever: %v", err)
 	}
-	if seq == 0 {
+	// O evento volta CARIMBADO com os dois números. Devolver só o seq era o
+	// defeito que deixava o evento entregue ao vivo sem revisão, com o log
+	// perfeitamente correto — ver test/usecase.TestEventoPublicadoCarregaARevisao.
+	if carimbado.Seq == 0 {
 		t.Error("o banco não atribuiu seq ao evento")
+	}
+	if carimbado.Revisao == 0 {
+		t.Error("a transação não devolveu a revisão: quem publica não teria como carimbar o evento ao vivo")
 	}
 
 	// O dado mudou...
@@ -74,6 +99,62 @@ func TestUnidadeDeTrabalhoGravaCardEEventoJuntos(t *testing.T) {
 	// ...e o evento existe.
 	if depois := contarEventos(t, boardID); depois != antes+1 {
 		t.Errorf("eventos: antes %d, depois %d — esperado exatamente um a mais", antes, depois)
+	}
+}
+
+// Criar um quadro é a única mutação cujo lock ainda não existe quando a
+// transação começa. Mesmo assim quadro, dono, revisão e evento precisam nascer
+// juntos: a unidade relê a linha depois de a mudança inseri-la e então reserva a
+// revisão inicial.
+func TestCriarQuadroGravaDonoEEventoNoMesmoCommit(t *testing.T) {
+	ctx := context.Background()
+	usuarioID, _ := contaDeTeste(t, "Dona")
+
+	b, err := novoQuadroUseCaseComTransacao().Criar(ctx, usuarioID, "Quadro atômico")
+	if err != nil {
+		t.Fatalf("criar quadro: %v", err)
+	}
+
+	var revisao int64
+	if err := pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, b.ID).Scan(&revisao); err != nil {
+		t.Fatalf("ler revisão: %v", err)
+	}
+	if revisao != 1 {
+		t.Errorf("revisão = %d, esperado 1", revisao)
+	}
+
+	var membros, eventos int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM board_membros WHERE board_id = $1 AND usuario_id = $2`,
+		b.ID, usuarioID,
+	).Scan(&membros); err != nil {
+		t.Fatalf("contar dono: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM board_events WHERE board_id = $1 AND tipo = $2 AND revisao = 1`,
+		b.ID, evento.QuadroCriado,
+	).Scan(&eventos); err != nil {
+		t.Fatalf("contar evento: %v", err)
+	}
+	if membros != 1 || eventos != 1 {
+		t.Errorf("membros = %d, eventos = %d; esperado 1 e 1", membros, eventos)
+	}
+}
+
+func TestFalhaAoCriarDonoDesfazOQuadro(t *testing.T) {
+	ctx := context.Background()
+	titulo := "órfão-" + uuid.NewString()
+
+	if _, err := novoQuadroUseCaseComTransacao().Criar(ctx, uuid.NewString(), titulo); err == nil {
+		t.Fatal("criação com usuário inexistente deveria falhar pela chave estrangeira")
+	}
+
+	var quadros int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM boards WHERE titulo = $1`, titulo).Scan(&quadros); err != nil {
+		t.Fatalf("contar quadros: %v", err)
+	}
+	if quadros != 0 {
+		t.Errorf("sobrou %d quadro sem dono depois do rollback", quadros)
 	}
 }
 
@@ -93,7 +174,7 @@ func TestFalhaNaMudancaNaoDeixaEventoOrfao(t *testing.T) {
 
 	antes := contarEventos(t, boardID)
 
-	unidade := repository.NovaUnidadeDeTrabalho(pool)
+	unidade := novaUnidade(3 * time.Second)
 	e := evento.Novo(evento.CardMovido, boardID, usuarioID, c)
 	quebrou := errors.New("a mudança falhou")
 
@@ -125,7 +206,7 @@ func TestFalhaAoGravarEventoDesfazAMudanca(t *testing.T) {
 		t.Fatalf("salvar card: %v", err)
 	}
 
-	unidade := repository.NovaUnidadeDeTrabalho(pool)
+	unidade := novaUnidade(3 * time.Second)
 	c.Mover(colunaID, "t")
 	// Quadro que não existe: o INSERT em board_events vai bater na FK.
 	e := evento.Novo(evento.CardMovido, uuid.NewString(), usuarioID, c)
@@ -144,5 +225,86 @@ func TestFalhaAoGravarEventoDesfazAMudanca(t *testing.T) {
 	if gravado.Chave != ordem.ChaveInicial {
 		t.Errorf("chave = %q, esperado %q: o UPDATE não foi desfeito quando o evento falhou",
 			gravado.Chave, ordem.ChaveInicial)
+	}
+}
+
+func TestPublicacaoIdempotenteNaoAvancaRevisaoNemDuplicaEvento(t *testing.T) {
+	ctx := context.Background()
+	boardID, _, usuarioID := cenario(t)
+	publicacoes := repository.NovoPublicacaoPostgres(pool)
+	uc := ucboard.NovoPublicacaoUseCase(
+		publicacoes,
+		repository.NovoMembroPostgres(pool),
+		repository.NovoBoardPostgres(pool),
+		repository.NovoColunaPostgres(pool),
+		repository.NovoCardPostgres(pool),
+		repository.NovoEtiquetaPostgres(pool),
+		repository.NovoChecklistPostgres(pool),
+	)
+	uc.ComEscritaAtomica(novaUnidade(3 * time.Second))
+
+	primeira, err := uc.Publicar(ctx, boardID, usuarioID)
+	if err != nil {
+		t.Fatalf("publicar: %v", err)
+	}
+	var revisaoPublicada int64
+	if err := pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, boardID).Scan(&revisaoPublicada); err != nil {
+		t.Fatalf("ler revisão publicada: %v", err)
+	}
+	if _, err := uc.Publicar(ctx, boardID, usuarioID); err != nil {
+		t.Fatalf("repetir publicação: %v", err)
+	}
+	var revisaoDepoisDaRepeticao int64
+	if err := pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, boardID).Scan(&revisaoDepoisDaRepeticao); err != nil {
+		t.Fatalf("reler revisão: %v", err)
+	}
+	if revisaoDepoisDaRepeticao != revisaoPublicada {
+		t.Fatalf("publicação idempotente avançou revisão: %d -> %d", revisaoPublicada, revisaoDepoisDaRepeticao)
+	}
+
+	var eventosPublicacao int
+	var payload string
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*), COALESCE(max(payload::text), '') FROM board_events WHERE board_id = $1 AND tipo = $2`,
+		boardID, evento.QuadroPublicado,
+	).Scan(&eventosPublicacao, &payload); err != nil {
+		t.Fatalf("ler evento de publicação: %v", err)
+	}
+	if eventosPublicacao != 1 {
+		t.Fatalf("eventos de publicação = %d, esperado 1", eventosPublicacao)
+	}
+	if strings.Contains(payload, primeira.Token) {
+		t.Fatal("o token secreto vazou no payload do evento")
+	}
+
+	if err := uc.Revogar(ctx, boardID, usuarioID); err != nil {
+		t.Fatalf("revogar: %v", err)
+	}
+	var revisaoRevogada int64
+	if err := pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, boardID).Scan(&revisaoRevogada); err != nil {
+		t.Fatalf("ler revisão revogada: %v", err)
+	}
+	if err := uc.Revogar(ctx, boardID, usuarioID); err != nil {
+		t.Fatalf("repetir revogação: %v", err)
+	}
+	var revisaoFinal int64
+	if err := pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, boardID).Scan(&revisaoFinal); err != nil {
+		t.Fatalf("ler revisão final: %v", err)
+	}
+	if revisaoFinal != revisaoRevogada {
+		t.Fatalf("revogação idempotente avançou revisão: %d -> %d", revisaoRevogada, revisaoFinal)
+	}
+	if revisaoRevogada != revisaoPublicada+1 {
+		t.Fatalf("revogação real avançou de %d para %d, esperado +1", revisaoPublicada, revisaoRevogada)
+	}
+	var eventosRevogacao int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM board_events WHERE board_id = $1 AND tipo = $2`,
+		boardID, evento.QuadroPublicacaoRevogada,
+	).Scan(&eventosRevogacao); err != nil {
+		t.Fatalf("contar revogações: %v", err)
+	}
+	if eventosRevogacao != 1 {
+		t.Fatalf("eventos de revogação = %d, esperado 1", eventosRevogacao)
 	}
 }

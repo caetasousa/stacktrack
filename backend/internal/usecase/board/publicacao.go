@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	dboard "stacktrack/internal/domain/board"
@@ -9,6 +10,7 @@ import (
 	"stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/cor"
 	"stacktrack/internal/domain/etiqueta"
+	"stacktrack/internal/domain/evento"
 	dpublicacao "stacktrack/internal/domain/publicacao"
 	"stacktrack/internal/pkg/token"
 )
@@ -18,19 +20,27 @@ import (
 //
 // É um usecase SEPARADO do QuadroUseCase, e a separação é o ponto. Ver é a
 // única coisa que o caminho público faz, e ele não tem como fazer outra: este
-// tipo não recebe repositório de comentário, de anexo, de responsável nem de
-// evento, então nenhuma alteração futura consegue, por descuido, pendurar aqui
-// uma escrita ou um dado de pessoa. A garantia é a lista de dependências, não a
-// disciplina de quem mexer depois.
+// tipo não recebe repositório de comentário, de anexo nem de responsável, então
+// nenhuma alteração futura consegue, por descuido, pendurar aqui um dado de
+// pessoa. Os eventos de publicar/revogar carregam payload vazio. A garantia é a
+// lista de dependências, não a disciplina de quem mexer depois.
 type PublicacaoUseCase struct {
+	eventos
 	publicacoes RepositorioPublicacao
 	membros     RepositorioMembro
 	boards      RepositorioBoard
 	colunas     RepositorioColuna
 	cards       RepositorioCard
-	etiquetas   repositorioEtiqueta
-	checklists  repositorioChecklist
+	etiquetas   RepositorioEtiqueta
+	checklists  RepositorioChecklist
+	instantaneo InstantaneoConsistente
 }
+
+// errPublicacaoSemMudanca aborta a unidade de trabalho quando a intenção já
+// vale. O rollback desfaz também a revisão que a UoW reservou antes de executar
+// o callback; tratar o caso como sucesso dentro do callback gravaria um evento
+// e avançaria a revisão sem mudança alguma.
+var errPublicacaoSemMudanca = errors.New("a publicação já está no estado solicitado")
 
 // NovoPublicacaoUseCase cria uma instância de PublicacaoUseCase com as
 // dependências injetadas.
@@ -40,8 +50,8 @@ func NovoPublicacaoUseCase(
 	boards RepositorioBoard,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
-	etiquetas repositorioEtiqueta,
-	checklists repositorioChecklist,
+	etiquetas RepositorioEtiqueta,
+	checklists RepositorioChecklist,
 ) *PublicacaoUseCase {
 	return &PublicacaoUseCase{
 		publicacoes: publicacoes, membros: membros, boards: boards,
@@ -54,10 +64,30 @@ func NovoPublicacaoUseCase(
 // entregá-lo a um leitor seria deixá-lo publicar o quadro por conta própria,
 // repassando o que recebeu.
 func (uc *PublicacaoUseCase) Atual(ctx context.Context, boardID, usuarioID string) (*dpublicacao.Publicacao, error) {
-	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
+	var atual *dpublicacao.Publicacao
+	montar := func(l Leitura) error {
+		if _, err := acessoDeAdministracao(ctx, l.Membros, boardID, usuarioID); err != nil {
+			return err
+		}
+		var err error
+		atual, err = l.Publicacoes.BuscarPorBoard(ctx, boardID)
+		return err
+	}
+	if uc.instantaneo != nil {
+		if err := uc.instantaneo.Executar(ctx, montar); err != nil {
+			return nil, err
+		}
+	} else if err := montar(Leitura{Membros: uc.membros, Publicacoes: uc.publicacoes}); err != nil {
 		return nil, err
 	}
-	return uc.publicacoes.BuscarPorBoard(ctx, boardID)
+	return atual, nil
+}
+
+// ComInstantaneo liga a leitura consistente usada ao devolver o token ao dono.
+// Participação e publicação precisam vir do mesmo estado: sem isso, um ex-dono
+// poderia receber um token criado depois de sua remoção entre as duas consultas.
+func (uc *PublicacaoUseCase) ComInstantaneo(i InstantaneoConsistente) {
+	uc.instantaneo = i
 }
 
 // Publicar liga o link público do quadro e devolve a publicação. Exige papel de
@@ -71,14 +101,6 @@ func (uc *PublicacaoUseCase) Publicar(ctx context.Context, boardID, usuarioID st
 		return nil, err
 	}
 
-	existente, err := uc.publicacoes.BuscarPorBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if existente != nil {
-		return existente, nil
-	}
-
 	// crypto/rand com 256 bits, o mesmo token de sessão: esta URL é a
 	// credencial inteira de quem a possui, e um gerador previsível deixaria
 	// adivinhar o quadro dos outros a partir do próprio.
@@ -90,10 +112,31 @@ func (uc *PublicacaoUseCase) Publicar(ctx context.Context, boardID, usuarioID st
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.publicacoes.Salvar(ctx, p); err != nil {
+	resultado := p
+	// Payload nil é uma decisão de segurança, não falta de informação: o tipo
+	// basta para auditoria e o token jamais deve entrar no log/replay/WebSocket.
+	err = uc.escreverEPublicar(ctx, evento.QuadroPublicado, boardID, usuarioID, nil,
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			existente, err := e.Publicacoes.BuscarPorBoard(ctx, boardID)
+			if err != nil {
+				return err
+			}
+			if existente != nil {
+				resultado = existente
+				return errPublicacaoSemMudanca
+			}
+			return e.Publicacoes.Salvar(ctx, p)
+		})
+	if errors.Is(err, errPublicacaoSemMudanca) {
+		return resultado, nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	return p, nil
+	return resultado, nil
 }
 
 // Revogar desliga o link público. Exige papel de administração (dono).
@@ -105,7 +148,24 @@ func (uc *PublicacaoUseCase) Revogar(ctx context.Context, boardID, usuarioID str
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
-	return uc.publicacoes.Remover(ctx, boardID)
+	err := uc.escreverEPublicar(ctx, evento.QuadroPublicacaoRevogada, boardID, usuarioID, nil,
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			existente, err := e.Publicacoes.BuscarPorBoard(ctx, boardID)
+			if err != nil {
+				return err
+			}
+			if existente == nil {
+				return errPublicacaoSemMudanca
+			}
+			return e.Publicacoes.Remover(ctx, boardID)
+		})
+	if errors.Is(err, errPublicacaoSemMudanca) {
+		return nil
+	}
+	return err
 }
 
 // Ver devolve o quadro a quem chega pelo link público, SEM sessão nenhuma.
@@ -118,43 +178,59 @@ func (uc *PublicacaoUseCase) Ver(ctx context.Context, tokenDoLink string) (*Quad
 	if tokenDoLink == "" {
 		return nil, dpublicacao.ErrNaoEncontrada
 	}
-	p, err := uc.publicacoes.BuscarPorToken(ctx, tokenDoLink)
-	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, dpublicacao.ErrNaoEncontrada
+
+	var (
+		p                *dpublicacao.Publicacao
+		b                *dboard.Board
+		listaColunas     []coluna.Coluna
+		listaCards       []card.Card
+		etiquetasPorCard map[string][]string
+		etiquetasDoBoard []etiqueta.Etiqueta
+		progressoPorCard map[string]Progresso
+	)
+	montar := func(l Leitura) error {
+		var err error
+		// O token abre o mesmo snapshot que fornecerá o conteúdo. Se uma
+		// revogação comitar antes desta leitura, nada sai; se comitar depois, a
+		// resposta inteira ainda é linearizável no instante em que o link valia.
+		if p, err = l.Publicacoes.BuscarPorToken(ctx, tokenDoLink); err != nil {
+			return err
+		}
+		if p == nil {
+			return dpublicacao.ErrNaoEncontrada
+		}
+		if b, err = l.Boards.BuscarPorID(ctx, p.BoardID); err != nil {
+			return err
+		}
+		if b == nil {
+			// Publicação sem quadro só acontece com o CASCADE fora do ar. Para
+			// quem tem o link, quadro apagado e link inválido são iguais.
+			return dpublicacao.ErrNaoEncontrada
+		}
+		if listaColunas, err = l.Colunas.ListarDoBoard(ctx, p.BoardID); err != nil {
+			return err
+		}
+		if listaCards, err = l.Cards.ListarDoBoard(ctx, p.BoardID); err != nil {
+			return err
+		}
+		if etiquetasPorCard, err = l.Etiquetas.EtiquetasDoBoardPorCard(ctx, p.BoardID); err != nil {
+			return err
+		}
+		if etiquetasDoBoard, err = l.Etiquetas.ListarDoBoard(ctx, p.BoardID); err != nil {
+			return err
+		}
+		progressoPorCard, err = l.Checklists.ProgressoDoBoard(ctx, p.BoardID)
+		return err
 	}
 
-	b, err := uc.boards.BuscarPorID(ctx, p.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	if b == nil {
-		// Publicação sem quadro só acontece com o CASCADE fora do ar. Responder
-		// "não encontrada" é o certo: para quem tem o link, o quadro apagado e o
-		// link inválido são a mesma coisa.
-		return nil, dpublicacao.ErrNaoEncontrada
-	}
-
-	listaColunas, err := uc.colunas.ListarDoBoard(ctx, p.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	listaCards, err := uc.cards.ListarDoBoard(ctx, p.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	etiquetasPorCard, err := uc.etiquetas.EtiquetasDoBoardPorCard(ctx, p.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(ctx, p.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	progressoPorCard, err := uc.checklists.ProgressoDoBoard(ctx, p.BoardID)
-	if err != nil {
+	if uc.instantaneo != nil {
+		if err := uc.instantaneo.Executar(ctx, montar); err != nil {
+			return nil, err
+		}
+	} else if err := montar(Leitura{
+		Publicacoes: uc.publicacoes, Boards: uc.boards, Colunas: uc.colunas,
+		Cards: uc.cards, Etiquetas: uc.etiquetas, Checklists: uc.checklists,
+	}); err != nil {
 		return nil, err
 	}
 

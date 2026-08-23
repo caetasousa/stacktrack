@@ -150,6 +150,7 @@ type AnexoResponse struct {
 type CardDetalhadoResponse struct {
 	CardResponse
 	BoardID         string               `json:"boardId"`
+	Revisao         int64                `json:"revisao"`
 	EtiquetasDoCard []EtiquetaResponse   `json:"etiquetasDoCard"`
 	Checklists      []ChecklistResponse  `json:"checklists"`
 	Anexos          []AnexoResponse      `json:"anexos"`
@@ -234,14 +235,14 @@ func (r PrazoRequest) Validar() error { return nil }
 // Vazio significa ponta: sem anterior é o topo, sem próximo é o fim.
 type MoverRequest struct {
 	// ColunaID só vale para card, e vazio significa "mesma coluna".
-	ColunaID   string `json:"colunaId"`
-	AnteriorID string `json:"anteriorId"`
-	ProximoID  string `json:"proximoId"`
+	ColunaID   string `json:"colunaId" validate:"omitempty,uuid"`
+	AnteriorID string `json:"anteriorId" validate:"omitempty,uuid"`
+	ProximoID  string `json:"proximoId" validate:"omitempty,uuid"`
 }
 
-// Validar não tem o que checar: os três campos são opcionais, e quem confere se
-// os ids existem e pertencem ao lugar certo é o usecase.
-func (r MoverRequest) Validar() error { return nil }
+// Validar confere a forma dos ids. Existência e pertencimento continuam no
+// usecase; sintaxe inválida não deve chegar ao PostgreSQL e virar 500.
+func (r MoverRequest) Validar() error { return validate.Struct(r) }
 
 // EtiquetaRequest é o corpo de criar e editar etiqueta.
 type EtiquetaRequest struct {
@@ -311,8 +312,12 @@ type ColunaResponse struct {
 type BoardDetalhadoResponse struct {
 	ID     string `json:"id"`
 	Titulo string `json:"titulo"`
-	Papel  string `json:"papel"`
-	Fundo  string `json:"fundo"`
+	// Revisao é a posição deste snapshot na história do quadro. A tela a
+	// devolve ao WebSocket em `?revisao=N` para pedir o que aconteceu depois —
+	// sem ela, a conexão teria de recomeçar do zero ou adivinhar o intervalo.
+	Revisao int64  `json:"revisao"`
+	Papel   string `json:"papel"`
+	Fundo   string `json:"fundo"`
 	// Publico avisa que existe link público ligado. Vai para todo membro, e não
 	// só para o dono: quem digita num card precisa saber que aquilo está à vista
 	// de fora ANTES de digitar. O token do link não vem aqui — ele é do dono, e

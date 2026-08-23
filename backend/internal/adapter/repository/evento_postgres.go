@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // EventoPostgres é o log de eventos de cada quadro — o outbox.
@@ -23,24 +23,23 @@ import (
 //     buraco ali é invisível: o cliente que reconecta pediria "desde o 41",
 //     receberia o 43 e nunca saberia que o 42 existiu.
 //
-//   - Registrar grava sozinho, fora de transação. Serve para os eventos que
-//     são apenas um AVISO de "recarregue o quadro" (etiqueta, checklist,
-//     anexo). Perder um deles não deixa buraco perceptível: qualquer evento
-//     seguinte, ou a própria reconexão, manda a tela buscar tudo de novo.
+//   - Registrar grava sozinho, fora de transação. Permanece como porta de
+//     compatibilidade para testes e adaptadores sem unidade de trabalho; as
+//     mutações de produção usam RegistrarNaTransacao.
 type EventoPostgres struct {
-	pool *pgxpool.Pool
+	pool Fonte
 }
 
 // NovoEventoPostgres cria o repositório do log sobre o pool informado.
-func NovoEventoPostgres(pool *pgxpool.Pool) *EventoPostgres {
+func NovoEventoPostgres(pool Fonte) *EventoPostgres {
 	return &EventoPostgres{pool: pool}
 }
 
 // RegistrarNaTransacao grava o evento usando a transação recebida e devolve o
 // seq atribuído pelo banco.
 //
-// O seq volta porque é ele que o cliente guarda para pedir o próximo intervalo
-// — um evento entregue sem seq não pode ser retomado depois.
+// O seq volta como identidade global e para compatibilidade com o protocolo
+// legado. O cursor novo é a revisão do quadro.
 func (r *EventoPostgres) RegistrarNaTransacao(ctx context.Context, tx pgx.Tx, e evento.Evento) (int64, error) {
 	corpo, err := json.Marshal(e.Dados)
 	if err != nil {
@@ -48,10 +47,12 @@ func (r *EventoPostgres) RegistrarNaTransacao(ctx context.Context, tx pgx.Tx, e 
 	}
 	var seq int64
 	err = tx.QueryRow(ctx,
-		`INSERT INTO board_events (board_id, card_id, tipo, payload, autor_id, criado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING seq`,
+		`INSERT INTO board_events
+		     (board_id, card_id, tipo, payload, autor_id, criado_em, revisao, indice, quantidade)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING seq`,
 		e.BoardID, vazioParaNulo(e.CardID), string(e.Tipo), corpo,
 		vazioParaNulo(e.AutorID), e.OcorridoEm,
+		zeroParaNulo(e.Revisao), e.Indice, e.Quantidade,
 	).Scan(&seq)
 	return seq, err
 }
@@ -77,8 +78,7 @@ func (r *EventoPostgres) Registrar(ctx context.Context, e evento.Evento) (int64,
 // servidor a montaria inteira em memória para entregá-la. Quando o intervalo é
 // grande demais, o cliente recarrega tudo — que é mais barato e sempre certo.
 func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error) {
-	linhas, err := r.pool.Query(ctx,
-		`SELECT seq, tipo, payload, autor_id, criado_em
+	linhas, err := r.pool.Query(ctx, `SELECT `+camposDeReplay+`
 		   FROM board_events
 		  WHERE board_id = $1 AND seq > $2
 		  ORDER BY seq
@@ -87,6 +87,65 @@ func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, l
 	if err != nil {
 		return nil, err
 	}
+	return lerEventosDeReplay(linhas, boardID)
+}
+
+// camposDeReplay é a lista lida pelos dois caminhos de replay. Uma constante,
+// e não duas listas iguais, porque uma coluna nova esquecida em um dos dois
+// produziria eventos com metade dos campos zerados — e zerado, aqui, significa
+// "sem revisão", que o cliente trata como motivo para recarregar tudo.
+const camposDeReplay = `seq, card_id, tipo, payload, autor_id, criado_em, revisao, indice, quantidade`
+
+// DesdeRevisao devolve os eventos do quadro posteriores à revisão informada,
+// em ordem de (revisão, índice).
+//
+// É o replay do protocolo novo, e a diferença para Desde não é de gosto: `seq`
+// registra a ordem de ALOCAÇÃO do número, não a de commit, então um cliente que
+// avance o cursor por seq pode pular para sempre um evento que comitou tarde.
+// A revisão é atribuída sob o lock do quadro e não tem esse buraco.
+//
+// O limite é aplicado em EVENTOS, e quem chama precisa cortar no fim de um
+// GRUPO: entregar meia revisão faria o cliente confirmar um estado que ele só
+// aplicou pela metade. Ver ws.repor.
+func (r *EventoPostgres) DesdeRevisao(ctx context.Context, boardID string, revisao int64, limite int) ([]evento.Evento, error) {
+	linhas, err := r.pool.Query(ctx, `SELECT `+camposDeReplay+`
+		   FROM board_events
+		  WHERE board_id = $1 AND revisao IS NOT NULL AND revisao > $2
+		  ORDER BY revisao, indice, seq
+		  LIMIT $3`, boardID, revisao, limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return lerEventosDeReplay(linhas, boardID)
+}
+
+// RevisaoAtual informa em que revisão o quadro está agora.
+//
+// Vem de `boards.revisao`, e não de `max(board_events.revisao)`: é a linha do
+// quadro que é incrementada sob o lock, e ela é a fonte da verdade. O máximo do
+// log daria o mesmo número no caso normal e um número ATRASADO durante uma
+// transação em curso, que é exatamente quando a resposta importa.
+//
+// Quadro sem revisão (linha anterior à migration, ou quadro sem mutação nenhuma)
+// devolve zero.
+func (r *EventoPostgres) RevisaoAtual(ctx context.Context, boardID string) (int64, error) {
+	var revisao *int64
+	err := r.pool.QueryRow(ctx, `SELECT revisao FROM boards WHERE id = $1`, boardID).Scan(&revisao)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if revisao == nil {
+		return 0, nil
+	}
+	return *revisao, nil
+}
+
+// lerEventosDeReplay converte as linhas em eventos. Fecha as linhas.
+func lerEventosDeReplay(linhas pgx.Rows, boardID string) ([]evento.Evento, error) {
 	defer linhas.Close()
 
 	eventos := make([]evento.Evento, 0)
@@ -94,13 +153,29 @@ func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, l
 		var e evento.Evento
 		var tipo string
 		var corpo []byte
-		var autor *string
-		if err := linhas.Scan(&e.Seq, &tipo, &corpo, &autor, &e.OcorridoEm); err != nil {
+		var cardID, autor *string
+		var revisao *int64
+		var indice, quantidade *int
+		if err := linhas.Scan(&e.Seq, &cardID, &tipo, &corpo, &autor, &e.OcorridoEm,
+			&revisao, &indice, &quantidade); err != nil {
 			return nil, err
 		}
 		e.Tipo = evento.Tipo(tipo)
 		e.BoardID = boardID
+		e.CardID = valorOuVazio(cardID)
 		e.AutorID = valorOuVazio(autor)
+		// Linha legada, gravada antes da revisão existir: os três campos vêm
+		// NULL. Zero é o valor certo — o cliente novo o lê como "sem revisão" e
+		// pede snapshot em vez de tentar encaixá-lo numa sequência.
+		if revisao != nil {
+			e.Revisao = *revisao
+		}
+		if indice != nil {
+			e.Indice = *indice
+		}
+		if quantidade != nil {
+			e.Quantidade = *quantidade
+		}
 		if len(corpo) > 0 {
 			// O payload volta como JSON cru: quem o consome é o cliente, e
 			// remontar o tipo Go aqui só para serializá-lo de novo seria

@@ -95,6 +95,28 @@ test('ana cria um card e bruno vê sem recarregar', async () => {
 	await expect(telaBruno.getByText(titulo)).toBeVisible();
 });
 
+// Este é o caso que o filtro por autor quebrava: o servidor via duas conexões
+// com o mesmo usuarioId e descartava o evento nas duas, supondo que "o autor já
+// atualizou a própria tela". Isso só é verdade na aba que enviou a mutação; a
+// outra não participou da requisição e depende do WebSocket como qualquer
+// colaborador.
+test('duas telas da mesma conta também convergem sem recarregar', async () => {
+	const segundaTelaDaAna = await abaAna.newPage();
+	await segundaTelaDaAna.goto(`/painel/quadros/${boardId}`);
+	await expect(segundaTelaDaAna.getByText('A fazer')).toBeVisible();
+
+	const titulo = `Mesmo usuário ${Date.now()}`;
+	await expect(segundaTelaDaAna.getByText(titulo)).toHaveCount(0);
+
+	const campo = telaAna.getByLabel('Título do novo card').first();
+	await campo.fill(titulo);
+	await campo.press('Enter');
+
+	await expect(telaAna.getByText(titulo)).toBeVisible();
+	await expect(segundaTelaDaAna.getByText(titulo)).toBeVisible();
+	await segundaTelaDaAna.close();
+});
+
 test('bruno cria uma coluna e ana vê sem recarregar', async () => {
 	const titulo = `Coluna do bruno ${Date.now()}`;
 

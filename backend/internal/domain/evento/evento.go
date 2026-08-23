@@ -40,8 +40,17 @@ const (
 	// como histórico: o log registrava que ALGO mudou, e nada mais. O tipo do
 	// evento é a identidade do que aconteceu, e um tipo genérico apaga essa
 	// identidade na hora de gravar — depois não há como recuperá-la.
+	QuadroCriado    Tipo = "quadro.criado"
 	QuadroRenomeado Tipo = "quadro.renomeado"
 	QuadroFundo     Tipo = "quadro.fundo"
+	// QuadroApagado é o único evento terminal e efêmero: o DELETE leva o log
+	// persistido por cascata, então ele só pode ser emitido depois do commit.
+	QuadroApagado Tipo = "quadro.apagado"
+	// Publicação é estado do quadro e participa da mesma revisão/outbox. O
+	// payload destes eventos é deliberadamente vazio: o token é uma credencial
+	// e nunca pode parar no log, no replay ou no WebSocket.
+	QuadroPublicado          Tipo = "quadro.publicado"
+	QuadroPublicacaoRevogada Tipo = "quadro.publicacao_revogada"
 
 	EtiquetaCriada   Tipo = "etiqueta.criada"
 	EtiquetaAlterada Tipo = "etiqueta.alterada"
@@ -66,13 +75,36 @@ const (
 	ComentarioEditado Tipo = "comentario.editado"
 	ComentarioApagado Tipo = "comentario.apagado"
 
-	// Dois tipos, e não um: quem ADICIONA alguém e quem ACEITA um convite são
-	// pessoas diferentes, e o autor do evento é diferente em cada caso. Com um
-	// tipo só, o de adicionar sairia sem autor — e a auditoria mostrava
-	// "conta removida entrou no quadro", que é uma frase falsa sobre um fato
-	// verdadeiro.
-	MembroAdicionado    Tipo = "membro.adicionado"
-	MembroEntrou        Tipo = "membro.entrou"
+	// MembroAdicionado descrevia o caminho em que o dono punha no quadro, na
+	// hora, alguém que já tinha conta. Esse caminho FOI REMOVIDO: conhecer um
+	// email não concede participação, e todo acesso passa por um convite que a
+	// pessoa aceita. Nenhum caminho novo produz este tipo — ele fica porque o
+	// log é append-only e as linhas antigas precisam continuar legíveis.
+	MembroAdicionado Tipo = "membro.adicionado"
+	MembroEntrou     Tipo = "membro.entrou"
+	// ConviteCriado e ConviteRevogado descrevem o CONVITE, não a participação:
+	// nesses dois instantes ninguém entrou nem saiu do quadro.
+	//
+	// Existem porque convidar e revogar viraram mutações com evento no mesmo
+	// commit (A2), e um evento precisa dizer o que aconteceu. Reaproveitar
+	// membro.entrou para "foi convidado" faria a auditoria afirmar que alguém
+	// entrou num quadro em que ela ainda não pôs os pés.
+	//
+	// O payload leva o email MASCARADO: o evento é lido por todo mundo que
+	// participa do quadro, e o endereço completo de um convidado que talvez
+	// nunca aceite não é informação que a auditoria precise carregar.
+	ConviteCriado   Tipo = "convite.criado"
+	ConviteRevogado Tipo = "convite.revogado"
+
+	// OrdenacaoReparada é emitido pelo comando de manutenção que redistribui
+	// chaves de ordenação duplicadas (ver usecase/board/reparo.go).
+	//
+	// É evento de mutação como qualquer outro, e não um aviso interno: o reparo
+	// muda a ordem do quadro, então quem está com ele aberto precisa
+	// reconciliar em vez de continuar vendo a ordem antiga. Fica no log com
+	// autor, que é o que permite explicar depois por que a ordem de um quadro
+	// mudou sozinha numa madrugada de terça-feira.
+	OrdenacaoReparada   Tipo = "ordenacao.reparada"
 	MembroPapelAlterado Tipo = "membro.papel"
 	MembroRemovido      Tipo = "membro.removido"
 
@@ -100,21 +132,47 @@ const (
 
 // Evento é uma coisa que aconteceu num quadro.
 //
-// AutorID existe para o cliente poder ignorar o próprio eco: quem arrastou o
-// card já moveu a tela na hora, e reaplicar o evento causaria um solavanco.
+// AutorID identifica quem causou a mudança. Ele alimenta a auditoria e permite
+// ao cliente coalescer a confirmação da própria mutação sem ocultar o evento
+// das outras abas e dispositivos da mesma conta.
 type Evento struct {
 	// Seq é a posição do evento na história do quadro, atribuída pelo banco.
 	//
-	// É o que torna a reconexão possível: o cliente guarda o último aplicado e
-	// pergunta "o que houve desde ele?". E é o que torna a reaplicação
-	// inofensiva — evento com seq menor ou igual ao último já visto é
-	// descartado, então receber o mesmo duas vezes não duplica nada.
+	// Continua no protocolo para identificar eventos e manter compatibilidade
+	// com clientes antigos. O cliente novo retoma e deduplica por Revisao.
 	//
 	// Zero significa "não registrado": presença não vai para o log, porque
 	// descreve o agora e não faz sentido reproduzir depois.
-	Seq     int64
-	Tipo    Tipo
-	BoardID string
+	//
+	// ⚠️ Seq NÃO é cursor de reconexão, embora tenha sido usado como um. Ele é
+	// BIGSERIAL, então registra a ordem de ALOCAÇÃO do número e não a de
+	// COMMIT: duas transações concorrentes pegam 42 e 43 nessa ordem e podem
+	// comitar na inversa. Quem usa o seq como cursor recebe o 43, avança para
+	// 43, e nunca mais vê o 42 — buraco silencioso e permanente. O cursor é
+	// Revisao. Seq permanece como identidade imutável e compatibilidade.
+	Seq int64
+	// Revisao é a posição do evento na história DAQUELE QUADRO.
+	//
+	// Diferente do seq, ela é atribuída sob o lock do quadro: só uma transação
+	// por vez a incrementa, então a ordem de numeração é a ordem de commit, e a
+	// sequência é contígua dentro do quadro. É por isso que ela pode ser cursor
+	// e o seq não.
+	//
+	// Zero significa "sem revisão" — evento efêmero (presença) ou linha legada,
+	// gravada antes de a revisão existir.
+	Revisao int64
+	// Indice é a posição do evento dentro da revisão, começando em zero.
+	// Quantidade é quantos eventos formam aquela revisão.
+	//
+	// Hoje toda mutação produz exatamente um evento, então o par é sempre
+	// (0, 1). Eles existem assim mesmo porque é o que permite ao cliente saber
+	// QUANDO o grupo está completo: confirmar uma revisão pela metade deixaria
+	// o cursor à frente do que foi realmente aplicado, e o que faltou nunca
+	// mais seria entregue.
+	Indice     int
+	Quantidade int
+	Tipo       Tipo
+	BoardID    string
 	// CardID diz a que card o evento pertence, quando pertence a algum.
 	//
 	// Existe para o histórico de um card ser lido por índice, e não varrendo o
@@ -132,9 +190,15 @@ type Evento struct {
 // Novo monta um evento carimbado com a hora em que aconteceu.
 func Novo(tipo Tipo, boardID, autorID string, dados any) Evento {
 	return Evento{
-		Tipo:       tipo,
-		BoardID:    boardID,
-		AutorID:    autorID,
+		Tipo:    tipo,
+		BoardID: boardID,
+		AutorID: autorID,
+		// Um evento por mutação é o desenho vigente, então o grupo nasce
+		// completo com um item só. Quando alguma mutação passar a produzir
+		// vários, quem os monta ajusta índice e quantidade — e o cliente já
+		// sabe esperar o grupo inteiro antes de confirmar a revisão.
+		Indice:     0,
+		Quantidade: 1,
 		OcorridoEm: time.Now(),
 		Dados:      dados,
 	}

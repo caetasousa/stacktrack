@@ -74,6 +74,21 @@ type DadosDoMembro struct {
 	PapelAnterior string `json:"papelAnterior,omitempty"`
 }
 
+// DadosDaManutencao é o payload dos eventos que NÃO têm pessoa por trás.
+//
+// Existe porque `board_events.autor_id` é UUID e aponta para uma conta, e uma
+// execução de manutenção não tem conta nenhuma. As três saídas possíveis eram:
+// inventar um UUID (que mentiria sobre quem mexeu no quadro), deixar o autor
+// vazio e nada mais (e a auditoria diria só "alguém reparou a ordenação"), ou
+// gravar a origem no payload. A terceira é a única honesta — o autor fica NULL,
+// que é a verdade, e a origem diz o que aconteceu.
+type DadosDaManutencao struct {
+	// Origem identifica o comando que rodou, ex.: "reparo-de-ordenacao".
+	Origem string `json:"origem,omitempty"`
+	// Containers é quantos contêineres foram redistribuídos naquele quadro.
+	Containers int `json:"containers,omitempty"`
+}
+
 // DadosDaColuna é o payload dos eventos de coluna.
 type DadosDaColuna struct {
 	ColunaID string `json:"colunaId,omitempty"`

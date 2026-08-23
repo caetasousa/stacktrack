@@ -54,6 +54,16 @@ type Board struct {
 	Fundo        string
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
+	// Revisao é quantas mutações confirmadas o quadro já teve.
+	//
+	// É o cursor do tempo real: o snapshot sai carimbado com ela, e o cliente
+	// pede ao WebSocket o que houve DEPOIS dela. Não é editável pelo domínio —
+	// quem a incrementa é a unidade de trabalho, sob o lock da linha, e é essa
+	// serialização que a torna contígua e na ordem de commit.
+	//
+	// Zero é o quadro que ainda não teve mutação numerada (recém-criado, ou
+	// anterior à migration que criou a coluna).
+	Revisao int64
 }
 
 // FundoEfetivo devolve o fundo a usar, resolvendo o vazio para o padrão. O

@@ -51,6 +51,8 @@ export interface Comentario {
 
 export interface CardDetalhado extends Card {
 	boardId: string;
+	/** Revisão do quadro coberta pelo snapshot transacional deste modal. */
+	revisao: number;
 	comentarios: Comentario[];
 	etiquetasDoCard: Etiqueta[];
 	checklists: Checklist[];

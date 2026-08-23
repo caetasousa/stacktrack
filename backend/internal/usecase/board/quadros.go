@@ -2,9 +2,11 @@ package board
 
 import (
 	"context"
+
 	dboard "stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/coluna"
+	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 
@@ -17,17 +19,23 @@ import (
 // nenhuma.
 type QuadroUseCase struct {
 	eventos
+	exclusoes
 	boards       RepositorioBoard
 	membros      RepositorioMembro
 	colunas      RepositorioColuna
 	cards        RepositorioCard
-	etiquetas    repositorioEtiqueta
-	checklists   repositorioChecklist
-	anexos       repositorioAnexo
+	etiquetas    RepositorioEtiqueta
+	checklists   RepositorioChecklist
+	anexos       RepositorioAnexo
 	responsaveis RepositorioResponsavel
 	comentarios  RepositorioComentario
 	// armazem existe só para a LIMPEZA do disco ao apagar. Ver limpeza.go.
 	armazem armazemDeArquivos
+	// instantaneo é a leitura consistente que monta o snapshot do quadro. Entra
+	// por ComInstantaneo, e não pelo construtor, pela mesma razão do publicador
+	// de eventos: sem ele o usecase funciona lendo pelos repositórios de
+	// sempre, que é o que os testes de regra querem.
+	instantaneo InstantaneoConsistente
 	// publicacoes serve APENAS para dizer se o quadro tem link público ligado.
 	// Entra por ComPublicacoes, e não pelo construtor, pela mesma razão do
 	// publicador de eventos: era um décimo primeiro parâmetro posicional em
@@ -60,9 +68,9 @@ func NovoQuadroUseCase(
 	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
-	etiquetas repositorioEtiqueta,
-	checklists repositorioChecklist,
-	anexos repositorioAnexo,
+	etiquetas RepositorioEtiqueta,
+	checklists RepositorioChecklist,
+	anexos RepositorioAnexo,
 	responsaveis RepositorioResponsavel,
 	comentarios RepositorioComentario,
 	armazem armazemDeArquivos,
@@ -74,28 +82,24 @@ func NovoQuadroUseCase(
 	}
 }
 
-// Criar cria um quadro e vincula quem criou como dono. Retorna os erros de
-// validação de título do domínio.
-//
-// O vínculo é gravado logo depois do quadro, e não numa transação com ele: se
-// a segunda gravação falhar, sobra um quadro sem dono nenhum — invisível para
-// todo mundo, inclusive para quem o criou, porque toda leitura passa pelo
-// vínculo. É lixo, não é risco, e a transação entra quando houver mais de uma
-// escrita que precise andar junto (a fase 7, com o evento no outbox).
+// Criar cria um quadro e vincula quem criou como dono no mesmo commit. Retorna
+// os erros de validação de título do domínio.
 func (uc *QuadroUseCase) Criar(ctx context.Context, usuarioID, titulo string) (*dboard.Board, error) {
 	b, err := dboard.Novo(uuid.NewString(), titulo)
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.boards.Salvar(ctx, b); err != nil {
-		return nil, err
-	}
-
 	vinculo, err := membro.Novo(b.ID, usuarioID, membro.PapelDono)
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.membros.Salvar(ctx, vinculo); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.QuadroCriado, b.ID, usuarioID,
+		DadosDoQuadro{Titulo: b.Titulo}, uc.escrita(), func(e Escrita) error {
+			if err := e.Boards.Salvar(ctx, b); err != nil {
+				return err
+			}
+			return e.Membros.Salvar(ctx, vinculo)
+		}); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -111,68 +115,112 @@ func (uc *QuadroUseCase) Listar(ctx context.Context, usuarioID string) ([]Resumo
 // dboard.ErrNaoEncontrado se o quadro não existir ou se o usuário não
 // participar dele.
 func (uc *QuadroUseCase) Detalhar(ctx context.Context, boardID, usuarioID string) (*Detalhado, error) {
-	vinculo, err := acesso(ctx, uc.membros, boardID, usuarioID)
-	if err != nil {
+	// TUDO abaixo roda sobre UM ÚNICO instantâneo do banco.
+	//
+	// São dez consultas para montar um quadro. Sob READ COMMITTED cada uma
+	// enxerga o banco no instante em que ela rodou, então uma escrita no meio da
+	// sequência aparece para as seguintes e não para as anteriores — e o
+	// snapshot devolvido descreve um estado que nunca existiu: card na lista de
+	// cards e ausente da contagem de comentários, coluna que sumiu deixando
+	// cards órfãos.
+	//
+	// Isso importa mais desde A3, porque o snapshot passou a sair CARIMBADO com
+	// uma revisão. Um estado incoerente carimbado como coerente faz o cliente
+	// aplicar os eventos seguintes por cima dele sem nunca descobrir que partiu
+	// errado.
+	var (
+		vinculo             *membro.Membro
+		b                   *dboard.Board
+		listaColunas        []coluna.Coluna
+		listaCards          []card.Card
+		etiquetasPorCard    map[string][]string
+		progressoPorCard    map[string]Progresso
+		anexosPorCard       map[string]int
+		responsaveisPorCard map[string][]Responsavel
+		comentariosPorCard  map[string]int
+		etiquetasDoBoard    []detiqueta.Etiqueta
+		publicado           bool
+	)
+
+	montar := func(l Leitura) error {
+		var err error
+		// A autorização faz parte do snapshot. Lê-la antes da transação podia
+		// combinar um papel antigo com uma revisão nova depois de uma remoção ou
+		// rebaixamento concorrente.
+		if vinculo, err = acesso(ctx, l.Membros, boardID, usuarioID); err != nil {
+			return err
+		}
+		if b, err = l.Boards.BuscarPorID(ctx, boardID); err != nil {
+			return err
+		}
+		if b == nil {
+			return dboard.ErrNaoEncontrado
+		}
+		if listaColunas, err = l.Colunas.ListarDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		if listaCards, err = l.Cards.ListarDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		// Os resumos vêm do banco numa consulta cada, e não card a card: a tela
+		// do quadro mostra selo de etiqueta, "2/5" de checklist e contagem de
+		// anexos em TODO card, e uma consulta por card seria um N+1 que piora
+		// justamente nos quadros grandes.
+		if etiquetasPorCard, err = l.Etiquetas.EtiquetasDoBoardPorCard(ctx, boardID); err != nil {
+			return err
+		}
+		if progressoPorCard, err = l.Checklists.ProgressoDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		if anexosPorCard, err = l.Anexos.ContarPorCardDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		if responsaveisPorCard, err = l.Responsaveis.DoBoardPorCard(ctx, boardID); err != nil {
+			return err
+		}
+		if comentariosPorCard, err = l.Comentarios.ContarPorCardDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		if etiquetasDoBoard, err = l.Etiquetas.ListarDoBoard(ctx, boardID); err != nil {
+			return err
+		}
+		// O aviso de publicação pertence ao snapshot e à revisão tanto quanto
+		// cards e colunas. Ler depois da transação podia devolver `Publico=true`
+		// com uma revisão anterior ao evento de publicação (ou o inverso),
+		// deixando a reconciliação confirmar uma combinação que nunca existiu.
+		if uc.publicacoes != nil {
+			p, err := l.Publicacoes.BuscarPorBoard(ctx, boardID)
+			if err != nil {
+				return err
+			}
+			publicado = p != nil
+		}
+		return nil
+	}
+
+	if uc.instantaneo != nil {
+		if err := uc.instantaneo.Executar(ctx, montar); err != nil {
+			return nil, err
+		}
+	} else if err := montar(uc.leitura()); err != nil {
 		return nil, err
 	}
 
-	b, err := uc.boards.BuscarPorID(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if b == nil {
-		return nil, dboard.ErrNaoEncontrado
-	}
-
-	listaColunas, err := uc.colunas.ListarDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	listaCards, err := uc.cards.ListarDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Os três resumos vêm do banco numa consulta cada, e não card a card: a
-	// tela do quadro mostra selo de etiqueta, "2/5" de checklist e contagem de
-	// anexos em TODO card, e uma consulta por card seria um N+1 que piora
-	// justamente nos quadros grandes.
-	etiquetasPorCard, err := uc.etiquetas.EtiquetasDoBoardPorCard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	progressoPorCard, err := uc.checklists.ProgressoDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	anexosPorCard, err := uc.anexos.ContarPorCardDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	responsaveisPorCard, err := uc.responsaveis.DoBoardPorCard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	comentariosPorCard, err := uc.comentarios.ContarPorCardDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	etiquetasDoBoard, err := uc.etiquetas.ListarDoBoard(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-
-	publicado, err := uc.estaPublicado(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
+	// A movimentação fica fora do instantâneo: é um selo derivado do log, não
+	// estado que o cliente aplica. A publicação, ao contrário, foi lida acima
+	// porque agora possui evento e revisão próprios.
 	movimentacoesPorCard, err := uc.ultimasMovimentacoes(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Detalhado{
-		Board:     *b,
+		Board: *b,
+		// A revisão vem da MESMA leitura que montou o estado: é ela que o
+		// cliente devolve ao WebSocket em `?revisao=N`, e um número lido fora do
+		// instantâneo descreveria um estado diferente do que está sendo
+		// entregue.
+		Revisao:   b.Revisao,
 		Papel:     vinculo.Papel,
 		Colunas:   agrupar(listaColunas, listaCards, responsaveisPorCard, etiquetasPorCard, progressoPorCard, anexosPorCard, comentariosPorCard, movimentacoesPorCard),
 		Publico:   publicado,
@@ -189,17 +237,20 @@ func (uc *QuadroUseCase) ultimasMovimentacoes(ctx context.Context, boardID strin
 	return uc.atividades.UltimaMovimentacaoPorCard(ctx, boardID)
 }
 
-// estaPublicado informa se o quadro tem link público ligado. Sem a porta ligada
-// responde que não — ver ComPublicacoes.
-func (uc *QuadroUseCase) estaPublicado(ctx context.Context, boardID string) (bool, error) {
-	if uc.publicacoes == nil {
-		return false, nil
+// ComInstantaneo liga a leitura consistente do snapshot. Ver
+// InstantaneoConsistente para o que ela evita.
+func (uc *QuadroUseCase) ComInstantaneo(i InstantaneoConsistente) {
+	uc.instantaneo = i
+}
+
+// leitura monta os repositórios do caminho NÃO transacional, para quando não há
+// instantâneo ligado.
+func (uc *QuadroUseCase) leitura() Leitura {
+	return Leitura{
+		Boards: uc.boards, Membros: uc.membros, Colunas: uc.colunas, Cards: uc.cards,
+		Etiquetas: uc.etiquetas, Checklists: uc.checklists, Anexos: uc.anexos,
+		Responsaveis: uc.responsaveis, Comentarios: uc.comentarios, Publicacoes: uc.publicacoes,
 	}
-	p, err := uc.publicacoes.BuscarPorBoard(ctx, boardID)
-	if err != nil {
-		return false, err
-	}
-	return p != nil, nil
 }
 
 // PodeVer informa se o usuário participa do quadro. É a pergunta que o
@@ -233,7 +284,12 @@ func (uc *QuadroUseCase) DefinirFundo(ctx context.Context, boardID, usuarioID, f
 	}
 	if err := uc.escreverEPublicar(ctx, evento.QuadroFundo, boardID, usuarioID,
 		DadosDoQuadro{Fundo: b.FundoEfetivo()},
-		uc.escrita(), func(e Escrita) error { return e.Boards.Atualizar(ctx, b) }); err != nil {
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Boards.DefinirFundo(ctx, b.ID, b.Fundo, b.AtualizadoEm)
+		}); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -258,7 +314,12 @@ func (uc *QuadroUseCase) Renomear(ctx context.Context, boardID, usuarioID, titul
 	}
 	if err := uc.escreverEPublicar(ctx, evento.QuadroRenomeado, boardID, usuarioID,
 		DadosDoQuadro{Titulo: b.Titulo, TituloAnterior: tituloAnterior},
-		uc.escrita(), func(e Escrita) error { return e.Boards.Atualizar(ctx, b) }); err != nil {
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Boards.Renomear(ctx, b.ID, b.Titulo, b.AtualizadoEm)
+		}); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -270,16 +331,37 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
-	// Antes do DELETE, enquanto os anexos de todos os cards do quadro ainda
-	// existem. Ver limpeza.go.
-	orfaos, err := uc.anexos.CaminhosDeArquivoDoBoard(ctx, boardID)
-	if err != nil {
+	var orfaos []string
+	apagar := func(e Escrita) error {
+		if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+			return err
+		}
+		var err error
+		orfaos, err = e.Anexos.CaminhosDeArquivoDoBoard(ctx, boardID)
+		if err != nil {
+			return err
+		}
+		// O outbox guarda o board_id sem chave estrangeira justamente para esta
+		// linha sobreviver ao CASCADE que está prestes a acontecer: uma FK
+		// levaria junto o registro que existe para sobreviver a ele.
+		if err := registrarExclusaoDeArquivos(ctx, e, boardID, orfaos); err != nil {
+			return err
+		}
+		return e.Boards.Apagar(ctx, boardID)
+	}
+	if uc.atomica != nil {
+		if err := uc.atomica.ExcluirQuadro(ctx, boardID, apagar); err != nil {
+			return err
+		}
+	} else if err := apagar(uc.escrita()); err != nil {
 		return err
 	}
-	if err := uc.boards.Apagar(ctx, boardID); err != nil {
-		return err
-	}
-	descartarArquivos(ctx, uc.armazem, orfaos)
+	// Exceção terminal do outbox: o próprio commit apagou `board_events` por
+	// cascata e não há mais linha de board que aceite um novo evento pela FK.
+	// Ainda assim as abas conectadas precisam sair, em vez de insistirem em GETs
+	// que só podem responder 404. Por isso este sinal é efêmero e nasce somente
+	// DEPOIS do commit bem-sucedido.
+	uc.publicarEfemero(evento.QuadroApagado, boardID, usuarioID, nil)
 	return nil
 }
 

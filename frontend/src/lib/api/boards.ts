@@ -114,6 +114,14 @@ export interface Coluna {
 export interface BoardDetalhado {
 	id: string;
 	titulo: string;
+	/**
+	 * A posição deste snapshot na história do quadro.
+	 *
+	 * É o cursor do tempo real: a tela a devolve ao WebSocket para pedir o que
+	 * aconteceu DEPOIS dela. Vem da mesma leitura que montou o estado, então
+	 * descreve exatamente o quadro que está sendo entregue.
+	 */
+	revisao: number;
 	papel: Papel;
 	fundo: Fundo;
 	// Existe link público ligado. Vem para TODO membro, e não só para o dono:

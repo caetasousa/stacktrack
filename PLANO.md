@@ -950,10 +950,10 @@ E, depois da troca da chave, contra o servidor de verdade, com a chave da
 esteira:
 
 ```
-$ ssh -i stacktrack_deploy stacktrack-deploy@... 'stacktrack-release estado'
+$ ssh -i stacktrack_deploy stacktrack-esteira@... 'stacktrack-release estado'
   → compose ps, sha256 dos três arquivos, fuso e cron
 
-$ ssh -i stacktrack_deploy stacktrack-deploy@... 'bash'
+$ ssh -i stacktrack_deploy stacktrack-esteira@... 'bash'
   → stacktrack-release: verbo desconhecido: bash
 ```
 
@@ -979,7 +979,7 @@ Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
 ### O que só você pode fazer
 
 1. ~~**Gerar a chave exclusiva da esteira**~~ — feito. Par próprio instalado em
-   `stacktrack-deploy` com `restrict` e comando forçado, e os segredos do GitHub
+   `stacktrack-esteira` com `restrict` e comando forçado, e os segredos do GitHub
    trocados. A chave do agendaGo continua em `deploy`, que é o acesso do
    operador e do vizinho.
 2. ~~**`make infra-preparar` e `make infra-apply`**~~ — feito, hardening
@@ -994,7 +994,7 @@ Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
 
 ### Decisão tomada, e por quê
 
-O usuário da esteira é **novo** (`stacktrack-deploy`), e não o `deploy`
+O usuário da esteira é **novo** (`stacktrack-esteira`), e não o `deploy`
 apertado. O `deploy` é compartilhado com o agendaGo: tirar-lhe o shell ou o
 grupo `docker` quebraria o deploy do vizinho, que não é deste repositório. O
 novo não entra em grupo nenhum e chega ao Docker só pelo wrapper.

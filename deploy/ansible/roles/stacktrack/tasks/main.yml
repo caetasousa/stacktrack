@@ -161,6 +161,28 @@
 # `name:` faz o módulo gerenciar SÓ este bloco do crontab, preservando as outras
 # entradas — inclusive a do agendaGo, que divide a máquina. É a garantia que o
 # `crontab -l | grep -v | crontab -` da esteira tem por sorte, não por desenho.
+# A entrada que ficou no crontab do VIZINHO, de quando os dois projetos moravam
+# na mesma conta. Sem remover, o backup do stacktrack rodaria duas vezes por
+# noite — e a cópia antiga apontaria para um caminho que já não existe, falhando
+# em silêncio dentro do log dele.
+#
+# `become` porque mexer no crontab de outro usuário exige privilégio; é a única
+# task deste playbook que precisa disso, e é justamente uma faxina de migração.
+- name: verifica se a conta antiga ainda existe
+  ansible.builtin.command: getent passwd {{ usuario_vizinho }}
+  register: stacktrack_conta_vizinho
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: remove o backup do stacktrack do crontab da conta antiga
+  ansible.builtin.cron:
+    name: backup do stacktrack
+    user: '{{ usuario_vizinho }}'
+    state: absent
+  become: true
+  when: stacktrack_conta_vizinho.rc == 0
+
 - name: agenda o backup diário do banco e dos anexos
   ansible.builtin.cron:
     name: backup do stacktrack

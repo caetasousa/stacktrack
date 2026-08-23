@@ -11,31 +11,48 @@
 # amarra a sessão a um host exato.
 dominio: stacktrack.duckdns.org
 
-# Usuário dono da aplicação no servidor. Não-root, no grupo `docker`. É o mesmo
-# que o agendaGo usa e o mesmo do `VPS_USER` da esteira.
-usuario_app: deploy
-grupo_app: deploy
+# --- os três usuários, e o que cada um pode ----------------------------------
 
-# Chave PÚBLICA que dá acesso ao usuário da aplicação. Não é segredo — chave
-# pública é feita para ser publicada —, por isso fica aqui e não no vault.
+# Dono da aplicação: os arquivos da stack, os backups e o cron são dele, e é ele
+# quem fala com o Docker.
 #
-# É a mesma chave de deploy do agendaGo, e continua sendo o acesso do OPERADOR
-# ao usuário `deploy`. O que mudou é que ela deixou de ser o acesso da esteira:
-# quem a esteira usa é `esteira_chave_publica`, abaixo.
-deploy_chave_publica: >-
+# Separado do `deploy` de propósito. Enquanto os dois projetos moravam na mesma
+# conta, `/home/deploy` misturava `agendago/`, `stacktrack/`, `caddy/` e
+# `backups/` — a fronteira entre os dois existia só na documentação. Agora ela
+# se vê num `ls`.
+#
+# Estar no grupo `docker` equivale a root nesta máquina; isso vale para ele e já
+# valia para o `deploy`. O que muda é que agora são DOIS donos separados, e não
+# um só acumulando os dois projetos.
+usuario_app: stacktrack
+grupo_app: stacktrack
+
+# O dono da máquina compartilhada — a conta que o agendaGo usa e que continua
+# sendo o acesso do operador. O stacktrack só a menciona por causa da pasta do
+# Caddy, abaixo.
+usuario_vizinho: deploy
+
+# Chave PÚBLICA do OPERADOR — a sua. É ela que autoriza você (e o Ansible, que
+# entra com ela) no usuário da aplicação. Não é segredo: chave pública é feita
+# para ser publicada, por isso fica aqui e não no vault.
+#
+# É a mesma que abre o `deploy` desde o agendaGo, reaproveitada aqui de
+# propósito: uma pessoa, uma chave. O que NÃO se reaproveita é a da esteira, que
+# é de máquina e tem par próprio (`esteira_chave_publica`, abaixo).
+operador_chave_publica: >-
   ssh-ed25519
   AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
   github-actions-agendago
 
 # --- o acesso da esteira -----------------------------------------------------
 
-# O usuário POR ONDE A ESTEIRA ENTRA, separado do `deploy` de propósito.
+# O usuário POR ONDE A ESTEIRA ENTRA. Não é o dono da aplicação, e o nome diz
+# isso: ele não gerencia arquivo nenhum.
 #
-# O `deploy` tem shell e está no grupo `docker`, que nesta máquina equivale a
-# root — e é compartilhado com o agendaGo, então apertá-lo mexeria no vizinho.
-# Este aqui não está em grupo nenhum: ele alcança o Docker só através do wrapper
-# /usr/local/bin/stacktrack-release, por um sudo restrito àquele arquivo.
-usuario_esteira: stacktrack-deploy
+# Não está em grupo nenhum — nem `docker`, nem o do projeto. Ele alcança o Docker
+# só através do wrapper /usr/local/bin/stacktrack-release, por um sudo restrito
+# àquele arquivo, que valida o verbo antes de agir.
+usuario_esteira: stacktrack-esteira
 
 # Chave PÚBLICA exclusiva do stacktrack, cujo par privado é o secret
 # VPS_SSH_KEY. Vazia enquanto o par não for gerado — e enquanto estiver vazia, a
@@ -57,14 +74,27 @@ esteira_chave_publica: >-
   github-actions-stacktrack
 
 pasta_base: /home/{{ usuario_app }}
-pasta_stack: '{{ pasta_base }}/stacktrack'
+# A stack fica na RAIZ do home, e não num `stacktrack/` dentro dele: a conta já
+# é do stacktrack, e `/home/stacktrack/stacktrack` só repetiria o nome.
+pasta_stack: '{{ pasta_base }}'
 pasta_scripts: '{{ pasta_stack }}/scripts'
-# Comum aos dois projetos: o que separa stacktrack de agendaGo é o PREFIXO do
-# nome do arquivo, e todos os globs de scripts/backup.sh são escopados por ele.
+# Os backups agora são da conta do projeto. Antes eram uma pasta só para os
+# dois, distinguida pelo prefixo do nome do arquivo — que continua existindo,
+# porque é o que o backup.sh usa para achar o backup anterior.
 pasta_backups: '{{ pasta_base }}/backups'
-# Onde o Caddy do agendaGo procura os blocos dos vizinhos. O Caddyfile dele faz
-# `import /etc/caddy/sites/*.caddy` e enxerga esta pasta por bind mount.
-pasta_caddy_sites: '{{ pasta_base }}/caddy/sites'
+
+# ⚠️ A ÚNICA coisa que não mudou de casa, e não por esquecimento.
+#
+# O Caddy que atende as portas 80 e 443 é do agendaGo, e o container dele monta
+# `/home/deploy/caddy/sites` no próprio `/etc/caddy/sites`. Apontar para outro
+# lugar exigiria editar o compose do vizinho — que o CLAUDE.md proíbe, e com
+# razão: é dele, não nosso.
+#
+# Por isso o usuário da aplicação entra no grupo do vizinho e essa pasta é
+# gravável pelo grupo. É um acesso pontual, a um diretório que é compartilhado
+# por natureza. Uma troca futura do proxy — Caddy próprio, nginx, o que for —
+# desfaz esta exceção.
+pasta_caddy_sites: /home/{{ usuario_vizinho }}/caddy/sites
 
 # Imagens publicadas pela esteira no GHCR. `latest` segue a main; a esteira
 # sobrescreve com o SHA do commit no momento do deploy, sem tocar no .env.

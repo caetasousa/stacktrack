@@ -79,12 +79,24 @@ manter um clone do repositório no VPS — e a mantê-lo em sincronia com a imag
 que está rodando.
 
 ```
-/home/deploy/
-├── agendago/        Caddyfile (dono das portas 80/443), compose, .env, scripts
-├── stacktrack/      compose, .env, scripts
-├── caddy/sites/     um arquivo .caddy por vizinho
-└── backups/         COMUM, separado pelo prefixo do nome do arquivo
+/home/deploy/                 o vizinho, e o que é compartilhado
+├── agendago/                 Caddyfile (dono das portas 80/443), compose, .env
+├── caddy/sites/              um arquivo .caddy por vizinho — o nosso entra aqui
+└── backups/                  os do agendaGo
+
+/home/stacktrack/             a aplicação
+├── .env                      escrito pelo Ansible a partir do vault
+├── docker-compose.prod.yml
+├── scripts/backup.sh
+└── backups/
+
+/home/stacktrack-esteira/     só .ssh/authorized_keys
 ```
+
+Cada projeto na sua conta, com uma exceção: o bloco do Caddy continua em
+`/home/deploy/caddy/sites`, porque é esse caminho que o container do proxy do
+agendaGo monta. O usuário `stacktrack` entra no grupo `deploy` só para poder
+escrever esse arquivo.
 
 ---
 
@@ -123,7 +135,7 @@ que não declara environment nenhum, não os alcança.
 | Tipo | Nome | Valor |
 |---|---|---|
 | Secret | `VPS_HOST` | IP do servidor |
-| Secret | `VPS_USER` | `stacktrack-deploy` |
+| Secret | `VPS_USER` | `stacktrack-esteira` |
 | Secret | `VPS_SSH_KEY` | chave **privada** exclusiva da esteira |
 | Secret | `VPS_KNOWN_HOSTS` | saída de `ssh-keyscan -H <ip>` |
 | Variable | `DOMINIO` | `stacktrack.duckdns.org` (aba Variables, no repositório) |
@@ -139,7 +151,7 @@ responder e entregar a chave de deploy junto.
 ### O que a chave da esteira consegue fazer
 
 Nada além de três verbos. Ela está no `authorized_keys` do usuário
-`stacktrack-deploy` com `restrict` e
+`stacktrack-esteira` com `restrict` e
 `command="/usr/local/bin/stacktrack-release"`: não abre shell, não faz `scp`,
 não encaminha porta nem agente.
 
@@ -189,8 +201,8 @@ sendo o [`.env.prod.example`](../.env.prod.example).
 `ls -la`:
 
 ```bash
-ls -la /home/deploy/stacktrack/         # o .env aparece aqui
-grep -c . /home/deploy/stacktrack/.env  # 6 linhas
+ls -la /home/stacktrack/         # o .env aparece aqui
+grep -c . /home/stacktrack/.env  # 8 linhas
 ```
 
 E o job `implantar` da esteira agora **confere isto antes de qualquer coisa**:
@@ -290,7 +302,7 @@ acima.
 Automático pela esteira, que manda uma linha e nada mais:
 
 ```
-ssh stacktrack-deploy@servidor "stacktrack-release release <sha>"
+ssh stacktrack-esteira@servidor "stacktrack-release release <sha>"
 ```
 
 A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,
@@ -300,7 +312,7 @@ próprio servidor, é o mesmo comando ou os passos abertos:
 ```bash
 stacktrack-release release <sha>     # ou `latest`
 
-cd ~/stacktrack                      # o que ele faz por dentro
+cd ~                                 # o que ele faz por dentro
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d

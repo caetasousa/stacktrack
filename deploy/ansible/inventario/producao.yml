@@ -9,18 +9,23 @@ producao:
       # DNS no dia da troca de máquina.
       ansible_host: stacktrack.duckdns.org
 
-      # O usuário da aplicação, NÃO root.
+      # O usuário DONO da aplicação, NÃO root.
       #
       # Nada do que `provisionar.yml` faz precisa de privilégio: os arquivos
-      # moram no home do `deploy` e o acesso ao Docker vem do grupo. É o mesmo
-      # usuário e o mesmo poder que o job `implantar` da esteira já usa.
+      # moram no home dele e o acesso ao Docker vem do grupo.
       #
-      # O que exige root — instalar o Docker, criar este usuário — está em
-      # `preparar-host.yml`, que roda uma vez por MÁQUINA e pede a credencial de
-      # root explicitamente. Ver docs/infraestrutura.md.
-      ansible_user: deploy
+      # O que exige privilégio — Docker, os usuários, o acesso da esteira, o
+      # hardening — está em `preparar-host.yml`, que sobe por sudo. Ver
+      # docs/infraestrutura.md.
+      #
+      # ⚠️ Num servidor onde esta conta ainda NÃO existe (a primeira execução
+      # depois da separação por projeto, ou uma máquina nova), o
+      # `preparar-host.yml` precisa entrar por outra:
+      #
+      #   ansible-playbook preparar-host.yml -e ansible_user=deploy --diff
+      #   ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass
+      ansible_user: stacktrack
 
-      # A mesma chave de deploy do agendaGo, como previsto em docs/producao.md.
-      # É um caminho, não um segredo: o par privado dela também é o secret
-      # VPS_SSH_KEY do GitHub.
+      # A chave do OPERADOR — a mesma pessoa que opera o agendaGo. É um caminho,
+      # não um segredo. A esteira tem par próprio e não passa por aqui.
       ansible_ssh_private_key_file: ~/.ssh/agendago_deploy

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Backup do banco e dos anexos de produção. Roda por cron na VPS, como o
-# usuário `deploy`:
+# usuário `stacktrack`:
 #
-#   20 3 * * * /home/deploy/stacktrack/scripts/backup.sh >> /home/deploy/backups/backup.log 2>&1
+#   20 3 * * * /home/stacktrack/scripts/backup.sh >> /home/stacktrack/backups/backup.log 2>&1
 #
 # O horário é deslocado do backup do agendaGo (03:00) de propósito: os dois
 # projetos dividem a máquina, e dois pg_dump simultâneos disputam CPU e disco
@@ -19,7 +19,10 @@
 
 set -euo pipefail
 
-PASTA_STACK="${PASTA_STACK:-$HOME/stacktrack}"
+# A stack mora na RAIZ do home do usuário do projeto — /home/stacktrack —, e não
+# num subdiretório: a conta já é do stacktrack. Antes era $HOME/stacktrack,
+# quando o dono era o `deploy`, que hospedava os dois projetos.
+PASTA_STACK="${PASTA_STACK:-$HOME}"
 PASTA_BACKUP="${PASTA_BACKUP:-$HOME/backups}"
 RETENCAO_DIAS="${RETENCAO_DIAS:-7}"
 ARQUIVO_COMPOSE="${ARQUIVO_COMPOSE:-$PASTA_STACK/docker-compose.prod.yml}"

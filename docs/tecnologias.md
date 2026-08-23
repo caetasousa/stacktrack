@@ -986,14 +986,14 @@ Três consequências que valem entender:
 | `provisionar.yml` | `deploy` | **não** | sempre que quiser |
 
 A separação não é organização, é necessidade. `preparar-host.yml` **cria** o
-usuário `deploy` — e um playbook que entra *como* `deploy` não pode criá-lo.
+usuário da aplicação — e um playbook que entra *como* ele não pode criá-lo.
 
 É a mesma razão pela qual a esteira nunca vai provisionar um servidor do zero:
 ela faz login com `VPS_USER=deploy`, um usuário que num host novo ainda não
 existe. Não é limitação do Ansible; é ovo e galinha.
 
 Do outro lado, `provisionar.yml` não usa `become` em lugar nenhum. Tudo mora em
-`/home/deploy` e o acesso ao Docker vem do grupo — **o mesmo privilégio que a
+`/home/stacktrack` e o acesso ao Docker vem do grupo — **o mesmo privilégio que a
 esteira já tinha**. Provisionar não ampliou o poder de ninguém.
 
 #### 3. Declarar, não mandar
@@ -1053,7 +1053,7 @@ O que aconteceu de verdade na reconstrução, em ordem:
 ```
 0 1 * * * $HOME/agendago/scripts/backup.sh >> $HOME/backups/backup.log 2>&1
 #Ansible: backup do stacktrack
-20 3 * * * /home/deploy/stacktrack/scripts/backup.sh >> ...
+20 3 * * * /home/stacktrack/scripts/backup.sh >> ...
 ```
 
 A linha do agendaGo **intacta**. O `ansible.builtin.cron` não reescreve o
@@ -1122,7 +1122,7 @@ Mas ele tem um limite que dá nó na cabeça na primeira vez. Num servidor vazio
 task que sobe a stack falhava com:
 
 ```
-"/home/deploy/stacktrack" is not a directory
+"/home/stacktrack" is not a directory
 ```
 
 As tasks anteriores apenas **simularam** criar o diretório. O `docker compose`,
@@ -1194,12 +1194,12 @@ O programa apontado (`roles/acesso_esteira/templates/stacktrack-release.sh.j2`)
 `read -ra` e nunca com `eval`: com `eval`, um `release; rm -rf /` seria
 obedecido, e o comando forçado não teria servido para nada.
 
-A outra metade é o usuário. `stacktrack-deploy` **não** entra no grupo `docker`,
+A outra metade é o usuário. `stacktrack-esteira` **não** entra no grupo `docker`,
 porque estar nele equivale a ser root na máquina — `docker run -v /:/host` monta
 o disco inteiro. Ele alcança o Docker por um `sudo` restrito ao wrapper:
 
 ```
-stacktrack-deploy ALL=(deploy) NOPASSWD: /usr/local/bin/stacktrack-release
+stacktrack-esteira ALL=(stacktrack) NOPASSWD: /usr/local/bin/stacktrack-release
 ```
 
 Não é um furo, porque o que o sudo executa é o próprio wrapper, que valida os

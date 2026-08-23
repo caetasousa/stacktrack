@@ -68,13 +68,13 @@
     # A ordem importa, e cada passo depende do anterior:
     #
     #   docker          o pacote da engine é quem cria o grupo `docker`
-    #   usuario_deploy  o usuário da aplicação, que entra nesse grupo
+    #   usuario_app     o usuário DONO da aplicação, que entra nesse grupo
     #   acesso_esteira  o usuário da esteira e o wrapper que ele executa COMO
     #                   o usuário da aplicação — que já precisa existir
     #   hardening       por último, porque ele desliga a senha do SSH e só pode
     #                   fazer isso depois de haver chave instalada
     - docker
-    - usuario_deploy
+    - usuario_app
     - acesso_esteira
 
     # Marcado porque é a única parte que mexe no HOST INTEIRO, e o host é

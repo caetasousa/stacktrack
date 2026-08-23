@@ -30,7 +30,7 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | quando o que é do **host** muda | `deploy` + `sudo` | Docker, rede `borda`, usuário `deploy`, acesso da esteira, hardening |
+| `preparar-host.yml` | quando o que é do **host** muda | `stacktrack` + `sudo` | Docker, rede `borda`, os usuários, acesso da esteira, hardening |
 | `provisionar.yml` | sempre que quiser | `deploy`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, bloco do Caddy, papéis do banco, stack no ar |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
@@ -105,18 +105,45 @@ reescreve o crontab, não remove a rede `borda` nem `~/backups`. E o `apt-mark
 hold` do Docker protege os dois — é o que impede um `apt upgrade` de reiniciar o
 daemon e derrubar os containers do agendaGo junto.
 
-### 🔑 Dois usuários, dois poderes
+### 🏠 Uma casa por projeto
 
-| | `deploy` | `stacktrack-deploy` |
-|---|---|---|
-| Quem usa | o operador, e o `provisionar.yml` | a esteira |
-| Shell | sim | sim, mas a chave tem `restrict` + comando forçado |
-| Grupo `docker` | sim — equivale a root nesta máquina | **não** |
-| Alcança o Docker | direto | só pelo wrapper, por um `sudo` restrito a ele |
-| Chave | a mesma do agendaGo, do operador | exclusiva do stacktrack |
+O VPS é dividido, e até a A5 os dois projetos moravam na mesma conta:
+`/home/deploy` tinha `agendago/`, `stacktrack/`, `caddy/` e `backups/`
+misturados. A fronteira existia na documentação e em nenhum `ls`.
 
-O `deploy` é compartilhado com o agendaGo e continua como está — apertá-lo
-mexeria no vizinho. O que mudou é que ele deixou de ser o caminho da esteira.
+Agora:
+
+```
+/home/deploy/               agendago/ · caddy/        ← o vizinho e o compartilhado
+/home/stacktrack/           .env · docker-compose.prod.yml · scripts/ · backups/
+/home/stacktrack-esteira/   .ssh/authorized_keys, e nada mais
+```
+
+**A exceção, e por que ela existe.** O bloco de site continua sendo escrito em
+`/home/deploy/caddy/sites/stacktrack.caddy`, porque é esse caminho que o
+container do Caddy do agendaGo monta em `/etc/caddy/sites`. Mudá-lo exigiria
+editar o compose do vizinho, o que o `CLAUDE.md` proíbe. O acesso sai do grupo:
+o usuário `stacktrack` entra no grupo `deploy` e o diretório é `0775`. Uma troca
+futura do proxy desfaz essa amarra.
+
+**Por que isso não pôde ser feito com o usuário da esteira.** Quem gerencia os
+arquivos precisa falar com o Docker para subir a stack, e falar com o Docker
+equivale a root nesta máquina. Se o dono dos arquivos fosse a conta cuja chave
+está no GitHub, a chave voltaria a valer a máquina inteira. Por isso são dois:
+um dono com poder, e um gatilho sem nenhum.
+
+### 🔑 Três usuários, três poderes
+
+| | `deploy` | `stacktrack` | `stacktrack-esteira` |
+|---|---|---|---|
+| De quem é | do agendaGo | da aplicação | da esteira |
+| Dono de | `agendago/`, `caddy/` | a stack, os scripts, os backups | nada |
+| Grupo `docker` | sim | sim | **não** |
+| Alcança o Docker | direto | direto | só pelo wrapper, por `sudo` restrito a ele |
+| Chave | a do operador | a do operador | par exclusivo, com `restrict` e comando forçado |
+
+O `deploy` continua como está — apertá-lo mexeria no vizinho. O que mudou é que
+ele deixou de ser dono do stacktrack e deixou de ser o caminho da esteira.
 
 O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
 `release <sha>`, `backup` e `estado`, e recusa o resto. Ele lê
@@ -223,6 +250,43 @@ A variável `BACKUP_CRON` do GitHub deixou de ser lida; o horário agora sai de
 
 ---
 
+## 🚚 Migrar o stacktrack para a casa dele
+
+Procedimento de UMA vez, para o servidor que ainda tem tudo em `/home/deploy`.
+O que torna isto barato é o `name: stacktrack` declarado no
+`docker-compose.prod.yml`: o nome do projeto **não** vem do diretório, então
+mover a pasta não órfã container nem volume.
+
+```bash
+# 1. Cria o usuário novo. Entra pela conta ANTIGA, que ainda é a do inventário
+#    velho — a nova ainda não existe.
+cd deploy/ansible
+ansible-playbook preparar-host.yml -e ansible_user=deploy --diff
+
+# 2. Escreve a stack na casa nova e sobe. Os containers são readotados pelo
+#    nome do projeto; os volumes (stacktrack_postgres_data, stacktrack_anexos)
+#    seguem os mesmos.
+cd ../.. && make infra-apply
+
+# 3. Leva os backups antigos junto (o do agendaGo fica).
+ssh deploy@<host> 'sudo mv /home/deploy/backups/stacktrack-* /home/stacktrack/backups/                 && sudo chown stacktrack:stacktrack /home/stacktrack/backups/*'
+
+# 4. Confere ANTES de apagar qualquer coisa.
+curl -fsS https://<dominio>/api/health && echo OK
+ssh stacktrack-esteira@<host> 'stacktrack-release estado'
+
+# 5. Só então: remove a pasta antiga e a conta antiga da esteira.
+ssh deploy@<host> 'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-deploy'
+```
+
+O cron antigo, no crontab do `deploy`, é removido pelo próprio playbook — o
+passo 2 já cuida disso. Sem essa remoção o backup rodaria duas vezes por noite,
+e a cópia velha falharia em silêncio contra um caminho que não existe mais.
+
+E, no GitHub: `VPS_USER` passa a ser `stacktrack-esteira`.
+
+---
+
 ## ♻️ Recomeçar do zero
 
 O procedimento que apagou a stack para o playbook poder reconstruí-la. Note que
@@ -231,11 +295,11 @@ nos volumes `stacktrack_postgres_data` e `stacktrack_anexos`, e sem o `-v` eles
 sobrevivem. A stack nova subiria com uma senha que não bate com a do `initdb`.
 
 ```bash
-cd /home/deploy/stacktrack
+cd /home/stacktrack
 docker compose -f docker-compose.prod.yml down -v   # o -v é o que apaga os volumes
-rm -rf /home/deploy/stacktrack
-rm -f  /home/deploy/caddy/sites/stacktrack.caddy
-crontab -u deploy -l | grep -v stacktrack | crontab -u deploy -
+sudo rm -rf /home/stacktrack
+rm -f  /home/deploy/caddy/sites/stacktrack.caddy    # a exceção, no home do vizinho
+crontab -u stacktrack -l | grep -v stacktrack | crontab -u stacktrack -
 docker exec $(docker ps --filter label=com.docker.compose.service=caddy -q | head -1) \
   caddy reload --config /etc/caddy/Caddyfile
 ```

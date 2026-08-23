@@ -1,0 +1,108 @@
+---
+# O usuário DONO da aplicação: os arquivos da stack, os backups e o cron são
+# dele, e é ele quem fala com o Docker.
+#
+# Antes o dono era o `deploy`, herdado do agendaGo, e os dois projetos moravam
+# na mesma conta — `/home/deploy` com `agendago/`, `stacktrack/`, `caddy/` e
+# `backups/` misturados. A fronteira entre os dois existia só na documentação.
+#
+# Roda depois da role `docker` porque precisa do grupo `docker`, que nasce com o
+# pacote da engine.
+
+- name: exige a chave pública do operador
+  ansible.builtin.assert:
+    that:
+      - operador_chave_publica is defined
+      - operador_chave_publica | length > 0
+    fail_msg: >-
+      Defina `operador_chave_publica` em group_vars/producao/vars.yml com a
+      chave PÚBLICA que você usa para entrar no servidor. Sem ela o usuário
+      nasce sem acesso, e nem você nem o Ansible conseguem provisionar.
+
+- name: garante o grupo do usuário da aplicação
+  ansible.builtin.group:
+    name: '{{ grupo_app }}'
+    state: present
+
+# Dois grupos, por dois motivos distintos:
+#
+#   docker    é o que permite subir a stack. Equivale a root nesta máquina, e é
+#             inerente a quem opera containers — o `deploy` já era assim.
+#   {{ usuario_vizinho }}  é o que permite escrever o bloco do Caddy na pasta do
+#             vizinho, que o container dele monta e que por isso não pode mudar
+#             de lugar. Ver `pasta_caddy_sites` em group_vars.
+#
+# `append: true` para não desfazer nenhum outro grupo que a conta tenha.
+- name: garante o usuário da aplicação
+  ansible.builtin.user:
+    name: '{{ usuario_app }}'
+    group: '{{ grupo_app }}'
+    groups:
+      - docker
+      - '{{ usuario_vizinho }}'
+    append: true
+    shell: /bin/bash
+    home: '{{ pasta_base }}'
+    create_home: true
+    state: present
+
+# O `deploy` precisa conseguir elevar SOZINHO, senão este playbook só roda como
+# root — e `PermitRootLogin no`, que a role `hardening` aplica, fecha esse
+# caminho. Um playbook que endurece o host e se torna inexecutável no processo
+# não endureceu nada: deixou o host sem manutenção.
+#
+# A conta nasce com a senha BLOQUEADA (`passwd -S` responde `L`), o que é o
+# certo para uma conta de serviço — senha de conta de serviço é senha que
+# alguém guarda num arquivo. Por isso o sudo é sem senha.
+#
+# E isso NÃO amplia privilégio: a conta está no grupo `docker`, e nesta máquina
+# isso já é equivalente a root — `docker run -v /:/host` monta o disco inteiro.
+# O sudoers apenas torna explícito o que o grupo já concede, em vez de deixar o
+# caminho passar por um container.
+#
+# O usuário da ESTEIRA é outro assunto: o sudo dele é restrito a UM arquivo
+# (roles/acesso_esteira), e é lá que o privilégio mínimo importa.
+- name: sudo do usuário da aplicação
+  ansible.builtin.copy:
+    content: |
+      # Gerado pelo Ansible (roles/usuario_app). Não editar no servidor.
+      #
+      # Sem senha porque a conta não tem senha: ela é de serviço, e o acesso
+      # vem por chave. Ver o comentário na role para por que isto não amplia
+      # privilégio nesta máquina.
+      {{ usuario_app }} ALL=(ALL) NOPASSWD: ALL
+    dest: /etc/sudoers.d/stacktrack-{{ usuario_app }}
+    owner: root
+    group: root
+    mode: '0440'
+    # `visudo -cf` recusa arquivo inválido ANTES de ele existir. Sem isto, um
+    # erro de sintaxe quebra o sudo do host inteiro — inclusive para quem
+    # precisaria consertá-lo.
+    validate: visudo -cf %s
+
+- name: chave do operador no usuário da aplicação
+  ansible.posix.authorized_key:
+    user: '{{ usuario_app }}'
+    key: '{{ operador_chave_publica }}'
+    state: present
+    # `exclusive: false` de propósito: se a conta já tiver outra chave
+    # autorizada, esta role acrescenta a do operador sem revogar as demais. Um
+    # provisionamento que tranca quem opera do lado de fora é pior do que um que
+    # deixa uma chave a mais.
+    exclusive: false
+
+# --- a pasta que continua sendo compartilhada --------------------------------
+#
+# O bloco de site do stacktrack precisa ser escrito onde o Caddy do AGENDAGO
+# procura, porque é o container dele que monta esse caminho. Não dá para mudar
+# de lugar sem editar o compose do vizinho.
+#
+# O acesso é dado pelo grupo, e não afrouxando para todo mundo: `g+w` num
+# diretório cujo grupo é o do vizinho, com o usuário da aplicação dentro desse
+# grupo. É o menor arranjo que resolve.
+- name: a pasta de blocos do Caddy aceita escrita do grupo
+  ansible.builtin.file:
+    path: '{{ pasta_caddy_sites }}'
+    state: directory
+    group: '{{ usuario_vizinho }}'
+    mode: '0775'

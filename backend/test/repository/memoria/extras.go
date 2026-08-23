@@ -3,10 +3,14 @@ package memoria
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"sort"
 	"strconv"
+	"time"
 
 	"stacktrack/internal/domain/anexo"
 	"stacktrack/internal/domain/checklist"
@@ -255,8 +259,30 @@ func (r *Checklists) SalvarItem(ctx context.Context, i *checklist.Item) error {
 	return nil
 }
 
-func (r *Checklists) AtualizarItem(ctx context.Context, i *checklist.Item) error {
-	return r.SalvarItem(ctx, i)
+// EditarItem e MarcarItem escrevem campo a campo, como o SQL estreito. Ver
+// memoria.Boards.Renomear.
+func (r *Checklists) EditarItem(ctx context.Context, id, texto string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	i, ok := r.itens[id]
+	if !ok {
+		return nil
+	}
+	i.Texto, i.AtualizadoEm = texto, em
+	return nil
+}
+
+func (r *Checklists) MarcarItem(ctx context.Context, id string, concluido bool, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	i, ok := r.itens[id]
+	if !ok {
+		return nil
+	}
+	i.Concluido, i.AtualizadoEm = concluido, em
+	return nil
 }
 
 func (r *Checklists) BuscarItem(ctx context.Context, id string) (*checklist.Item, error) {
@@ -424,9 +450,46 @@ func (r *Anexos) ListarDoCard(ctx context.Context, cardID string) ([]anexo.Anexo
 	return lista, nil
 }
 
-func (r *Anexos) Apagar(ctx context.Context, id string) error {
+func (r *Anexos) Apagar(ctx context.Context, id string) (bool, error) {
+	if r.ErroForcado != nil {
+		return false, r.ErroForcado
+	}
+	if _, existe := r.porID[id]; !existe {
+		return false, nil
+	}
 	delete(r.porID, id)
-	return nil
+	return true, nil
+}
+
+// ContarDoCard e BytesDoBoard alimentam as cotas de anexo.
+func (r *Anexos) ContarDoCard(ctx context.Context, cardID string) (int, error) {
+	if r.ErroForcado != nil {
+		return 0, r.ErroForcado
+	}
+	total := 0
+	for _, a := range r.porID {
+		if a.CardID == cardID {
+			total++
+		}
+	}
+	return total, nil
+}
+
+// BytesDoBoard soma só os ARQUIVOS: link não ocupa disco e não entra na conta.
+func (r *Anexos) BytesDoBoard(ctx context.Context, boardID string) (int64, error) {
+	if r.ErroForcado != nil {
+		return 0, r.ErroForcado
+	}
+	var total int64
+	for _, a := range r.porID {
+		if a.Tipo != anexo.TipoArquivo {
+			continue
+		}
+		if r.boardDoCard(a.CardID) == boardID {
+			total += a.Tamanho
+		}
+	}
+	return total, nil
 }
 
 func (r *Anexos) ContarPorCardDoBoard(ctx context.Context, boardID string) (map[string]int, error) {
@@ -464,9 +527,12 @@ func (r *Anexos) boardDoCard(cardID string) string {
 type Armazem struct {
 	arquivos map[string][]byte
 	proximo  int
-	// ErroAoGuardar, quando definido, faz a gravação falhar — é como o teste
+	// ErroAoGuardar, quando definido, faz a RECEPÇÃO falhar — é como o teste
 	// prova que uma falha no armazém não deixa linha órfã no banco.
 	ErroAoGuardar error
+	// ErroAoPublicar falha na promoção do temporário ao nome definitivo. É o
+	// outro lado: prova que uma publicação que falha não deixa o anexo gravado.
+	ErroAoPublicar error
 }
 
 // NovoArmazem cria o armazém em memória vazio.
@@ -477,19 +543,61 @@ func NovoArmazem() *Armazem {
 // ErrArquivoInexistente é devolvido ao abrir um caminho que não foi gravado.
 var ErrArquivoInexistente = errors.New("arquivo não encontrado no armazém")
 
-func (a *Armazem) Guardar(conteudo io.Reader, extensao string) (string, error) {
+// recebidoEmMemoria espelha o que o armazém de disco mede durante a leitura.
+type recebidoEmMemoria struct {
+	dados []byte
+	tipo  string
+	hash  string
+}
+
+func (r *recebidoEmMemoria) Bytes() int64   { return int64(len(r.dados)) }
+func (r *recebidoEmMemoria) Tipo() string   { return r.tipo }
+func (r *recebidoEmMemoria) Digest() string { return r.hash }
+
+// Receber lê o conteúdo medindo tamanho, tipo e hash — como o disco faz.
+//
+// O TETO é aplicado durante a leitura, com um byte de folga, pelo mesmo motivo
+// do armazém real: confiar no tamanho declarado seria confiar em quem envia.
+// Reproduzir isso aqui é o que faz o fake servir de teste — um Receber que
+// aceitasse tudo esconderia justamente o caminho que o limite existe para
+// cobrir.
+func (a *Armazem) Receber(conteudo io.Reader, limite int64) (ucboard.ArquivoRecebido, error) {
 	if a.ErroAoGuardar != nil {
-		return "", a.ErroAoGuardar
+		return nil, a.ErroAoGuardar
 	}
-	dados, err := io.ReadAll(conteudo)
+	dados, err := io.ReadAll(io.LimitReader(conteudo, limite+1))
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if int64(len(dados)) > limite {
+		return nil, ucboard.ErrArquivoAcimaDoLimite
+	}
+	soma := sha256.Sum256(dados)
+	tipo := "application/octet-stream"
+	if len(dados) > 0 {
+		tipo = http.DetectContentType(dados)
+	}
+	return &recebidoEmMemoria{dados: dados, tipo: tipo, hash: hex.EncodeToString(soma[:])}, nil
+}
+
+// Publicar dá nome definitivo ao que foi recebido.
+func (a *Armazem) Publicar(recebido ucboard.ArquivoRecebido, extensao string) (string, error) {
+	interno, ok := recebido.(*recebidoEmMemoria)
+	if !ok {
+		return "", errors.New("recebido de outro armazém")
+	}
+	if a.ErroAoPublicar != nil {
+		return "", a.ErroAoPublicar
 	}
 	a.proximo++
 	nome := "arquivo-" + strconv.Itoa(a.proximo) + extensao
-	a.arquivos[nome] = dados
+	a.arquivos[nome] = interno.dados
 	return nome, nil
 }
+
+// Descartar joga fora o que não será publicado. Em memória não há temporário a
+// apagar — o que importa é que nada tenha sido publicado.
+func (a *Armazem) Descartar(ucboard.ArquivoRecebido) error { return nil }
 
 func (a *Armazem) Abrir(caminho string) (io.ReadCloser, error) {
 	dados, ok := a.arquivos[caminho]
@@ -506,3 +614,111 @@ func (a *Armazem) Remover(caminho string) error {
 
 // Quantidade informa quantos arquivos estão guardados — atalho para os testes.
 func (a *Armazem) Quantidade() int { return len(a.arquivos) }
+
+// Exclusoes é o outbox das exclusões de arquivo em memória.
+//
+// Ele reproduz a regra que sustenta o fail-closed: `Pendentes` só devolve o que
+// foi MARCADO COMO COBERTO. Um fake que devolvesse tudo esconderia justamente o
+// que a porta de cobertura existe para garantir — e o teste passaria enquanto
+// produção apagaria arquivo sem backup.
+type Exclusoes struct {
+	registradas []ucboard.ExclusaoDeArquivo
+	cobertas    map[int64]bool
+	removidas   map[int64]bool
+	erros       map[int64]string
+	proximoID   int64
+	ErroForcado error
+}
+
+// NovasExclusoes cria o outbox em memória vazio.
+func NovasExclusoes() *Exclusoes {
+	return &Exclusoes{cobertas: map[int64]bool{}, removidas: map[int64]bool{}, erros: map[int64]string{}}
+}
+
+func (r *Exclusoes) Registrar(_ context.Context, boardID string, caminhos []string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	for _, caminho := range caminhos {
+		r.proximoID++
+		r.registradas = append(r.registradas, ucboard.ExclusaoDeArquivo{
+			ID: r.proximoID, Caminho: caminho, BoardID: boardID, ExcluidoEm: em,
+		})
+	}
+	return nil
+}
+
+func (r *Exclusoes) Pendentes(_ context.Context, _ time.Time, limite int) ([]ucboard.ExclusaoDeArquivo, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]ucboard.ExclusaoDeArquivo, 0)
+	for _, e := range r.registradas {
+		if !r.cobertas[e.ID] || r.removidas[e.ID] {
+			continue
+		}
+		lista = append(lista, e)
+		if len(lista) == limite {
+			break
+		}
+	}
+	return lista, nil
+}
+
+func (r *Exclusoes) SemCobertura(_ context.Context, limite int) ([]ucboard.ExclusaoDeArquivo, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]ucboard.ExclusaoDeArquivo, 0)
+	for _, e := range r.registradas {
+		if r.cobertas[e.ID] || r.removidas[e.ID] {
+			continue
+		}
+		lista = append(lista, e)
+		if len(lista) == limite {
+			break
+		}
+	}
+	return lista, nil
+}
+
+func (r *Exclusoes) MarcarCobertos(_ context.Context, ids []int64, _ time.Time) error {
+	for _, id := range ids {
+		r.cobertas[id] = true
+	}
+	return nil
+}
+
+func (r *Exclusoes) MarcarRemovido(_ context.Context, id int64, _ time.Time) error {
+	r.removidas[id] = true
+	return nil
+}
+
+func (r *Exclusoes) AdiarComErro(_ context.Context, id int64, erro string, _ time.Time) error {
+	r.erros[id] = erro
+	// A tentativa é contada no agregado, como o UPDATE do Postgres faz.
+	for i := range r.registradas {
+		if r.registradas[i].ID == id {
+			r.registradas[i].Tentativas++
+		}
+	}
+	return nil
+}
+
+// Registradas informa quantas exclusões entraram no outbox — atalho de teste.
+func (r *Exclusoes) Registradas() int { return len(r.registradas) }
+
+// Caminhos devolve as chaves físicas registradas, na ordem.
+func (r *Exclusoes) Caminhos() []string {
+	lista := make([]string, 0, len(r.registradas))
+	for _, e := range r.registradas {
+		lista = append(lista, e.Caminho)
+	}
+	return lista
+}
+
+// Removidas informa quantos arquivos o coletor já deu por removidos.
+func (r *Exclusoes) Removidas() int { return len(r.removidas) }
+
+// ErroDe devolve a última falha registrada para uma exclusão.
+func (r *Exclusoes) ErroDe(id int64) string { return r.erros[id] }

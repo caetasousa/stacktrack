@@ -2,7 +2,7 @@ package board
 
 import (
 	"context"
-	"log/slog"
+	"time"
 )
 
 // A limpeza do VOLUME quando algo é apagado.
@@ -15,22 +15,37 @@ import (
 // A ordem importa e é sempre a mesma:
 //
 //  1. COLETAR os caminhos antes do DELETE — depois dele não há de onde tirá-los;
-//  2. apagar;
-//  3. só então descartar os arquivos.
+//  2. REGISTRAR a exclusão no outbox, na mesma transação;
+//  3. apagar.
 //
-// Descartar antes do DELETE deixaria o registro apontando para um arquivo que
-// já não existe se a transação falhasse, o que é pior que lixo: é anexo quebrado
-// numa tela que continua mostrando o link para baixá-lo.
+// O terceiro passo NÃO é mais "descartar os arquivos". Ver
+// registrarExclusaoDeArquivos.
+//
 
-// descartarArquivos apaga do volume os arquivos informados, sem interromper o
-// fluxo. Se a limpeza falhar, sobra lixo no disco — chato, e melhor que derrubar
-// uma operação que já deu certo do ponto de vista de quem pediu. O log é o que
-// dá chance de alguém varrer isso um dia.
-func descartarArquivos(ctx context.Context, armazem armazemDeArquivos, caminhos []string) {
-	for _, caminho := range caminhos {
-		if err := armazem.Remover(caminho); err != nil {
-			slog.WarnContext(ctx, "anexo órfão no armazém",
-				slog.String("caminho", caminho), slog.String("erro", err.Error()))
-		}
+// registrarExclusaoDeArquivos grava no OUTBOX as chaves físicas que a mutação
+// vai deixar órfãs, dentro da MESMA transação que as apaga do banco.
+//
+// Ele substituiu o descarte imediato, e a troca é a diferença entre uma
+// exclusão recuperável e uma irreversível. Antes, os bytes saíam do disco logo
+// depois do commit: se o backup mais recente fosse anterior à exclusão, a
+// restauração trazia de volta uma linha cujo arquivo já não existia em lugar
+// nenhum — anexo que aparece na tela e não abre, para sempre, sem conserto.
+//
+// Agora o arquivo fica onde está, e quem o remove é o worker — só depois de um
+// backup externo comprovar que aquela exclusão está coberta. Ver
+// usecase/board/exclusao.go.
+//
+// Chamado ANTES do DELETE que dispara o CASCADE: depois dele as linhas de
+// `anexos` já foram, e não há de onde tirar os caminhos.
+func registrarExclusaoDeArquivos(ctx context.Context, e Escrita, boardID string, caminhos []string) error {
+	if len(caminhos) == 0 {
+		return nil
 	}
+	if e.Exclusoes == nil {
+		// Sem o outbox ligado — o caso dos testes de regra, que não têm banco —
+		// não há onde registrar. O arquivo simplesmente fica no disco: é o
+		// resultado seguro, e nunca a remoção silenciosa.
+		return nil
+	}
+	return e.Exclusoes.Registrar(ctx, boardID, caminhos, time.Now())
 }

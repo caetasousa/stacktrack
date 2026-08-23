@@ -24,10 +24,17 @@
 # da primeira vez que rodasse — e o que endurece o host precisa continuar
 # alcançável para poder consertá-lo.
 #
-# Numa MÁQUINA NOVA, onde `deploy` ainda não existe, o caminho é root:
+# Numa MÁQUINA NOVA, ou numa em que o `deploy` ainda não consiga elevar, o
+# caminho é root — e a forma importa:
 #
-#   ansible-playbook preparar-host.yml -u root --ask-pass          # senha (exige sshpass)
-#   ansible-playbook preparar-host.yml -u root --key-file ~/.ssh/x # ou chave
+#   ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass   # exige sshpass
+#   ansible-playbook preparar-host.yml -e ansible_user=root --key-file ~/.ssh/x
+#
+# `-e ansible_user=root`, e NÃO `-u root`. O `-u` troca só o usuário da conexão;
+# a variável `ansible_user` continua valendo `deploy`, vinda do inventário, e o
+# `become` abaixo continuaria ligado — o Ansible faria `sudo` de root para root
+# e pediria uma senha que conta de serviço não tem. O `-e` tem a precedência
+# mais alta e muda as duas coisas de uma vez.
 #
 # Rodá-lo duas vezes seguidas tem de terminar em `changed=0` — é o que prova que
 # ele descreve a máquina, e não só a constrói uma vez.
@@ -48,10 +55,14 @@
   hosts: producao
   gather_facts: true
 
-  # Conecta como o usuário do inventário (`deploy`) e sobe por sudo. `-u root`
-  # na linha de comando continua tendo precedência, para o caso da máquina nova
-  # em que `deploy` ainda não existe — ali o become é um no-op.
-  become: true
+  # Conecta como o usuário do inventário (`deploy`) e sobe por sudo.
+  #
+  # Condicional, e não `true` fixo: entrando JÁ como root, o Ansible ainda assim
+  # executaria `sudo` de root para root e pediria uma senha — que numa conta de
+  # serviço não existe. É o caminho da máquina nova, ou de uma em que o `deploy`
+  # ainda não consiga elevar. Ver o cabeçalho: aquele caminho exige
+  # `-e ansible_user=root`, porque `-u root` não muda esta variável.
+  become: '{{ (ansible_user | default("")) != "root" }}'
 
   roles:
     # A ordem importa, e cada passo depende do anterior:

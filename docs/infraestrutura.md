@@ -48,8 +48,13 @@ não consiga elevar, o caminho é `-u root` — ali o `become` é um no-op:
 ```bash
 sudo apt install sshpass          # o --ask-pass depende dele
 cd deploy/ansible
-ansible-playbook preparar-host.yml -u root --ask-pass --diff --skip-tags hardening
+ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass --diff --skip-tags hardening
 ```
+
+`-e ansible_user=root`, e não `-u root`: o `-u` troca só o usuário da conexão e
+deixa a variável valendo `deploy`, o que mantém o `become` ligado — o Ansible
+faria `sudo` de root para root e pediria uma senha que a conta de serviço não
+tem. O `-e` tem a precedência mais alta e resolve os dois de uma vez.
 
 **Por que o sudo do `deploy` é sem senha.** A conta nasce com a senha bloqueada
 (`passwd -S` responde `L`), que é o certo para conta de serviço — senha de conta

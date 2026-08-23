@@ -42,8 +42,24 @@ release.
 O `preparar-host.yml` entra como `deploy` e sobe por `sudo`, em vez de logar
 como root. Não é preferência: `PermitRootLogin no` é uma das coisas que ele
 aplica, e um playbook que só soubesse entrar como root deixaria de rodar depois
-da primeira vez que rodasse. Numa máquina NOVA, onde `deploy` ainda não existe,
-o caminho continua sendo `-u root` — ali o `become` é um no-op.
+da primeira vez que rodasse. Numa máquina NOVA, ou numa em que `deploy` ainda
+não consiga elevar, o caminho é `-u root` — ali o `become` é um no-op:
+
+```bash
+sudo apt install sshpass          # o --ask-pass depende dele
+cd deploy/ansible
+ansible-playbook preparar-host.yml -u root --ask-pass --diff --skip-tags hardening
+```
+
+**Por que o sudo do `deploy` é sem senha.** A conta nasce com a senha bloqueada
+(`passwd -S` responde `L`), que é o certo para conta de serviço — senha de conta
+de serviço é senha que alguém guarda num arquivo. Sem senha, `sudo` com senha
+nunca funciona, e o playbook ficaria preso ao root para sempre.
+
+E não é privilégio novo: `deploy` está no grupo `docker`, o que nesta máquina já
+equivale a root (`docker run -v /:/host` monta o disco inteiro). O sudoers só
+torna explícito o que o grupo concede. O usuário da **esteira** é outro assunto:
+o sudo dele é restrito a um arquivo, e é ali que o privilégio mínimo importa.
 
 O `preparar-host.yml` deixou de ser "dia zero". Ele é quem mantém o usuário da
 esteira, o wrapper, o `sudo` restrito e o hardening do host, então volta a rodar

@@ -37,6 +37,40 @@
     create_home: true
     state: present
 
+# O `deploy` precisa conseguir elevar SOZINHO, senão este playbook só roda como
+# root — e `PermitRootLogin no`, que a role `hardening` aplica, fecha esse
+# caminho. Um playbook que endurece o host e se torna inexecutável no processo
+# não endureceu nada: deixou o host sem manutenção.
+#
+# A conta nasce com a senha BLOQUEADA (`passwd -S` responde `L`), o que é o
+# certo para uma conta de serviço — senha de conta de serviço é senha que
+# alguém guarda num arquivo. Por isso o sudo é sem senha.
+#
+# E isso NÃO amplia privilégio: `deploy` está no grupo `docker`, e nesta máquina
+# isso já é equivalente a root — `docker run -v /:/host` monta o disco inteiro.
+# O sudoers apenas torna explícito o que o grupo já concede, em vez de deixar o
+# caminho passar por um container.
+#
+# O usuário da ESTEIRA é outro assunto: o sudo dele é restrito a UM arquivo
+# (roles/acesso_esteira), e é lá que o privilégio mínimo importa.
+- name: sudo do usuário da aplicação
+  ansible.builtin.copy:
+    content: |
+      # Gerado pelo Ansible (roles/usuario_deploy). Não editar no servidor.
+      #
+      # Sem senha porque a conta não tem senha: ela é de serviço, e o acesso
+      # vem por chave. Ver o comentário na role para por que isto não amplia
+      # privilégio nesta máquina.
+      {{ usuario_app }} ALL=(ALL) NOPASSWD: ALL
+    dest: /etc/sudoers.d/stacktrack-{{ usuario_app }}
+    owner: root
+    group: root
+    mode: '0440'
+    # `visudo -cf` recusa arquivo inválido ANTES de ele existir. Sem isto, um
+    # erro de sintaxe quebra o sudo do host inteiro — inclusive para quem
+    # precisaria consertá-lo.
+    validate: visudo -cf %s
+
 - name: chave pública da esteira no usuário da aplicação
   ansible.posix.authorized_key:
     user: '{{ usuario_app }}'

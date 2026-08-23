@@ -123,6 +123,58 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
 
+  # A infraestrutura passa pela mesma esteira que o código, e SEM a senha do
+  # vault — que é o ponto do job, não um detalhe da execução.
+  #
+  # O CI não tem, e não pode ter, a chave dos segredos de produção. Enquanto o
+  # arquivo cifrado morava em `group_vars/producao/`, o Ansible o decifrava ao
+  # montar as variáveis de qualquer playbook do grupo, e até um `--syntax-check`
+  # exigia a senha: validar o playbook aqui era impossível. Hoje o vault entra
+  # por uma task `include_vars` de provisionar.yml, que só abre quando a play
+  # roda de verdade.
+  #
+  # Este job é o que impede aquilo de voltar em silêncio: qualquer segredo que
+  # volte a ser carregado por padrão o derruba, com a mensagem do vault ausente.
+  infra:
+    name: Infraestrutura (ansible-lint, syntax-check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/ansible
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # `ansible-lint` traz o `ansible-core` como dependência, mas a versão dele
+      # é a que o lint escolher. Fixar as duas na mesma linha deixa o CI e a
+      # máquina de quem opera falando da mesma versão do que é válido.
+      - name: instala o ansible e o linter
+        run: pip install ansible-core ansible-lint
+
+      # As coleções não são versionadas (são cache reconstruível, ver
+      # .gitignore): sem instalá-las, o lint reprova toda task de módulo
+      # `community.docker` por módulo desconhecido.
+      - name: instala as coleções do requirements.yml
+        run: ansible-galaxy collection install -r requirements.yml
+
+      # Sem `--vault-password-file` em lugar nenhum, e sem `.senha-vault` no
+      # runner: é a prova do critério de aceite de A5.
+      - name: syntax-check dos playbooks, sem a senha do vault
+        run: |
+          test ! -f .senha-vault || {
+            echo "::error::.senha-vault não pode existir no runner — a senha do vault não é do CI"
+            exit 1
+          }
+          ansible-playbook provisionar.yml --syntax-check
+          ansible-playbook preparar-host.yml --syntax-check
+
+      - name: ansible-lint
+        run: ansible-lint
+
   seguranca-codigo:
     name: Vulnerabilidades (dependências do código)
     runs-on: ubuntu-latest
@@ -355,7 +407,7 @@ jobs:
     # A varredura semanal (schedule) não publica nem implanta: ela roda sem
     # commit novo, e reimplantar produção sozinho toda segunda não é o objetivo.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    needs: [imagens, backend, frontend, e2e, seguranca-codigo, seguranca-imagens]
+    needs: [imagens, backend, frontend, e2e, seguranca-codigo, seguranca-imagens, infra]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

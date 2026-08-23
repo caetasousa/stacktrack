@@ -5,7 +5,11 @@
 - name: recarrega o Caddy
   ansible.builtin.shell:
     cmd: |
-      set -eu
+      # `pipefail` junto de `set -eu`: sem ele, o `docker ps | head` mascara a
+      # falha do `docker ps` — o pipe devolve o status do `head`, que sai 0
+      # mesmo sem receber nada, e o erro vira "nenhum Caddy encontrado" em vez
+      # da causa real.
+      set -euo pipefail
       # Acha o container pelo RÓTULO do compose, sem depender de saber em qual
       # stack ele mora nem qual é o nome dele. `-q` devolve só o id, o que evita
       # um --format com template Go dentro de um arquivo que o Jinja processa.
@@ -17,4 +21,7 @@
       # --config explícito: sem ele o reload usaria o último config carregado
       # por API, e não o arquivo.
       docker exec "$caddy" caddy reload --config /etc/caddy/Caddyfile
+    # `pipefail` não existe no dash, que é o /bin/sh do Debian: sem esta linha o
+    # script morreria na primeira instrução em vez de recarregar o proxy.
+    executable: /bin/bash
   changed_when: true

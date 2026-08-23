@@ -1,0 +1,17 @@
+---
+# Regras do ansible-lint para este diretório. O CI roda `ansible-lint` aqui, sem
+# a senha do vault — ver o job `infra` em .github/workflows/ci.yml.
+
+exclude_paths:
+  # Coleções baixadas pelo ansible-galaxy: código de terceiros, versionado fora
+  # do git (.gitignore), com milhares de tasks que não são deste projeto. Sem
+  # esta exclusão o lint processa 977 arquivos e o que é nosso some no meio.
+  - .collections/
+  # Cache de fatos do host — JSON de máquina, não playbook.
+  - .fatos/
+
+skip_list:
+  # Os nomes das tasks são frases em português minúsculo ("instala o .env da
+  # stack"), como todo comentário deste repositório. Exigir maiúscula inicial
+  # brigaria com a convenção do projeto sem tornar nada mais claro.
+  - name[casing]

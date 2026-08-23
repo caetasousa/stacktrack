@@ -29,15 +29,15 @@
 - name: le a rede compartilhada do proxy
   community.docker.docker_network_info:
     name: '{{ rede_borda }}'
-  register: rede_borda_info
+  register: stacktrack_rede_borda_info
 
 - name: exige subnet valido na rede do proxy
   ansible.builtin.assert:
     that:
-      - rede_borda_info.exists
-      - rede_borda_info.network.IPAM.Config | default([]) | length > 0
+      - stacktrack_rede_borda_info.exists
+      - stacktrack_rede_borda_info.network.IPAM.Config | default([]) | length > 0
       - >-
-        rede_borda_info.network.IPAM.Config
+        stacktrack_rede_borda_info.network.IPAM.Config
         | selectattr('Subnet', 'defined')
         | map(attribute='Subnet')
         | reject('equalto', '')
@@ -49,8 +49,8 @@
 
 - name: deriva os proxies confiaveis da rede real do Caddy
   ansible.builtin.set_fact:
-    proxies_confiaveis: >-
-      {{ rede_borda_info.network.IPAM.Config
+    stacktrack_proxies_confiaveis: >-
+      {{ stacktrack_rede_borda_info.network.IPAM.Config
          | selectattr('Subnet', 'defined')
          | map(attribute='Subnet')
          | reject('equalto', '')
@@ -62,7 +62,7 @@
 - name: confere se o servidor já está autenticado no GHCR
   ansible.builtin.slurp:
     src: '{{ pasta_base }}/.docker/config.json'
-  register: docker_config
+  register: stacktrack_docker_config
   failed_when: false
   check_mode: false
 
@@ -72,7 +72,7 @@
     stdin: '{{ vault_ghcr_token }}'
   when:
     - vault_ghcr_token | length > 0
-    - "'ghcr.io' not in (docker_config.content | default('') | b64decode)"
+    - "'ghcr.io' not in (stacktrack_docker_config.content | default('') | b64decode)"
   # O token viajaria para o log em claro sem isto.
   no_log: true
   changed_when: true
@@ -84,7 +84,7 @@
 - name: lê o .env que já esteja no servidor
   ansible.builtin.slurp:
     src: '{{ pasta_stack }}/.env'
-  register: env_atual
+  register: stacktrack_env_atual
   failed_when: false
   check_mode: false
   # O arquivo lido tem a senha do banco; o valor registrado não vai para o log.
@@ -102,8 +102,8 @@
       no banco, só quebra a conexão da API. Ajuste o vault para os valores que
       estão no servidor, ou faça o ALTER ROLE de propósito e só então reaplique.
   vars:
-    conteudo: '{{ env_atual.content | b64decode }}'
-  when: env_atual.content is defined
+    conteudo: '{{ stacktrack_env_atual.content | b64decode }}'
+  when: stacktrack_env_atual.content is defined
 
 # É esta task que faz o .env deixar de ser um arquivo que alguém escreve à mão.
 # DOMINIO, IMAGE_REPO e IMAGE_TAG convergem normalmente; os três campos do
@@ -174,7 +174,7 @@
 - name: verifica se a stack já existe no servidor
   ansible.builtin.stat:
     path: '{{ pasta_stack }}/docker-compose.prod.yml'
-  register: compose_no_servidor
+  register: stacktrack_compose_no_servidor
   check_mode: false
 
 - name: sobe a stack
@@ -188,4 +188,4 @@
   # SIMULARAM criar o diretório e o módulo falharia com "is not a directory".
   # Depois do primeiro apply o arquivo existe e o check volta a exercitar esta
   # task — que é o que o critério de `changed=0` precisa medir.
-  when: not ansible_check_mode or compose_no_servidor.stat.exists
+  when: not ansible_check_mode or stacktrack_compose_no_servidor.stat.exists

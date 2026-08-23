@@ -79,12 +79,12 @@
 # dependência a mais num host compartilhado custa mais do que estas duas tasks.
 - name: verifica se a rede compartilhada do Caddy existe
   ansible.builtin.command: docker network inspect {{ rede_borda }}
-  register: rede_existente
+  register: docker_rede_existente
   changed_when: false
   failed_when: false
   check_mode: false
 
 - name: cria a rede compartilhada do Caddy
   ansible.builtin.command: docker network create {{ rede_borda }}
-  when: rede_existente.rc != 0
+  when: docker_rede_existente.rc != 0
   changed_when: true

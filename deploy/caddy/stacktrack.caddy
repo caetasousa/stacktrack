@@ -26,11 +26,50 @@ stacktrack.duckdns.org {
 	# sabe o hash dos scripts que ele mesmo gerou naquele build. Duas CSPs na
 	# mesma resposta valem pela interseção, e a daqui quebraria o app na
 	# primeira divergência.
+	# O log de acesso do site, com o caminho SANITIZADO.
+	#
+	# Sem isto o Caddy registra a URL inteira, e a URL do convite carrega o
+	# segredo: `/convite/<token>` e `/api/convites/<token>` iriam para o log em
+	# texto puro, junto de todo caminho secreto que alguém tente adivinhar. A
+	# aplicação já faz a sua parte (ver internal/pkg/logging), mas o log do
+	# proxy é um SEGUNDO registro da mesma requisição — sanitizar só um dos dois
+	# não sanitiza nada.
+	#
+	# O filtro NÃO é uma lista das rotas que carregam segredo, e essa é a
+	# decisão importante. Uma lista só protege os caminhos que casam com ela:
+	# `/convitess/<token>` — a rota certa errada por uma letra — não casaria,
+	# levaria 404, e o token iria inteiro para o log. O mesmo vale para um
+	# segredo tentado na raiz, `/<token>`.
+	#
+	# Em vez disso, redige pela FORMA do segredo: todo token deste sistema é
+	# base64url de 256 bits, 43 caracteres de [A-Za-z0-9_-] (ver
+	# internal/pkg/token). Qualquer corrida de 24 ou mais desses caracteres num
+	# segmento é redigida, casando ou não com rota. `/` fica fora da classe, então
+	# a redação nunca atravessa segmentos e a forma da rota continua legível.
+	#
+	# O preço é que UUIDs (36 caracteres) também são redigidos. É preço, e não
+	# defeito: o id do quadro não ajuda a diagnosticar nada que o log da
+	# aplicação — que registra o padrão da rota e o request_id — já não diga.
+	log {
+		format filter {
+			wrap console
+			fields {
+				request>uri regexp "[A-Za-z0-9_-]{24,}" "REDACTED"
+				# Referer pode conter a URL anterior inteira, inclusive token de
+				# convite. O caminho principal sanitizado nao protege esse segundo
+				# campo, entao ele nao entra no access log.
+				request>headers>Referer delete
+			}
+		}
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
+		# Global de proposito: uma regra posterior nao pode sobrescrever a
+		# protecao das paginas que carregam credenciais no caminho.
+		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		-Server

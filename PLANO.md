@@ -946,13 +946,27 @@ conferido de fora:
 - os quatro containers do agendaGo com duas semanas de uptime — a fronteira do
   host compartilhado não foi tocada.
 
+E, depois da troca da chave, contra o servidor de verdade, com a chave da
+esteira:
+
+```
+$ ssh -i stacktrack_deploy stacktrack-deploy@... 'stacktrack-release estado'
+  → compose ps, sha256 dos três arquivos, fuso e cron
+
+$ ssh -i stacktrack_deploy stacktrack-deploy@... 'bash'
+  → stacktrack-release: verbo desconhecido: bash
+```
+
+A cadeia fecha: chave exclusiva → `restrict` + comando forçado → wrapper valida
+→ `sudo` restrito a um arquivo → Docker. Uma chave vazada da esteira rende três
+verbos.
+
 ### O que só você pode fazer
 
-1. **Gerar a chave exclusiva da esteira** e pôr a pública em
-   `esteira_chave_publica` (`group_vars/producao/vars.yml`), a privada no secret
-   `VPS_SSH_KEY`, e trocar `VPS_USER` para `stacktrack-deploy`. Enquanto a
-   variável estiver vazia, a role avisa e não instala chave nenhuma — o acesso
-   antigo continua funcionando, de propósito.
+1. ~~**Gerar a chave exclusiva da esteira**~~ — feito. Par próprio instalado em
+   `stacktrack-deploy` com `restrict` e comando forçado, e os segredos do GitHub
+   trocados. A chave do agendaGo continua em `deploy`, que é o acesso do
+   operador e do vizinho.
 2. **Testar o console do provedor** antes de rodar `make infra-preparar`: o
    hardening desliga a senha do SSH e sobe o firewall. Ele é a única parte que
    alcança o HOST INTEIRO, e o host é dividido com o agendaGo — por isso tem tag
@@ -1089,10 +1103,7 @@ comprometido.
 - [x] CI valida Ansible sem possuir a senha do vault.
 - [ ] Segunda aplicação do playbook é idempotente. *(medição contra o servidor)*
 - [x] API não possui DDL nem privilégios administrativos.
-- [ ] Credencial de deploy não oferece shell genérico nem acesso a segredos.
-      *(o wrapper e o usuário existem no servidor e funcionam; a esteira ainda
-      entra com a chave compartilhada do `deploy`, que tem shell — falta gerar a
-      chave exclusiva e trocar os segredos)*
+- [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
 - [ ] `main` e o Environment de produção aplicam os gates definidos. *(painel do
       GitHub)*
 - [ ] Portas internas não estão expostas à internet. *(o UFW está escrito e

@@ -240,16 +240,29 @@ Automático pela esteira. Manualmente:
 ```bash
 cd ~/stacktrack
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
-que o Flyway termina antes de a API subir.
+que o Flyway termina antes de a API subir. API e web são interrompidas juntas
+antes disso para que backend antigo e cliente novo nunca convivam durante uma
+troca de protocolo. O perfil atual aceita essa janela curta de manutenção em
+troca de um rollout semanticamente demonstrável com uma única instância.
 
 ## Voltar atrás
 
+O rollback usa somente uma imagem compatível com o schema e com o protocolo já
+ativado. Depois que a primeira mutação com revisão for aceita, **não** se volta
+ao writer anterior à V16: ele gravaria eventos sem revisão e abriria uma lacuna
+que o cursor novo não consegue representar. Nesse ponto, falha de aplicação é
+corrigida com roll-forward a partir da release revisionada. Voltar à versão
+anterior só é seguro durante a janela de manutenção, antes de reabrir tráfego e
+antes de qualquer escrita nova.
+
 ```bash
 $EDITOR .env       # IMAGE_TAG=<sha do commit bom>
+docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -263,7 +276,7 @@ no mesmo deploy que estreia a coluna transforma o rollback num erro no primeiro
 
 `scripts/backup.sh` roda por cron às 03:20 — deslocado do agendaGo (03:00)
 porque dois `pg_dump` no mesmo minuto disputam CPU e disco sem necessidade. A
-agendamento é feito pelo Ansible (`make infra-apply`), com
+O agendamento é feito pelo Ansible (`make infra-apply`), com
 `ansible.builtin.cron`, que gerencia só o bloco marcado e preserva a linha do
 vizinho. A esteira apenas CONFERE que ele existe, e falha se não existir —
 escrever dos dois lados fazia os dois brigarem pelo mesmo arquivo.
@@ -349,6 +362,57 @@ enche o disco do VPS e derruba tudo junto — **inclusive o agendaGo**.
 
 ---
 
+## Manutenção do banco
+
+A imagem de produção traz um segundo binário, `manutencao`, ao lado da API. Ele
+existe para o que **não pode** ser feito por migration: a regra do
+[CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados) é que migration não escreve
+dado, porque todo backfill decide com que valor as linhas antigas ficam — e essa
+decisão é do domínio.
+
+O entrypoint da imagem continua sendo a API; o comando é invocado
+explicitamente, no mesmo container e com a mesma versão do domínio que está no
+ar.
+
+```bash
+cd ~/stacktrack
+alias dcm='docker compose -f docker-compose.prod.yml run --rm --entrypoint manutencao api'
+
+dcm reparar-ordenacao --conferir   # só relata; sai 1 se houver trabalho
+dcm reparar-ordenacao              # repara e reconfere; sai 0 só se ficou limpo
+```
+
+### `reparar-ordenacao`
+
+Redistribui chaves de ordenação **duplicadas** — o estado que a versão anterior
+da aplicação conseguia gravar numa rajada de inserções no mesmo ponto, e que o
+código de hoje detecta e conserta sozinho no uso normal.
+
+Rodar isto é a **pré-condição do contract** `UNIQUE (coluna_id, chave)` /
+`UNIQUE (board_id, chave)`: o `CREATE UNIQUE INDEX` recusa criar enquanto houver
+duplicidade herdada, e descobrir isso no meio da janela de manutenção é o pior
+momento possível.
+
+O que ele garante, e por que dá para rodar com a aplicação no ar:
+
+- **um quadro por transação**, sob o lock daquele quadro. Não para a escrita dos
+  outros quadros, e uma falha no meio não desfaz o que já foi reparado;
+- **relê as chaves dentro da transação**. Entre a consulta que listou as
+  duplicidades e o lock cabe qualquer mutação — inclusive um rebalanceamento
+  disparado pelo próprio uso —, e aí não há mais o que reparar naquele contêiner;
+- **idempotente**: rodar de novo termina o serviço. Uma segunda passada num
+  banco limpo não abre transação nenhuma;
+- **reconfere no fim**. O código de saída 0 significa que a consulta de
+  pré-condição voltou vazia, não que o comando achou que deu certo.
+
+O reparo é uma mutação como qualquer outra: avança a revisão do quadro e deixa
+evento no log, com `autor_id` **vazio** e a origem no payload — não houve pessoa
+por trás. Quem está com o quadro aberto reconcilia ao reconectar; a auditoria
+mostra "manutenção redistribuiu a ordenação do quadro", que é a frase honesta
+para explicar depois por que a ordem mudou numa madrugada.
+
+---
+
 ## 📊 Dimensionamento
 
 Os `mem_limit` desta stack somam ~1,15 GB:
@@ -385,6 +449,22 @@ mantém as cinco capabilities mínimas para essa troca.
 - [ ] **o agendaGo continua no ar** depois do reload do Caddy
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` com folga sobre a soma dos limites das duas stacks
+
+### Passos agendados para o deploy SEGUINTE
+
+Os dois itens abaixo estão prontos no código e **não podem** entrar no mesmo
+deploy que os criou. Ficam aqui para não dependerem de alguém lembrar.
+
+- [ ] **`V18` — `UNIQUE` da chave de ordenação.** Aperto de schema exige dois
+      deploys: a versão anterior continua no ar durante o deploy e é para onde
+      um rollback volta, e ela ainda consegue gravar chave repetida. Antes de
+      criar, rodar `manutencao reparar-ordenacao --conferir` até sair 0 e
+      registrar a estimativa de lock numa cópia representativa. SQL e
+      procedimento em [backend/migrations/README.md](../backend/migrations/README.md).
+- [ ] **Ativar o GC de arquivos.** O outbox `arquivo_exclusoes` já acumula e o
+      coletor já funciona, mas a porta de cobertura é `CoberturaNegada` e nada
+      sai do disco. Ligar exige os manifests dos backups externos — é trabalho
+      de A6, e só depois do primeiro restore drill aprovado.
 
 ---
 

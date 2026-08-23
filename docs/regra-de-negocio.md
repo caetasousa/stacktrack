@@ -352,17 +352,22 @@ deixaria de significar algo.
 Uma conexão de horas cai — é o estado normal, não a exceção. O que não pode é
 voltar fingindo que nada aconteceu.
 
-Cada mudança no quadro entra num log com um `seq` crescente. O cliente guarda o
-último que aplicou; ao reconectar, pergunta `?desde=41` e recebe o intervalo
-**antes** de voltar ao vivo. A ordem importa: entregar o passado depois do
-presente faria a tela aplicar o velho por cima do novo.
+Cada mudança não terminal no quadro entra no mesmo commit do log e recebe uma
+`revisao` daquele quadro, numerada sob o lock da sua linha. O cliente guarda
+somente a última revisão que os snapshots visíveis realmente cobrem; ao
+reconectar, pergunta `?revisao=41` e recebe o intervalo **antes** de voltar ao
+vivo. A ordem importa: entregar o passado depois do presente faria a tela
+aplicar o velho por cima do novo. O `seq` global continua identificando eventos
+e paginando a auditoria legada, mas não é cursor de reconexão porque sua ordem
+de alocação pode diferir da ordem de commit.
 
 A assinatura da sala acontece **antes** da reposição, de propósito. Isso faz os
 eventos que chegam durante a reposição ficarem na fila e serem entregues em
 seguida — sem buraco entre o fim da história e o começo do ao vivo. O preço é
-que alguns chegam duas vezes, e é por isso que o cliente descarta tudo com `seq`
-menor ou igual ao último aplicado. **Preferimos repetir a arriscar buraco**: o
-`seq` torna a repetição inofensiva, e nada torna um buraco perceptível.
+que alguns chegam duas vezes. **Preferimos repetir a arriscar buraco**: a tela
+só descarta uma revisão depois de aplicar o snapshot do quadro e, quando aberto,
+o snapshot do modal correspondente. Todas as conexões recebem, inclusive outras
+abas da mesma conta.
 
 Intervalo grande demais (mais de 200 eventos) não é reproduzido: o servidor
 manda recarregar o quadro inteiro. Uma requisição resolve, e o resultado é o

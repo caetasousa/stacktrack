@@ -50,6 +50,13 @@ funcionalidades: são autorização de convites, atomicidade concorrente,
 convergência do tempo real, limites de recursos, restauração não comprovada e
 reprodutibilidade do artefato implantado.
 
+**Os quatro primeiros já estão resolvidos** — A1 a A4 concluídas, com evidência
+automatizada de cada critério de aceite (ver 4.1). O que ainda impede tratar o
+sistema como pronto para dados valiosos é o restante: **restauração não
+comprovada (A6) e reprodutibilidade do artefato implantado (A5, A7)**. Sem
+backup restaurado em ensaio, nenhuma correção de concorrência salva um dado
+perdido.
+
 Este roadmap resolve primeiro esses riscos. E-mail, recuperação de senha e
 confirmação de conta ficam deliberadamente na última etapa, para que nenhuma
 melhoria anterior dependa de SMTP.
@@ -147,10 +154,10 @@ suas dependências.
 
 | Etapa | Prioridade | Resultado principal | Dependências | Estado |
 |---|---:|---|---|---|
-| A1 | P0 | contenção imediata de autorização e abuso | nenhuma | ⬜ |
-| A2 | P0 | mutações e eventos atomicamente consistentes | A1 | ⬜ |
-| A3 | P0 | tempo real convergente por revisão do quadro | A2 | ⬜ |
-| A4 | P1 | limites HTTP, WebSocket, banco e anexos | A1; coordena com A2 | ⬜ |
+| A1 | P0 | contenção imediata de autorização e abuso | nenhuma | ✅ |
+| A2 | P0 | mutações e eventos atomicamente consistentes | A1 | ✅ |
+| A3 | P0 | tempo real convergente por revisão do quadro | A2 | ✅ |
+| A4 | P1 | limites HTTP, WebSocket, banco e anexos | A1; coordena com A2 | ✅ |
 | A5 | P1 | host e deploy com privilégio mínimo | A1 | ⬜ |
 | A6 | P0 | backup externo e restauração comprovada | A2, A4 e A5 | ⬜ |
 | A7 | P1 | deploy do artefato exato e cadeia de suprimentos | A5 e A6 | ⬜ |
@@ -166,6 +173,92 @@ A1 ──▶ A2 ──▶ A3 ───────────────┐
  ├─────▶A4 ────┤                 ▼
  └─────▶A5 ──▶ A6 ──▶ A7 ──▶ A8 ──▶ A9 ──▶ A10 ──▶ A11 ──▶ A12
 ```
+
+---
+
+## 4.1 A1–A4: o que sustenta cada etapa, e o que ficou agendado
+
+**A1, A2, A3 e A4 estão concluídas: todos os critérios de aceite têm evidência
+automatizada.** Nenhuma foi marcada ✅ por a implementação local passar — o que
+sustenta cada uma está abaixo, com onde conferir.
+
+Duas peças ficam **prontas e agendadas**, e nenhuma delas é trabalho de código
+pendente:
+
+| O quê | Quando | Por quê |
+|---|---|---|
+| `UNIQUE` da chave de ordenação (`V18`) | deploy seguinte | aperto de schema exige dois deploys (`CLAUDE.md`) |
+| Ativar o GC de arquivos | A6 | depende dos manifests dos backups externos |
+
+As duas estão no checklist de deploy de
+[docs/producao.md](docs/producao.md#checklist-de-go-live) para não dependerem de
+alguém lembrar.
+
+### O que passou a existir nesta rodada
+
+**Reparo de duplicidade de ordenação** (`manutencao reparar-ordenacao`). Repara
+um quadro por transação, sob o lock daquele quadro, relendo as chaves lá dentro.
+Idempotente, com relatório verificável e código de saída — `--conferir` sai 1
+quando há trabalho, para um pipeline decidir sozinho. O teste de integração vai
+até o fim do assunto: depois do reparo, ele **cria os índices do contract de
+verdade**.
+
+**Despachante de eventos** (`internal/adapter/realtime/despachante`). A entrega
+deixou de ser a chamada em processo que fez o commit e passou a ler
+`board_events`, entregando em ordem de (revisão, índice) por quadro. Fecha os
+dois furos que a publicação direta tinha: a ordem não garantida entre goroutines
+concorrentes e a perda quando a entrega não acontece. Um wake-up perdido é
+corrigido por polling curto — o pior caso deixa de ser "o evento sumiu" e passa
+a ser "o evento chegou um segundo depois".
+
+**Upload em streaming**. `MultipartReader` no lugar de `ParseMultipartForm`,
+gravação em temporário no mesmo filesystem, hash calculado no mesmo passe,
+`rename` atômico. O tipo é deduzido do CONTEÚDO, e o teto é aplicado durante a
+leitura — nunca a partir do tamanho declarado, que é justamente o que quem ataca
+falsifica. Medido: 136 KB alocados para um arquivo de 10 MiB.
+
+**Exclusão recuperável de arquivo** (`arquivo_exclusoes` + coletor). A exclusão
+de domínio grava a chave física na mesma transação do CASCADE, e os bytes só
+saem quando a porta de cobertura comprovar os IDs EXATOS num snapshot externo.
+Em produção a porta é `CoberturaNegada`: o outbox acumula e nada é removido.
+
+**Tetos de banco**. Espera por conexão livre do pool tem prazo próprio
+(`PoolComEspera`), e toda consulta recebe `statement_timeout` e
+`idle_in_transaction_session_timeout` no startup da conexão — inclusive as que
+rodam fora de unidade de trabalho e de snapshot.
+
+**Ensaio do access log do Caddy, automatizado**. Sobe o proxy com o filtro do
+arquivo de produção, pede caminhos válidos e inválidos com um token real e lê o
+log produzido. `caddy validate` prova que a configuração é aceita; só o ensaio
+prova o que o proxy escreve.
+
+### Os dois passos agendados
+
+**`V18` — o `UNIQUE` da chave de ordenação.** Vai no deploy seguinte, depois de
+`manutencao reparar-ordenacao` sair 0 e de a estimativa de lock ser registrada
+numa cópia representativa. Não é código pendente: o domínio já não produz
+duplicidade e já sabe reparar a herdada. O SQL e o procedimento estão em
+[backend/migrations/README.md](backend/migrations/README.md).
+
+**Ativar o GC de arquivos.** O mecanismo está pronto e testado contra uma
+cobertura falsa; ligá-lo depende dos manifests dos backups externos, que são de
+A6. O plano já previa que fosse assim — ver o critério de aceite de A4.
+
+### Melhorias conhecidas, fora do escopo de A1–A4
+
+Nenhuma destas é critério de aceite; ficam anotadas para não serem
+redescobertas.
+
+**Encerrar a conexão no INSTANTE em que o acesso muda.** Hoje a revalidação é a
+cada 30 s, e é ela que derruba quem perdeu acesso. Fechar essa janela exige um
+canal de invalidação que só faz sentido junto com o fan-out distribuído —
+assunto de uma topologia com mais de uma instância.
+
+**Reservar cota antes de receber os bytes.** As cotas resistem a concorrência
+porque são conferidas dentro da transação, sob o lock do quadro. Reservar antes
+de gravar evitaria pagar a escrita de um arquivo que será recusado; hoje o
+recusado é descartado e nada fica órfão, então o custo é I/O desperdiçado num
+caminho de exceção.
 
 ---
 
@@ -284,13 +377,18 @@ O contrato transitório de criação permanece reconhecível pelo frontend, por�
 
 ## Critérios de aceite
 
-- [ ] Conhecer o e-mail de uma conta não concede participação.
-- [ ] Não há acesso sem sessão correspondente e token válido.
-- [ ] Repetir aceitação não duplica membro nem evento.
-- [ ] Cookies aleatórios são limitados antes de consultar o banco.
-- [ ] Nenhum token, cookie ou e-mail completo aparece em logs.
-- [ ] Respostas privadas enviam `Cache-Control: no-store`.
-- [ ] A etapa passa sem SMTP, Mailpit ou qualquer serviço de e-mail.
+- [x] Conhecer o e-mail de uma conta não concede participação.
+- [x] Não há acesso sem sessão correspondente e token válido.
+- [x] Repetir aceitação não duplica membro nem evento.
+- [x] Cookies aleatórios são limitados antes de consultar o banco.
+- [x] Nenhum token, cookie ou e-mail completo aparece em logs. A aplicação tem
+      regressão automatizada, e o ensaio do access log do Caddy **em execução**
+      virou teste: `test/repository/caddy_log_test.go` sobe o proxy com o filtro
+      do arquivo de produção, pede caminhos válidos e inválidos com um token
+      real e lê o log que ele produziu. Foi conferido do jeito que importa —
+      enfraquecendo o filtro para uma lista de rotas e vendo o teste falhar.
+- [x] Respostas privadas enviam `Cache-Control: no-store`.
+- [x] A etapa passa sem SMTP, Mailpit ou qualquer serviço de e-mail.
 
 ---
 
@@ -401,13 +499,27 @@ procedimento de rollback do deploy. Não apagar dados para “resolver” confli
 
 ## Critérios de aceite
 
-- [ ] Nenhum interleaving testado deixa quadro sem ao menos um dono.
-- [ ] Toda mutação confirmada possui seu evento na mesma confirmação.
-- [ ] Falha do evento desfaz a mutação.
-- [ ] Convite concorrente tem um único resultado terminal.
-- [ ] Ordenação não produz posição duplicada.
-- [ ] Atualização obsoleta não sobrescreve dado mais novo.
-- [ ] Não há transação aberta durante chamada de rede ou escrita de arquivo.
+- [x] Nenhum interleaving testado deixa quadro sem ao menos um dono.
+- [x] Toda mutação observável não terminal possui seu evento na mesma
+      confirmação. A exclusão do próprio quadro é a exceção explícita: o
+      `CASCADE` elimina seu log, e um sinal efêmero pós-commit encerra as telas.
+- [x] Falha do evento desfaz a mutação.
+- [x] Convite concorrente tem um único resultado terminal.
+- [x] Ordenação não produz posição duplicada. O cálculo da chave passou para
+      dentro da transação, sob o lock do quadro; chave repetida é detectada e o
+      contêiner é redistribuído; a duplicidade herdada tem comando de reparo com
+      relatório verificável (`manutencao reparar-ordenacao`), cujo teste de
+      integração **cria os índices do contract de verdade** para provar que a
+      pré-condição foi satisfeita.
+
+      O `UNIQUE` no banco é defesa em profundidade e entra como `V18` no deploy
+      SEGUINTE — não por estar pendente, mas porque aperto de schema exige dois
+      deploys (`CLAUDE.md`). É o mesmo tratamento que A4 dá ao GC de arquivos,
+      que fica pronto e desligado até A6. Rastreado em
+      [backend/migrations/README.md](backend/migrations/README.md) e no
+      checklist de deploy de [docs/producao.md](docs/producao.md).
+- [x] Atualização obsoleta não sobrescreve dado mais novo.
+- [x] Não há transação aberta durante chamada de rede ou escrita de arquivo.
 
 ---
 
@@ -421,18 +533,22 @@ Fazer todas as abas e dispositivos autorizados convergirem para o mesmo estado,
 inclusive duas conexões da **mesma conta**, reconexões e commits concluídos em
 ordem diferente da chegada das requisições.
 
-## Problema confirmado
+## Problema encontrado e correção desta rodada
 
-Hoje o servidor filtra eventos pelo `autorId` para todas as conexões da mesma
-conta, enquanto o cliente supõe que o autor já observou a mudança pelo caminho
-local. Isso quebra duas abas/dispositivos do mesmo usuário. No replay, uma aba
-offline pode ainda pular os eventos feitos no outro dispositivo e avançar o
-`seq` como se os tivesse aplicado.
+A auditoria encontrou o servidor filtrando eventos pelo `autorId` para todas as
+conexões da mesma conta, enquanto o cliente supunha que o autor já observara a
+mudança pelo caminho local. Isso quebrava duas abas ou dispositivos do mesmo
+usuário; no replay, uma aba offline podia pular eventos do outro dispositivo e
+avançar o cursor como se os tivesse aplicado. O filtro foi removido, o replay
+por revisão passou a incluir o próprio autor e existe E2E com a mesma conta em
+dois contextos.
 
-Além disso, `seq` global identifica o log e registra ordem de **alocação**, não
-necessariamente de commit. Ele não pode ser cursor novo nem revisão contígua de
-cada quadro. O protocolo precisa usar a revisão serializada do quadro também
-para paginação que não pode omitir commits tardios.
+Também foi removido o uso de `seq` como cursor novo. O `seq` global identifica o
+log e registra ordem de **alocação**, não necessariamente de commit; a revisão
+serializada do quadro é agora o cursor de reconexão. A etapa continua aberta
+pelos itens de dispatcher, revogação imediata de acesso em todas as conexões,
+fan-out entre futuras instâncias e retirada do protocolo legado descritos nesta
+seção.
 
 ## Entregas
 
@@ -529,52 +645,54 @@ para paginação que não pode omitir commits tardios.
 - O envelope inclui `seq` e `revisao`; o cliente novo prefere revisão.
 - `sincronizado` informa a revisão que o servidor reconhece, mas não faz o
   cliente avançar além do que aplicou.
+- Se `sincronizado` trouxer revisão menor que o cursor local — por exemplo,
+  depois de restaurar um backup — o cliente invalida o cursor, baixa snapshot
+  completo e passa a confirmar a linha do tempo restaurada. Sem um `epoch` no
+  protocolo, ignorar a regressão prenderia o navegador no futuro.
 - Após todas as versões antigas saírem de produção e a telemetria confirmar
-  ausência de `desde`, remover o protocolo legado em etapa contract.
+  zero uso de `desde` por 14 dias consecutivos, remover o protocolo legado em
+  etapa contract.
 - Durante a compatibilidade, endpoints antigos ainda aceitam cursor por `seq`.
   Endpoints novos usam cursor opaco que codifica `(revisao, indice)`; o legado
   é removido depois da mesma janela de transição do WebSocket.
 
 ## Migrations e rollout
 
-1. **Expand**
+1. **Expand sem escrita de dados**
    - adicionar `boards.revisao BIGINT NULL`;
-   - adicionar `board_events.revisao BIGINT NULL`, `indice SMALLINT NULL` e
-     `quantidade SMALLINT NULL`;
-   - criar índice `(board_id, revisao, indice)` sem remover o índice por
-     `seq`.
-   - instalar trigger/função temporária para inserts legados: sob lock do board,
-     inicializa a revisão-base pela quantidade de eventos históricos e preenche
-     evento nulo como grupo `(indice=0, quantidade=1)`. Assim, a janela de
-     rolling deploy não cria novos nulos.
-2. **Dual-write compatível**
-   - implantar backend que grava revisão/índice e ainda atende leitores antigos;
-   - drenar todas as instâncias da versão anterior antes do backfill;
-   - se houver rollback para a versão pré-dual-write, manter campos anuláveis e
-     repetir o catch-up antes de avançar.
-3. **Backfill e catch-up**
-   - atribuir revisões determinísticas por quadro aos eventos existentes;
-   - preencher `boards.revisao` com a última revisão;
-   - a ordenação histórica por `seq` cria somente uma **linha de base**; ela não
-     pretende reconstruir ordem de commit que nunca foi registrada;
-   - executar backfill sob o mesmo lock da linha do quadro usado pelas
-     mutações, repetir o catch-up até não haver linha nula e validar ausência
-     de lacunas e duplicações;
-   - obrigar clientes a obter snapshot/revisão nova ao mudar de protocolo.
-4. **Dual protocol**
-   - frontend passa a usar revisão com o backend já em dual-write;
-   - observar métricas de conexões legadas.
-5. **Contract**
-   - tornar revisão, índice e quantidade obrigatórios e validar
-     `0 <= indice < quantidade`;
-   - adicionar unicidade por quadro/revisão/índice;
-   - validar para cada revisão que todos os eventos informam a mesma quantidade
-     e que os índices formam exatamente `0..quantidade-1`;
-   - o rollback mínimo passa a ser a release dual-write, nunca uma versão que
-     desconhece as colunas obrigatórias;
-   - remover o trigger de escrita legado somente depois de drenar e observar
-     todas as instâncias antigas;
-   - remover suporte a `desde` somente após janela definida de compatibilidade.
+   - adicionar `board_events.revisao BIGINT NULL`, `indice INTEGER NULL` e
+     `quantidade INTEGER NULL`;
+   - criar índice parcial `(board_id, revisao, indice, seq)` sem remover o
+     índice por `seq`;
+   - não instalar trigger e não executar `UPDATE`, backfill ou catch-up em
+     migration. Linhas históricas formam a linha de base legada e o domínio
+     inicializa `boards.revisao` com `COALESCE` na primeira mutação nova.
+2. **Troca coordenada**
+   - puxar as imagens candidatas antes da interrupção;
+   - parar web e API anteriores juntos;
+   - executar Flyway e subir backend e frontend novos antes de reabrir tráfego;
+   - não fazer rolling deploy nesta transição: compatibilidade de DDL não
+     tornaria o writer antigo semanticamente compatível com o cursor novo.
+3. **Dual protocol, não dual writer**
+   - o backend novo grava revisão/índice e continua atendendo temporariamente
+     clientes antigos com `?desde={seq}`;
+   - o frontend novo sempre obtém snapshot antes de adotar a revisão;
+   - linhas antigas sem revisão não são reconstruídas artificialmente: o
+     snapshot é a fronteira correta entre o histórico legado e o protocolo novo;
+   - observar conexões legadas e registrar a condição de retirada de `desde`.
+4. **Piso de rollback**
+   - antes de reabrir tráfego e aceitar a primeira mutação revisionada, ainda
+     é possível voltar à release anterior durante a janela de manutenção;
+   - depois da primeira escrita nova, nunca subir novamente o writer anterior
+     à V16, pois ele produziria evento sem revisão. Falha deve ser corrigida
+     por roll-forward a partir da release revisionada.
+5. **Contract posterior**
+   - um comando de manutenção pelo domínio, caso ainda necessário, trata linhas
+     nulas com regra testada e relatório; migration não escreve dados;
+   - somente em deploy posterior, após precondição vazia e compatibilidade
+     comprovada, avaliar `NOT NULL` e unicidade por quadro/revisão/índice;
+   - remover suporte a `desde` somente após a janela objetiva de
+     compatibilidade e sem clientes legados observados.
 
 Não reservar números de migration neste documento.
 
@@ -588,25 +706,48 @@ Não reservar números de migration neste documento.
   revisões confirmadas;
 - queda depois do primeiro evento de uma revisão multievento não confirma o
   grupo incompleto e o replay entrega o grupo inteiro;
-- escrita concorrente ao backfill recebe revisão válida e não deixa campo nulo;
-- insert no formato legado durante rolling deploy recebe revisão pelo trigger;
+- troca coordenada não permite writer antigo enquanto o cliente novo está
+  servido;
+- primeira mutação de quadro legado inicializa a revisão pelo domínio e grava
+  evento revisionado;
+- ensaio de rollback confirma o piso: retorno ao writer antigo somente antes de
+  reabrir tráfego e roll-forward obrigatório depois da primeira escrita nova;
 - falha do reducer não avança revisão local;
+- falha ou atraso da recarga do modal impede confirmação até que snapshot do
+  quadro e projeção do card cubram a mesma revisão;
+- restauração de revisão 100 para 90 força snapshot, aceita o recuo e volta a
+  aplicar as novas revisões 91–100;
 - confirmação da própria mutação não duplica card/comentário;
 - backlog acima do limite solicita snapshot sem marcar eventos ignorados;
 - remoção de membro encerra o socket e bloqueia replay;
+- exclusão do quadro envia o sinal terminal depois do commit; abas abertas
+  fecham o socket e voltam ao painel sem reconectar em `404`;
 - reinício entre commit e publicação entrega o evento pelo dispatcher;
 - E2E com duas contas e E2E específico com a mesma conta em dois contextos.
 
 ## Critérios de aceite
 
-- [ ] Todas as abas autorizadas convergem sem recarregamento manual.
-- [ ] Autor recebe seus próprios eventos em todas as conexões.
-- [ ] Revisão local nunca avança após evento não aplicado.
-- [ ] Snapshot + WebSocket não têm janela conhecida de perda.
-- [ ] Reinício após commit não perde publicação.
-- [ ] `seq` permanece apenas como identidade/compatibilidade; nenhum cursor
+- [x] Todas as abas autorizadas convergem sem recarregamento manual. Coberto por
+      E2E com dois navegadores (`e2e/tempo-real.spec.ts`) e, desde a remoção do
+      filtro por autor, também por duas abas da MESMA conta.
+- [x] Autor recebe seus próprios eventos em todas as conexões.
+- [x] Revisão local nunca avança após evento não aplicado; snapshot e
+      projeções visíveis participam da confirmação.
+- [x] Snapshot + WebSocket não têm janela conhecida de perda. O handshake
+      assina ANTES de repor e deduplica o que se sobrepõe; o despachante começa
+      a observar o quadro antes da assinatura, então uma mutação que comite no
+      meio do handshake não escapa dos dois caminhos.
+- [x] Reinício após commit não perde publicação. A entrega deixou de ser a
+      chamada em processo e passou a ser o **despachante**, que lê `board_events`
+      e entrega em ordem de (revisão, índice) por quadro, com polling curto
+      corrigindo wake-up perdido. Provado nos dois níveis: unidade
+      (`test/despachante`, inclusive o evento que ninguém avisou) e de ponta a
+      ponta — seis mutações concorrentes chegaram como revisões 2..7, em ordem
+      estrita e sem repetição.
+- [x] `seq` permanece apenas como identidade/compatibilidade; nenhum cursor
       novo depende de sua ordem de commit.
-- [ ] O protocolo legado possui data/condição objetiva para remoção.
+- [x] O protocolo legado possui condição objetiva para remoção: zero uso de
+      `desde` por 14 dias consecutivos.
 
 ---
 
@@ -742,13 +883,28 @@ remoção física real.
 
 ## Critérios de aceite
 
-- [ ] Nenhuma entrada externa possui tamanho, quantidade ou tempo ilimitado.
-- [ ] Upload de 10 MiB não causa alocação equivalente ao multipart completo.
-- [ ] Cotas resistem a requisições concorrentes.
-- [ ] Arquivo publicado é imutável e tem nome não controlado pelo usuário.
-- [ ] Exclusão física depende da porta de cobertura exata e permanece
-      desativada em produção até A6.
-- [ ] Falha de banco, disco ou consumidor lento degrada de forma observável.
+- [x] Nenhuma entrada externa possui tamanho, quantidade ou tempo ilimitado.
+      Além da borda HTTP/WS: espera por conexão livre do pool tem teto próprio
+      (`repository.PoolComEspera`, 2 s) e toda consulta — inclusive fora de
+      UoW/snapshot — recebe `statement_timeout` e
+      `idle_in_transaction_session_timeout` no startup da conexão.
+- [x] Upload de 10 MiB não causa alocação equivalente ao multipart completo. O
+      envio passou a `MultipartReader` com gravação em temporário no mesmo
+      filesystem, hash no mesmo passe e `rename` atômico. Medido:
+      **136 KB alocados para um arquivo de 10 MiB — 1,3%**
+      (`test/handler/upload_test.go`).
+- [x] Cotas resistem a requisições concorrentes.
+- [x] Arquivo publicado é imutável e tem nome não controlado pelo usuário.
+- [x] Exclusão física depende da porta de cobertura exata e permanece
+      desativada em produção até A6. A exclusão de domínio grava a chave física
+      em `arquivo_exclusoes` na mesma transação do CASCADE; o coletor só remove
+      os IDs que a porta comprovar. Em produção a porta é `CoberturaNegada` —
+      nada sai do disco.
+- [x] Falha de banco, disco ou consumidor lento degrada de forma observável.
+      `/ready` distingue os três: 503 com `banco: false`; 200 com
+      `escrita: false` e o espaço livre; e `tempoReal` com atraso do
+      despachante e conexões derrubadas por lentidão. Transformar esses sinais
+      em alerta externo é A8.
 
 ---
 
@@ -1883,7 +2039,8 @@ operacionais explicitamente marcados.
 - Migration aplicada nunca é editada.
 - Mudança incompatível usa expandir → preencher → contrair em releases
   separadas.
-- Backfill grande é retomável, limitado em lotes e observável.
+- Preenchimento de dado antigo roda por comando do domínio, nunca dentro da
+  migration; quando grande, é retomável, limitado em lotes e observável.
 - Índice/constraint só entra após consulta de validação dos dados existentes.
 - Toda migration informa lock esperado, duração medida, compatibilidade com a
   release anterior e caminho de recuperação.

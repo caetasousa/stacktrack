@@ -12,11 +12,12 @@ As regras do que pode e do que não pode entrar numa migration estão no
 [CLAUDE.md](../../CLAUDE.md#migrations-banco-de-dados) — em resumo: nada de
 `DEFAULT`/`CHECK` de regra de negócio, e **migration não escreve dado**.
 
-## Por que o conjunto atual tem uma migration por tabela
+## Base consolidada e migrations incrementais
 
-Cada arquivo cria uma tabela (ou o par tabela + tabela de ligação, quando as
-duas só fazem sentido juntas). **Não há `ALTER TABLE` no conjunto atual** porque
-os arquivos foram consolidados uma vez, como explicado abaixo.
+As migrations `V1`–`V14` formam a base consolidada: cada arquivo cria uma
+tabela (ou o par tabela + tabela de ligação, quando as duas só fazem sentido
+juntas). As `V15` e seguintes são a história incremental posterior e, por isso,
+usam `ALTER TABLE` quando a mudança exige.
 
 Isso é fotografia, não regra para a próxima mudança. Os arquivos atuais já
 foram aplicados e são imutáveis: uma coluna nova em tabela existente deve entrar
@@ -38,8 +39,85 @@ tipos, nulidade, índices e constraints: a única diferença deliberada foram
 `cards.arquivado_em` e `colunas.arquivado_em`, órfãs do arquivamento retirado,
 que simplesmente deixaram de existir.
 
-⚠️ **O `PLANO.md` preserva números antigos** ao narrar o roteiro: por exemplo,
-`V15`/`V16` para responsáveis e comentários, `V18`/`V19` para a chave de
-ordenação e `V20` para o arquivamento retirado. Eles são identificados como
-históricos no próprio plano. A numeração vigente é sempre a dos arquivos deste
-diretório.
+Relatos anteriores à consolidação podem mencionar outros números. Eles são
+somente históricos; a sequência vigente é sempre a dos arquivos deste
+diretório e a próxima migration usa o próximo número livre.
+
+## Contract pendente: unicidade da chave de ordenação
+
+A etapa A2 do [PLANO.md](../../PLANO.md) pede unicidade da posição dentro do
+contêiner:
+
+```sql
+CREATE UNIQUE INDEX idx_colunas_chave_por_board
+    ON colunas (board_id, chave COLLATE "C");
+
+CREATE UNIQUE INDEX idx_cards_chave_por_coluna
+    ON cards (coluna_id, chave COLLATE "C");
+```
+
+**Estes índices NÃO estão no conjunto aplicado, e a ausência é deliberada.**
+
+`UNIQUE` novo é migration que APERTA, e o `CLAUDE.md` exige dois deploys para
+elas: durante o deploy a versão anterior da aplicação continua no ar, e é ela
+que ainda consegue gravar duas chaves iguais numa rajada de inserções no mesmo
+ponto. Com o índice já criado, essa gravação passaria a ser recusada — e a
+versão anterior quebraria no `INSERT`, sem que o Flyway (forward-only) pudesse
+voltar atrás.
+
+O ciclo é o do `CLAUDE.md`:
+
+1. **Expand** — nada a fazer no schema.
+2. **Código novo em produção** (este deploy): o domínio passa a detectar chave
+   repetida e a redistribuir as chaves do contêiner antes de calcular a
+   próxima, tudo sob o lock do quadro. Ver
+   `internal/usecase/board/ordenacao.go` e `internal/domain/ordem/redistribuir.go`.
+   A partir daqui, nenhuma versão em produção produz chave repetida.
+3. **Contract** (deploy seguinte): criar os dois índices acima na próxima
+   versão disponível (`V18` no conjunto atual — `V17` passou a ser o outbox de
+   exclusão de arquivo).
+
+### Pré-condição do passo 3
+
+O `CREATE UNIQUE INDEX` falha se ainda houver duplicidade herdada. A consulta
+que responde antes de tentar:
+
+```sql
+SELECT coluna_id, chave, count(*)
+  FROM cards GROUP BY coluna_id, chave HAVING count(*) > 1
+UNION ALL
+SELECT board_id, chave, count(*)
+  FROM colunas GROUP BY board_id, chave HAVING count(*) > 1;
+```
+
+Vindo linha, o contract para. Antes dele roda o comando de manutenção **pelo
+domínio**, que lista cada contêiner afetado, toma o lock do quadro, redistribui
+as chaves com a mesma regra da aplicação e emite relatório verificável:
+
+```sh
+# Na imagem de produção, que já traz o binário:
+docker compose -f docker-compose.prod.yml run --rm --entrypoint manutencao api \
+    reparar-ordenacao --conferir     # só relata; sai 1 se houver trabalho
+docker compose -f docker-compose.prod.yml run --rm --entrypoint manutencao api \
+    reparar-ordenacao                # repara e reconfere
+```
+
+O comando é idempotente e seguro com a aplicação no ar: ele repara **um quadro
+por transação**, sob o lock daquele quadro, e relê as chaves lá dentro. Sai 0
+apenas quando a reconferência não encontra mais duplicidade — é essa saída que
+autoriza o contract. Ver `internal/usecase/board/reparo.go` e
+`cmd/manutencao/`.
+
+Nunca substituir por `UPDATE` na migration: a decisão de com que chave as linhas
+antigas ficam é do domínio, e em SQL ela vira uma segunda fonte da verdade, sem
+teste e sem conserto.
+
+### Estimativa de lock
+
+`CREATE UNIQUE INDEX` sem `CONCURRENTLY` toma `SHARE` na tabela e bloqueia
+escrita enquanto constrói. O limite de 1.000 cards é por quadro, mas o índice
+varre a tabela inteira; portanto a janela não pode ser estimada a partir desse
+limite. Antes do contract, registrar quantidade de linhas, tamanho das tabelas,
+tempo de construção numa cópia representativa e teto de lock aceito. Se não
+couber na janela de manutenção, usar criação concorrente com a configuração do
+Flyway que execute essa migration fora de transação.

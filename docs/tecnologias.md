@@ -345,20 +345,23 @@ Duas sutilezas que só aparecem quando dá errado:
 
 #### Reconexão sem buraco e sem duplicata
 
-É a parte mais sutil, e o que a torna possível é o **`seq`**: um `BIGSERIAL` do
-banco, atribuído no log de eventos. Ordem total — nada de UUID (que não ordena)
-nem de timestamp (que empata).
+É a parte mais sutil, e o que a torna possível é a **`revisao` do quadro**:
+ela é incrementada sob o lock da linha de `boards`, na mesma transação da
+mudança e do evento. Diferente do `seq` global, a revisão segue a ordem de
+commit e não abre buraco quando duas transações terminam em ordem diferente da
+chegada.
 
-O cliente guarda o maior `seq` que aplicou. Ao reconectar, manda `?desde=N`:
+O cliente guarda somente a revisão que comprovou ter aplicado. Ao reconectar,
+manda `?revisao=N`:
 
 ```
-1ª conexão   ── sem ?desde ──►  servidor responde `sincronizado` com o seq atual
-                                (nada de história: só "você está aqui")
+snapshot N   ── ?revisao=N ──►  servidor repõe N+1, N+2… e então o ao vivo
 
-reconexão    ── ?desde=41 ──►  servidor entrega 42, 43, 44… e então o ao vivo
+sem snapshot ── sem cursor ──►  servidor responde `sincronizado`; a tela baixa
+                                 um snapshot antes de confirmar qualquer número
 
-intervalo    ── ?desde=7  ──►  mais de 200 eventos perdidos: em vez de
-grande demais                   reproduzir, manda `recarregue.tudo`
+intervalo    ── ?revisao=7 ─►  mais de 200 eventos perdidos: em vez de
+grande demais                  reproduzir, manda `recarregue.tudo`
 ```
 
 **A ordem importa mais do que parece.** O assinante entra na sala **antes** de o
@@ -377,8 +380,10 @@ meio cairia no vão entre os dois e **se perderia para sempre** — e ninguém
 perceberia, porque o cliente não tem como saber o que não recebeu.
 
 A escolha é deliberada: **preferir repetir a arriscar buraco**. E a repetição é
-inofensiva porque o cliente descarta evento com `seq` menor ou igual ao último
-aplicado — ver `onmessage` em
+inofensiva porque um evento em revisão já confirmada só é descartado depois de
+o snapshot visível cobrir aquela revisão. `seq` continua como identidade do
+evento e cursor legado de auditoria, nunca como cursor novo de reconexão — ver
+`onmessage` em
 [`conexao.svelte.ts`](../frontend/src/lib/realtime/conexao.svelte.ts).
 
 #### Conexão morta não avisa
@@ -452,8 +457,9 @@ ela. O de duas abas fica atrás da build tag `tempo_real` porque exige a API no
 ar — ele exercita o handshake de verdade, com cookie real e checagem de origem.
 
 Para ver os frames: DevTools → Network → filtro **WS** → a conexão → aba
-**Messages**. É a forma mais rápida de entender o `seq` na prática — feche a aba,
-mexa no quadro noutra, reabra e observe o `?desde=` no handshake.
+**Messages**. É a forma mais rápida de entender a `revisao` na prática — feche
+a aba, mexa no quadro noutra, reabra e observe o `?revisao=` no handshake.
+`?desde=` aparece somente em clientes legados durante a janela de transição.
 
 📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — leia as seções 1 (visão geral) e 4 (handshake); o resto é referência
 📝 [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat) — `hub.go` e `client.go` são a referência canônica do padrão hub em Go, e o desenho daqui vem deles
@@ -463,18 +469,14 @@ mexa no quadro noutra, reabra e observe o `?desde=` no handshake.
 
 ### Log de eventos (o outbox)
 
-A tabela `board_events` guarda o que aconteceu em cada quadro, com um `seq`
-crescente. É o que permite a quem reconecta perguntar "o que houve desde o 41?"
-em vez de fingir que nada aconteceu.
-
-`BIGSERIAL`, e não UUID: o cliente precisa comparar "já apliquei até aqui", e
-isso exige **ordem total**. Identificador aleatório não ordena, e timestamp
-empata — dois eventos no mesmo microssegundo ficariam sem sucessor definido.
+A tabela `board_events` guarda o que aconteceu em cada quadro. Ela tem **dois**
+números por evento, e a diferença entre eles é o assunto mais sutil desta
+seção.
 
 **A mudança e o evento caem no mesmo commit.** Quem faz isso é
-`repository.UnidadeDeTrabalho`: ela abre a transação, entrega à operação os
-repositórios ligados a ela, grava o evento e comita. Ou o card move e o evento
-existe, ou nenhum dos dois.
+`repository.UnidadeDeTrabalho`: ela abre a transação, trava a linha do quadro,
+entrega à operação os repositórios ligados a ela, grava o evento e comita. Ou o
+card move e o evento existe, ou nenhum dos dois.
 
 A peça que torna isso barato é a interface `consultante` — o que `*pgxpool.Pool`
 e `pgx.Tx` têm em comum. Os repositórios dependem dela, e não do pool concreto,
@@ -485,16 +487,281 @@ A publicação ao vivo fica **fora** da transação, de propósito: anunciar ant
 commit avisaria de uma mudança que o rollback ainda pode desfazer, e quem
 recebesse o evento recarregaria o quadro para encontrar o estado anterior.
 
-⚠️ **Nem todo evento passa por ali, e isso é decisão.** Etiqueta, checklist e
-anexo publicam pelo caminho simples, sem transação comum: o evento deles é um
-aviso de "recarregue o quadro", e perder um não deixa buraco perceptível —
-qualquer evento seguinte, ou a própria reconexão, manda a tela buscar tudo de
-novo. O que exige atomicidade são as mudanças estruturais, onde o buraco é
-invisível para quem reconecta.
+**Toda mutação não terminal de quadro passa por ali.** Já foi diferente: etiqueta, checklist
+e anexo publicavam por um caminho sem transação comum, com o argumento de que o
+evento deles é só um aviso de "recarregue o quadro". O argumento estava certo
+sobre o sintoma e errado sobre a garantia — com duas transações separadas existe
+também o caminho inverso, evento gravado sem a mudança, e um cliente que recebe
+"etiqueta aplicada", recarrega e não encontra etiqueta nenhuma não tem como se
+recuperar, porque o log afirma que aconteceu.
+
+Apagar o próprio quadro é a exceção terminal: o `DELETE` remove também o seu
+outbox por chave estrangeira, então não existe mais agregado no qual persistir
+`quadro.apagado`. O commit publica depois um sinal efêmero para as abas abertas
+saírem da sala; quem estava offline encontra `404` ao voltar. A entrega ao vivo
+continua sendo feita pelo processo e pode ser perdida se ele morrer depois do
+commit. O dispatcher durável e ordenado que elimina essa janela permanece na
+etapa A3 do `PLANO.md`.
+
+📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
+
+### `seq` e `revisao`: por que dois números
+
+`seq` é `BIGSERIAL`, global à tabela. Ele é **identidade e ordem total** do log,
+e serve muito bem a isso: identificador aleatório não ordena, e timestamp empata
+— dois eventos no mesmo microssegundo ficariam sem sucessor definido.
+
+O que ele **não** pode ser, e vinha sendo usado como se fosse, é **cursor de
+reconexão**. Um `BIGSERIAL` registra a ordem de **alocação** do número, não a de
+**commit**:
+
+1. a transação A pega o `seq` 42; a transação B pega o 43;
+2. B comita primeiro; A ainda está no meio da sua escrita;
+3. um cliente reconecta e pergunta "o que houve desde o 41?";
+4. ele recebe o 43, aplica, e avança o cursor para 43;
+5. A comita um instante depois — e o 42 **nunca mais** será entregue a esse
+   cliente, porque está abaixo do cursor dele.
+
+O buraco é silencioso e permanente: nada falha, nenhum erro aparece, e a tela
+daquela pessoa simplesmente discorda do banco para sempre.
+
+`boards.revisao` conserta isso porque é incrementada **sob o lock da linha do
+quadro**, no mesmo `UPDATE ... RETURNING` que toma o lock. Só uma transação por
+vez a incrementa, então a ordem de numeração **é** a ordem de commit, e a
+sequência é contígua dentro do quadro. É ela que viaja no snapshot
+(`GET /boards/{id}` devolve `revisao`) e é ela que o cliente devolve em
+`/ws?board=…&revisao=N`.
+
+Cada evento leva também `indice` e `quantidade`: a posição dentro da revisão e
+quantos eventos a formam. Hoje toda mutação produz exatamente um evento, então o
+par é sempre `(0, 1)`. Eles existem assim mesmo porque é o que permite ao
+cliente saber **quando o grupo está completo** — confirmar uma revisão pela
+metade deixaria o cursor à frente do que foi aplicado, e o que faltou cairia no
+mesmo buraco de sempre.
+
+O cursor do cliente avança por **um caminho só**: depois de os snapshots
+baixados terem sido aplicados (`conexao.confirmarRevisao`). Com o modal aberto,
+isso inclui o quadro e a projeção do card; a confirmação usa a menor revisão que
+as duas cobrem. Receber um evento nunca avança o cursor sozinho — confirmar é
+dizer "apliquei até aqui", e o servidor repõe a partir dali.
+
+⚠️ A armadilha que isso escondeu na primeira implementação: a unidade de
+trabalho recebia o evento **por valor** e devolvia só o `seq`. A revisão era
+gravada na cópia de dentro da transação, o log ficava perfeitamente correto, e o
+evento **entregue ao vivo** saía com revisão zero. Nenhum teste pegou, porque
+todos olhavam para o que foi *registrado*; quem pegou foi um smoke test contra a
+API de verdade. Hoje `Escrever` devolve o evento carimbado, e
+`test/usecase/outbox_test.go` fecha a porta.
+
+### O lock do quadro
+
+`READ COMMITTED` — o isolamento padrão do PostgreSQL — garante que cada comando
+enxergue um instantâneo consistente. Ele **não** garante que duas transações
+concorrentes cheguem a um resultado que faça sentido juntas.
+
+O exemplo que dói: dois donos, cada um removendo o outro. As duas transações leem
+"há dois donos", as duas concluem "posso remover", as duas comitam — e o quadro
+fica órfão, sem ninguém que possa convidar ou apagá-lo. Nenhuma constraint pega
+isso, porque a regra é sobre o **conjunto** de linhas, não sobre uma delas.
+
+A unidade de trabalho abre toda escrita com um `UPDATE boards SET revisao = …
+WHERE id = $1 RETURNING revisao`. Um `UPDATE` toma o lock exclusivo da linha,
+exatamente como `SELECT … FOR UPDATE` faria, e já devolve a revisão nova — dois
+efeitos, um round-trip.
+
+É um lock **grosso**, de propósito: o quadro é a fronteira de consistência deste
+domínio, o perfil desta rodada é de dezenas de conexões (não milhares), e um
+lock por agregado é o desenho que se consegue **provar** correto com testes de
+interleaving. Quadros diferentes não se esperam.
+
+A ordem de aquisição é sempre board → convite/membro → coluna/card. Como o lock
+do quadro é sempre o primeiro e é o único explícito, não há ciclo possível: o
+deadlock é impossível por construção, não por sorte. `lock_timeout` de 2s e
+`statement_timeout` de 5s entram por `SET LOCAL` na própria transação — `SET
+LOCAL`, e não `SET`, porque o pool reaproveita conexões e um `SET` comum vazaria
+o teto para as leituras longas de auditoria.
+
+Estourado o prazo, o SQLSTATE `55P03` vira `ucboard.ErrQuadroOcupado` e a borda
+responde **503 com `Retry-After`** — não 500. O servidor não falhou; ele
+desistiu de esperar, e repetir é a ação certa.
+
+Os testes que sustentam isso estão em `test/repository/concorrencia_test.go`, e
+foram conferidos do jeito que importa: **desligando o lock e vendo o teste
+falhar**.
+
+📚 [PostgreSQL — Transaction Isolation](https://www.postgresql.org/docs/16/transaction-iso.html)
+📚 [PostgreSQL — Explicit Locking](https://www.postgresql.org/docs/16/explicit-locking.html)
+
+### Comandos estreitos (`UPDATE` só do que mudou)
+
+Um `Atualizar(agregado)` que grava todas as colunas é conveniente e perde
+trabalho alheio em silêncio: quem renomeia o quadro grava também o `fundo` que
+leu há dez segundos, desfazendo a troca de fundo que outra pessoa fez nesse
+meio-tempo. Nenhum erro, nenhum conflito — a mudança some.
+
+Por isso `RepositorioBoard` tem `Renomear` e `DefinirFundo`; `RepositorioColuna`
+tem `Renomear` e `DefinirChave`; `RepositorioChecklist` tem `EditarItem` e
+`MarcarItem`. Duas edições de campos **diferentes** convivem; duas do **mesmo**
+campo continuam sendo "a última vence", e aí a última realmente é a última.
+
+O card é a exceção deliberada: ele tem edição integral e por isso mantém
+**bloqueio otimista** (`WHERE id = $1 AND version = $2 - 1`), que devolve 409 em
+vez de sobrescrever.
+
+### O instantâneo do quadro
+
+Montar o quadro custa dez consultas. Sob `READ COMMITTED`, cada uma enxerga o
+banco no instante em que **ela** rodou: uma escrita no meio da sequência aparece
+para as seguintes e não para as anteriores, e o snapshot devolvido descreve um
+estado que nunca existiu — card na lista de cards e ausente da contagem de
+comentários, coluna que sumiu deixando cards órfãos.
+
+Isso passou a importar mais quando o snapshot ganhou uma `revisao`: um estado
+incoerente **carimbado como coerente** faz o cliente aplicar os eventos
+seguintes por cima dele sem nunca descobrir que partiu errado.
+
+`repository.Instantaneo` abre a leitura em `REPEATABLE READ, READ ONLY`, que
+congela um instantâneo no primeiro comando e o mantém até o fim. O estado da
+publicação fica **dentro** dele, pois publicar e revogar possuem evento e revisão
+próprios. O selo de "quem moveu por último" fica fora: ele é um resumo derivado
+do próprio log, não estado que o cliente reconcilia por evento. O detalhe do
+card usa a mesma disciplina para autorização, revisão e todos os agregados do
+modal; a projeção do link público também lê token e conteúdo no mesmo
+instantâneo.
 
 📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
 📝 [Idempotência na API do Stripe](https://docs.stripe.com/api/idempotent_requests) — a explicação mais clara do conceito em API real
 📝 [Exponential backoff and jitter (AWS Builders' Library)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) — por que o jitter importa quando cinquenta clientes reconectam juntos
+
+### O perímetro: o que a API recusa antes de trabalhar
+
+Cinco tetos, e cada um cobre um abuso que os outros não veem.
+
+**Prazo por requisição.** Dez segundos de orçamento total, num `context`
+(`middleware.Prazo`), e não num timer que responde por fora. A diferença é que o
+contexto cancelado propaga até o pgx, que aborta a query e devolve a conexão ao
+pool; um timeout que só escrevesse a resposta deixaria o trabalho rodando atrás
+dela, segurando exatamente o recurso que o teto protege. Upload tem orçamento
+próprio (dois minutos) — dez megabytes numa conexão móvel ruim passam de dez
+segundos sem nada de errado acontecendo. O handshake do **WebSocket passa por
+esse prazo** até concluir autenticação, autorização e o `101`; depois do upgrade
+o handler destaca o contexto da conexão longa e usa prazos próprios para replay,
+escrita, ping e revalidação. Manter o deadline HTTP depois do `101` a mataria
+sempre no mesmo tempo, exatamente como o antigo `WriteTimeout` documentado em
+`config.NovoServidor`.
+
+**Cookie de sessão desconhecido, por IP.** Conferido **antes** da consulta ao
+banco. Validar sessão é um `SELECT` indexado — barato por unidade e caro em
+rajada: um laço com cookies aleatórios consome uma conexão do pool por
+requisição e compete com o tráfego real sem nunca autenticar nada. O teto por
+sessão do roteador não cobre isso, porque ele chaveia pelo **valor do cookie** e
+quem manda um cookie novo a cada tentativa ganha um balde novo a cada tentativa.
+Aqui a chave é o IP — que o cliente não escolhe, ver abaixo.
+
+**IP confiável.** `middleware.IPReal` só obedece `X-Real-IP` quando o peer
+direto da conexão TCP está na lista `PROXIES_CONFIAVEIS`; de qualquer outro
+lugar, os cabeçalhos são **apagados** antes de seguir. A versão anterior confiava
+sempre, com o raciocínio "só o Caddy fala com a API" — correto enquanto essa
+topologia valer, e verificado em lugar nenhum. Escolher o próprio IP é escolher
+o próprio balde de rate limit.
+
+**Conexões de tempo real.** Teto por conta (5), teto global do processo (100) e
+teto de handshakes por IP (10/min). Os três porque são três abusos: o global
+sozinho é um recurso que a primeira conta a chegar consome inteiro; o por conta
+não vê quem abre e fecha em laço, que nunca ocupa vaga e mesmo assim faz o
+servidor pagar autorização, nome e replay a cada tentativa.
+
+**Disco.** Disco cheio não degrada, ele **quebra**: o upload falha no meio, o
+Postgres para de aceitar escrita porque o WAL não tem para onde ir, e nada disso
+avisa antes. `middleware.PorteiroDeDisco` recusa **mutação** com 507 e deixa a
+**leitura** passar — um quadro que não aceita card novo mas mostra o que já
+existe é um sistema degradado; um que não abre é um sistema fora do ar, e a
+diferença importa justamente quando alguém precisa ver o que está lá para decidir
+o que apagar. `/ready` reflete os dois motivos separadamente: 503 se o banco caiu
+(sem ele nem leitura existe), 200 com `escrita: false` se só faltou disco.
+
+E, na entrada: `Content-Type` precisa ser JSON (sem isso, um formulário HTML de
+outro site posta na API sem preflight de CORS), campo desconhecido é recusado
+com o nome dele, lixo depois do objeto é recusado, e id de URL que não seja UUID
+para em 400 antes de virar `invalid input syntax for type uuid` — que hoje
+viraria 500 e gastaria uma conexão do pool por tentativa de varredura.
+
+📝 [OWASP — Denial of Service Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html)
+📝 [Timeouts, retries and backoff with jitter (AWS)](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/)
+
+### Convite: a única porta de entrada
+
+Havia um atalho: convidar alguém que **já tinha conta** criava a participação na
+hora, sem token. O raciocínio era que não há o que confirmar quando a pessoa já
+provou ser dona daquele email ao se cadastrar.
+
+O que ele produzia era outra coisa: conhecer o email de alguém bastava para pôr
+essa pessoa dentro de um quadro, sem que ela concordasse e sem que ficasse
+sabendo. A participação virava efeito de **conhecer um endereço**, não de provar
+ser dono dele.
+
+Hoje todo acesso nasce de um convite, e aceitar exige três coisas ao mesmo
+tempo: sessão válida, token válido e email normalizado da sessão igual ao do
+convite. Uma conta com outro email recebe 403 e **não consome** o convite.
+
+A consulta pública do convite devolve o email **mascarado** (`a***@exemplo.com`).
+Ela responde a quem tem o link, que não é necessariamente quem foi convidado — o
+endereço inteiro ali transformaria um link encaminhado em vazamento de email. A
+máscara ainda deixa a pessoa certa reconhecer o próprio endereço, que é a dúvida
+real de quem chega nessa tela logado na conta errada. O cliente mascara o próprio
+email com a mesma régua (`$lib/email.ts`) para decidir entre "aceitar" e "você
+está na conta errada"; a decisão de verdade continua sendo do servidor.
+
+Revogar **marca** (`revogado_em`) em vez de apagar: o `DELETE` levava junto a
+resposta para "quem convidou quem, e quando" e, no caminho concorrente, tornava
+indistinguível "revoguei agora" de "nunca existiu". Aceitar e revogar são
+`UPDATE`s **condicionais** — a transição vai no `WHERE`, e quem perde a corrida
+vê `RowsAffected = 0`. Sem isso, duas abas clicando no mesmo link liam
+"pendente" as duas e o convite era consumido duas vezes.
+
+O índice de pendência considera `aceito_em IS NULL AND revogado_em IS NULL`. O
+**vencimento** não cabe num índice parcial (comparar com `now()` não é imutável,
+e o PostgreSQL recusa), então é o domínio que revoga o convite vencido — na
+mesma transação, sob o lock — antes de criar o novo.
+
+### Senha: comprimento, e uma lista curta
+
+Quinze caracteres, não oito. Oito caracteres de alfabeto completo caem em GPU
+comum hoje, e o NIST subiu a recomendação por isso. O piso vale para senha
+**nova**: invalidar as existentes trancaria todo mundo para fora de um sistema
+que não tem recuperação por email para oferecer em troca.
+
+O piso sozinho não basta. Quem é obrigado a digitar quinze caracteres escreve
+`senhasenhasenha` ou sobe a linha do teclado — exatamente os primeiros palpites
+de quem ataca uma base que exige senha longa. Daí a lista em
+`internal/domain/usuario/senhas_comuns.txt`, **embutida no binário** com
+`go:embed`: um arquivo externo poderia sumir no deploy e a validação passaria a
+aceitar tudo em silêncio, que é falha aberta no lugar exatamente errado.
+
+A lista é curta de propósito — o piso de comprimento já elimina quase toda a
+cauda dos vazamentos públicos, dominada por senhas de 6 a 10 caracteres. Só uma
+regra é estrutural em vez de estar na lista: o caractere repetido, que não dá
+para enumerar.
+
+📝 [NIST SP 800-63B — Digital Identity Guidelines](https://pages.nist.gov/800-63-3/sp800-63b.html) — a seção 5.1.1, que é a origem do "comprimento, não composição"
+
+### A faxina, fora do caminho crítico
+
+Quem limpava sessões vencidas era o **próprio login**: um `DELETE` sobre
+`sessions` a cada sessão aberta. Barato com a tabela pequena, e deixa de ser
+barato exatamente quando há mais gente usando — cada pessoa que entra paga a
+limpeza de todo mundo, e a conta chega na rajada de logins de uma manhã de
+segunda-feira, que é quando ninguém pode esperar.
+
+`internal/usecase/manutencao` roda de hora em hora, fora de qualquer requisição,
+em lotes de mil linhas com teto de lotes por passada. Lote, e não "tudo de uma
+vez", porque um `DELETE` de cem mil linhas segura lock e infla o WAL por minutos
+com o autovacuum ficando para trás; em lotes, cada transação dura milissegundos e
+o trabalho é retomável por construção — a passada seguinte pega o que sobrou.
+
+O `SELECT … LIMIT` no subselect usa `ctid`, o endereço físico da linha: o
+planejador vai direto nela, sem passar de novo pelo índice que o subselect já
+percorreu.
 
 ### Confirmação de ações destrutivas
 

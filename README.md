@@ -94,6 +94,25 @@ cd frontend && npm run check   # tipos (svelte-check)
 
 Detalhe de cada camada em [docs/testes.md](docs/testes.md).
 
+## Manutenção do banco
+
+Um segundo binário, ao lado da API, para o que **não pode** ser feito por
+migration — a regra do projeto é que migration não escreve dado, porque todo
+backfill decide com que valor as linhas antigas ficam, e essa decisão é do
+domínio.
+
+```bash
+cd backend
+go run ./cmd/manutencao reparar-ordenacao --conferir   # só relata; sai 1 se há trabalho
+go run ./cmd/manutencao reparar-ordenacao              # repara e reconfere
+```
+
+`reparar-ordenacao` redistribui chaves de ordenação duplicadas, um quadro por
+transação e sob o lock de cada um — dá para rodar com a aplicação no ar. É a
+pré-condição do contract de unicidade descrito em
+[backend/migrations/README.md](backend/migrations/README.md). Procedimento
+completo em [docs/producao.md](docs/producao.md#manutenção-do-banco).
+
 ## Rotas
 
 A sessão viaja num cookie `HttpOnly` + `SameSite=Lax` (com prefixo `__Host-` e
@@ -103,12 +122,12 @@ Argon2id.
 | Método | Rota | O que faz |
 |---|---|---|
 | `GET` | `/health` | Liveness: o processo está no ar. Não toca em dependência nenhuma. |
-| `GET` | `/ready` | Readiness: faz ping no Postgres. Responde 503 se o banco estiver fora. |
-| `POST` | `/auth/cadastro` | Cria a conta e já abre a sessão (201 + cookie). 409 se o email já existir. |
+| `GET` | `/ready` | Readiness, com o motivo separado: **503** se o banco estiver fora (sem ele nem leitura existe) e **200 com `escrita: false`** quando o disco está sem margem — aí a leitura continua e só a escrita é recusada. Traz `discoLivreBytes`, `discoLivrePorCem` e `tempoReal` (atraso do despachante e conexões derrubadas por lentidão). |
+| `POST` | `/auth/cadastro` | Cria a conta e já abre a sessão (201 + cookie). Conta e sessão entram no **mesmo commit**. **409** se o email já existir; **400** para senha com menos de 15 caracteres ou presente na lista local de senhas comuns. |
 | `POST` | `/auth/login` | Autentica e abre a sessão (200 + cookie). 401 genérico; 429 no teto por conta. |
 | `POST` | `/auth/logout` | Encerra a sessão no servidor e apaga o cookie (204, sempre). |
-| `GET` | `/auth/me` | Devolve a conta autenticada. 401 sem sessão válida. |
-| `GET` | `/convites/{token}` | Detalhes do convite, **sem sessão** — é o que a tela do link mostra. |
+| `GET` | `/auth/me` | Devolve a conta autenticada. **401** sem sessão válida; **429** com `Retry-After` quando o mesmo IP apresenta cookies desconhecidos demais — o teto é conferido **antes** da consulta ao banco, e vale para toda rota autenticada. |
+| `GET` | `/convites/{token}` | Detalhes do convite, **sem sessão** — é o que a tela do link mostra. O email vem **mascarado** (`a***@exemplo.com`) no campo `emailMascarado`: quem tem o link não é necessariamente quem foi convidado. Responde `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. |
 | `GET` | `/publico/{token}` | O quadro de um link de acompanhamento, **sem sessão**: colunas, cards, descrições, etiquetas, prazos e checklists. Sem responsáveis, comentários, anexos, histórico nem ids. **404** para token inventado, revogado ou de quadro apagado — os três iguais. Responde `Cache-Control: no-store` e `X-Robots-Tag: noindex`. |
 
 As demais exigem sessão e têm teto de requisições por sessão.
@@ -116,7 +135,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | Método | Rota | O que faz |
 |---|---|---|
 | `GET`/`POST` | `/boards` | Lista os quadros de que você participa (com o seu papel) e cria um novo. |
-| `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só. |
+| `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só — lido sobre **um único instantâneo** do banco (`REPEATABLE READ`). Traz `revisao`, que é o cursor que a tela devolve ao WebSocket. |
 | `PATCH`/`DELETE` | `/boards/{id}` | Renomeia ou apaga o quadro. Só o dono. |
 | `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
 | `GET` | `/boards/{id}/publicacao` | O estado do link público, com a URL. Só o dono — **403** para editor e leitor, porque o token é o segredo do link. |
@@ -126,14 +145,14 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/colunas/{id}` | Renomeia (título e cor) ou apaga a coluna e os cards dela. |
 | `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, **pelos vizinhos**. |
 | `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
-| `GET` | `/cards/{id}` | O card com etiquetas, checklists e anexos — o que o modal mostra. |
+| `GET` | `/cards/{id}` | O card com responsáveis, comentários, etiquetas, checklists e anexos — lidos no mesmo instantâneo `REPEATABLE READ`. Traz `revisao`, usada para o modal participar da confirmação do cursor do quadro. |
 | `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
 | `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
-| `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida informando o email. Se ainda não houver conta, devolve o link para o dono enviar. |
+| `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida informando o email. **Sempre** devolve um link, tenha a pessoa conta ou não: conhecer um email não põe ninguém no quadro. **409** se ela já participa ou já tem convite pendente. |
 | `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
-| `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). |
-| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro. |
+| `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). **Marca** como revogado em vez de apagar — a linha ainda responde "quem convidou quem, e quando". **404** para convite já aceito, já revogado ou inexistente: os três iguais. |
+| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro, no **mesmo commit**. **403** quando a sessão é de outro email — e o convite **não** é consumido. **404** para token inválido, vencido ou já usado, inclusive quando outra requisição venceu a corrida. |
 | `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
@@ -146,10 +165,10 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/checklists/{id}` | Renomeia ou apaga (os itens vão junto). |
 | `POST` | `/checklists/{id}/itens` | Cria uma linha. |
 | `PATCH`/`DELETE` | `/itens/{id}` | Marca, renomeia ou apaga a linha. |
-| `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. |
-| `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). |
+| `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. **422** quando o card já tem 20 anexos. Link não consome cota de disco. |
+| `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). **413** para arquivo acima do limite individual; **422** quando o card já tem 20 anexos ou quando o quadro atingiu 1 GiB de arquivos. As duas cotas são conferidas **dentro da transação**, sob o lock do quadro — dois envios simultâneos não passam os dois. |
 | `GET`/`DELETE` | `/anexos/{id}` | Baixa ou apaga o anexo. |
-| `GET` | `/ws?board={id}&desde={seq}` | Abre o WebSocket do quadro. Com `desde`, repõe o que se perdeu antes de voltar ao vivo. Fora do teto por sessão: é uma requisição só que dura horas. |
+| `GET` | `/ws?board={id}&revisao={n}` | Abre o WebSocket do quadro e repõe tudo após a última revisão que a tela confirmou como aplicada. `desde={seq}` permanece apenas para clientes legados durante a transição. O handshake tem prazo e limites próprios; depois do `101`, a conexão longa usa ping, teto de frame/fila e revalidação periódica. |
 
 **A rota nunca informa o quadro.** Card, coluna e etiqueta são identificados por
 si, e o servidor descobre sozinho a que quadro pertencem (card → coluna →

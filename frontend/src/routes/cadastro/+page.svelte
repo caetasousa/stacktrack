@@ -64,10 +64,12 @@
 				class="campo"
 				bind:value={senha}
 				required
-				minlength="8"
+				minlength="15"
 				autocomplete="new-password"
 			/>
-			<p class="mt-1.5 text-xs text-mute">Ao menos 8 caracteres.</p>
+			<p class="mt-1.5 text-xs text-mute">
+				Ao menos 15 caracteres. Uma frase que só você diria vale mais que símbolos.
+			</p>
 		</div>
 
 		{#if erro}

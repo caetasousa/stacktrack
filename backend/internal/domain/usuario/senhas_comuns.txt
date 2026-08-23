@@ -1,0 +1,73 @@
+# Senhas recusadas para credencial NOVA.
+#
+# A lista é curta de propósito. O piso de 15 caracteres já elimina quase toda
+# a cauda dos vazamentos públicos (rockyou e afins são dominados por senhas de
+# 6 a 10 caracteres); o que sobra, e o que esta lista cobre, são as senhas
+# LONGAS que as pessoas inventam justamente para satisfazer um piso de
+# comprimento — repetir uma palavra, subir a linha do teclado, contar até
+# quinze. São exatamente os primeiros palpites de quem ataca uma base que
+# exige senha longa.
+#
+# Formato: uma senha por linha, em minúsculas. Linha vazia e linha iniciada
+# por '#' são ignoradas. A comparação é feita em minúsculas, então "Senha"
+# e "SENHA" batem na mesma entrada.
+#
+# Ao acrescentar entradas: só senhas com pelo menos TamanhoMinimoSenha
+# caracteres têm efeito — as menores já são recusadas pelo comprimento, e
+# mantê-las aqui só faz a lista parecer maior do que é.
+
+# --- sequências numéricas ---
+123456789012345
+1234567890123456
+12345678901234567890
+098765432109876
+000000000000000
+111111111111111
+
+# --- linhas do teclado ---
+qwertyuiopasdfg
+qwertyuiopasdfgh
+qwertyuiopqwerty
+qwertyuiop123456
+asdfghjklasdfgh
+zxcvbnmzxcvbnmz
+1qaz2wsx3edc4rfv
+!qaz@wsx#edc$rfv
+
+# --- palavra repetida até caber no piso ---
+passwordpassword
+password12345678
+senhasenhasenha
+senhasenhasenha1
+senha12345678901
+adminadminadmin
+adminadminadmin1
+letmeinletmeinle
+welcomewelcome12
+iloveyouiloveyou
+qwertyqwertyqwer
+abcabcabcabcabc
+abcdefghijklmno
+abcdefghijklmnop
+
+# --- frases de teclado comuns em vazamentos ---
+correcthorsebatterystaple
+thequickbrownfox
+thequickbrownfoxjumps
+loremipsumdolorsitamet
+administrator123
+changemechangeme
+trocaressasenha
+minhasenhasecreta
+minhasenha123456
+euamominhasenha
+deusefiel123456
+familiaamor1234
+
+# --- variações "seguras" que todo mundo tenta ---
+p@ssw0rdp@ssw0rd
+p@ssw0rd12345678
+s3nh4s3gur4s3nh4
+senhasegura12345
+senhamuitosegura
+senhaforte12345

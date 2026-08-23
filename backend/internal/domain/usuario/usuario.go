@@ -30,7 +30,12 @@ var (
 	// ErrSenhaObrigatoria é retornado quando o hash de senha está vazio.
 	ErrSenhaObrigatoria = errors.New("senha é obrigatória")
 	// ErrSenhaCurta é retornado quando a senha em texto puro tem menos que TamanhoMinimoSenha.
-	ErrSenhaCurta = errors.New("a senha precisa ter ao menos 8 caracteres")
+	ErrSenhaCurta = errors.New("a senha precisa ter ao menos 15 caracteres")
+	// ErrSenhaComum é retornado quando a senha consta da lista local de senhas
+	// comuns ou já vazadas. A mensagem não diz QUAL lista nem em que posição:
+	// isso confirmaria a quem testa que aquele palpite vale a pena em outro
+	// serviço.
+	ErrSenhaComum = errors.New("esta senha é conhecida demais; escolha outra")
 	// ErrEmailEmUso é retornado pela persistência quando já existe conta com o
 	// email informado. Vive aqui, e não no usecase, porque quem descobre a
 	// colisão é o UNIQUE do banco: o adapter precisa de um erro do domínio para
@@ -45,7 +50,13 @@ var (
 // de composição empurram a pessoa para senhas curtas e previsíveis
 // (Senha@123), enquanto o comprimento é o que de fato encarece o ataque. É a
 // recomendação atual do NIST (SP 800-63B).
-const TamanhoMinimoSenha = 8
+//
+// Quinze, e não oito: oito caracteres de alfabeto completo caem em GPU comum
+// hoje, e o NIST subiu a recomendação justamente por isso. O piso vale para
+// senha NOVA — conta antiga com senha de oito continua entrando, porque
+// invalidá-las em massa trancaria todo mundo para fora de um sistema que não
+// tem recuperação por email para oferecer em troca.
+const TamanhoMinimoSenha = 15
 
 // ValidarSenha checa a senha em TEXTO PURO antes de ela virar hash.
 //
@@ -60,7 +71,33 @@ func ValidarSenha(senha string) error {
 	if utf8.RuneCountInString(senha) < TamanhoMinimoSenha {
 		return ErrSenhaCurta
 	}
+	if SenhaComum(senha) {
+		return ErrSenhaComum
+	}
 	return nil
+}
+
+// MascararEmail devolve o email com o usuário reduzido à primeira letra, na
+// forma "a***@exemplo.com".
+//
+// Existe para a consulta PÚBLICA do convite, que responde a quem só tem o
+// token e pode não ser a pessoa convidada. Mostrar o endereço inteiro ali
+// transformaria um link vazado em vazamento de email; mostrar nada impediria a
+// pessoa certa de perceber que está logada na conta errada — que é a dúvida
+// real de quem chega nessa tela.
+//
+// O domínio é preservado de propósito: é o que permite reconhecer "ah, é meu
+// email do trabalho" sem entregar o endereço a quem não o conhece.
+func MascararEmail(email string) string {
+	email = NormalizarEmail(email)
+	arroba := strings.LastIndex(email, "@")
+	if arroba <= 0 {
+		// Sem parte local não há o que mascarar preservando alguma pista, e
+		// devolver a entrada crua seria justamente o vazamento que a função
+		// existe para impedir.
+		return "***"
+	}
+	return email[:1] + "***" + email[arroba:]
 }
 
 // NormalizarEmail devolve o email sem espaços nas pontas e em minúsculas.

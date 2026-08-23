@@ -268,15 +268,17 @@ ansible-playbook preparar-host.yml -e ansible_user=deploy --diff
 #    seguem os mesmos.
 cd ../.. && make infra-apply
 
-# 3. Leva os backups antigos junto (o do agendaGo fica).
-ssh deploy@<host> 'sudo mv /home/deploy/backups/stacktrack-* /home/stacktrack/backups/                 && sudo chown stacktrack:stacktrack /home/stacktrack/backups/*'
+# 3. Leva os backups antigos junto (os do agendaGo ficam).
+#    `-i`: a chave do operador não é a padrão do ssh, e sem ela o servidor recusa.
+ssh -i ~/.ssh/agendago_deploy deploy@<host> "sudo mv /home/deploy/backups/stacktrack-* /home/stacktrack/backups/ && sudo chown stacktrack:stacktrack /home/stacktrack/backups/*"
 
 # 4. Confere ANTES de apagar qualquer coisa.
 curl -fsS https://<dominio>/api/health && echo OK
-ssh stacktrack-esteira@<host> 'stacktrack-release estado'
+ssh -i ~/.ssh/stacktrack_deploy stacktrack-esteira@<host> 'stacktrack-release estado'
 
 # 5. Só então: remove a pasta antiga e a conta antiga da esteira.
-ssh deploy@<host> 'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-deploy'
+ssh -i ~/.ssh/agendago_deploy deploy@<host> \
+  'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-deploy'
 ```
 
 O cron antigo, no crontab do `deploy`, é removido pelo próprio playbook — o

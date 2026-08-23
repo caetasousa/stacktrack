@@ -7,19 +7,23 @@
 # acesso ao Docker vem do grupo. É exatamente o mesmo privilégio que o job
 # `implantar` da esteira já usa — esta role não amplia o raio de explosão.
 
-- name: diretórios da stack, dos scripts, dos backups e dos blocos do Caddy
+# Só o que é DESTA conta. A pasta de blocos do Caddy fica de fora, e a ausência
+# é o que faz esta play continuar sem privilégio: ela é do vizinho, e um `chown`
+# nela exigiria root. Quem a prepara — dono, grupo e `g+w` — é a role
+# `usuario_app`, no preparar-host.yml, que roda com sudo.
+- name: diretórios da stack, dos scripts e dos backups
   ansible.builtin.file:
     path: '{{ item }}'
     state: directory
     owner: '{{ usuario_app }}'
     group: '{{ grupo_app }}'
-    mode: '0755'
+    # 0750: o home é da aplicação. O `.env` já é 0600, mas não há motivo para o
+    # resto da máquina conseguir listar a stack.
+    mode: '0750'
   loop:
     - '{{ pasta_stack }}'
     - '{{ pasta_scripts }}'
-    # Comum aos dois projetos: a separação é o prefixo do nome do arquivo.
     - '{{ pasta_backups }}'
-    - '{{ pasta_caddy_sites }}'
 
 # --- segredos e configuração -------------------------------------------------
 
@@ -141,12 +145,17 @@
 # O reload só dispara pelo handler, ou seja, só quando o arquivo MUDA:
 # recarregar a cada aplicação seria mexer, sem necessidade, num processo que
 # atende outro serviço em produção.
+# O ÚNICO arquivo que esta role escreve fora da casa do projeto — no diretório
+# que o container do Caddy do agendaGo monta. Ver `pasta_caddy_sites`.
+#
+# Sem `owner`/`group` de propósito: o arquivo pode já existir com o dono
+# anterior, e esta play roda SEM privilégio — um `chown` de arquivo alheio
+# falharia com "Operation not permitted". Quem escreve vira dono, o grupo é o
+# do diretório compartilhado, e `0644` é tudo o que o proxy precisa: ele só lê.
 - name: bloco de roteamento no Caddy do agendaGo
   ansible.builtin.copy:
     src: '{{ raiz_repo }}/deploy/caddy/stacktrack.caddy'
     dest: '{{ pasta_caddy_sites }}/stacktrack.caddy'
-    owner: '{{ usuario_app }}'
-    group: '{{ grupo_app }}'
     mode: '0644'
     # A cópia do que estava lá antes, para o handler poder DESFAZER quando o
     # `caddy validate` recusar o arquivo novo. Sem ela, um bloco inválido fica

@@ -11,6 +11,7 @@ import { test, expect } from '@playwright/test';
 import {
 	API,
 	abaDe,
+	convidar,
 	criarColuna,
 	criarConta,
 	criarQuadro,
@@ -37,10 +38,9 @@ test.beforeAll(async ({ playwright }) => {
 		aFazer = (await criarColuna(req, ana, quadroId, 'A fazer')).id;
 		pronto = (await criarColuna(req, ana, quadroId, 'Pronto')).id;
 
-		await req.post(`${API}/boards/${quadroId}/membros`, {
-			data: { email: bruno.email, papel: 'editor' },
-			headers: { Cookie: cookieDaAna }
-		});
+		// convidar() cria o convite E o aceita: convidar deixou de pôr ninguém no
+		// quadro, e sem o aceite o Bruno não conseguiria mover card nenhum.
+		await convidar(req, ana, quadroId, bruno);
 
 		const card = await req.post(`${API}/colunas/${aFazer}/cards`, {
 			data: { titulo: 'Trocar o gateway', descricao: '', cor: '' },
@@ -148,10 +148,7 @@ test('quem só lê o quadro também consegue auditar', async ({ playwright, brow
 		if (e instanceof TetoDeRequisicoes) test.skip(true, e.message);
 		throw e;
 	}
-	await req.post(`${API}/boards/${quadroId}/membros`, {
-		data: { email: carla.email, papel: 'leitor' },
-		headers: { Cookie: `${ana.cookie.name}=${ana.cookie.value}` }
-	});
+	await convidar(req, ana, quadroId, carla);
 	await req.dispose();
 
 	const contexto = await abaDe(browser, carla);

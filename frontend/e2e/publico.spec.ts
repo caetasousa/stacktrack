@@ -16,6 +16,7 @@ import {
 	API,
 	APP,
 	abaDe,
+	convidar,
 	criarColuna,
 	criarConta,
 	criarQuadro,
@@ -62,10 +63,7 @@ test.beforeAll(async ({ playwright }) => {
 
 		// O quadro ganha um segundo membro, um responsável e um comentário: é o
 		// que o teste de vazamento precisa ter para poder não encontrar.
-		await req.post(`${API}/boards/${quadroId}/membros`, {
-			data: { email: bob.email, papel: 'editor' },
-			headers: { Cookie: cookieDaAna }
-		});
+		await convidar(req, ana, quadroId, bob);
 		// A atribuição é por id de usuário, não por email: quem responde por um
 		// card é uma conta, e o email é só como se chega a ela.
 		const me = await req.get(`${API}/auth/me`, {

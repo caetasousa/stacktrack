@@ -35,7 +35,7 @@ export interface Conta {
 /** criarConta cadastra e autentica, devolvendo o cookie de sessão. */
 export async function criarConta(req: APIRequestContext, nome: string): Promise<Conta> {
 	const email = `${nome}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.dev`;
-	const senha = 'Senha!12345';
+	const senha = 'Senha-de-teste!12345';
 
 	const cadastro = await req.post(`${API}/auth/cadastro`, { data: { nome, email, senha } });
 	if (!cadastro.ok()) {
@@ -75,13 +75,32 @@ export async function criarQuadro(req: APIRequestContext, dono: Conta, titulo: s
 	return (await resp.json()) as { id: string; titulo: string };
 }
 
-/** convidar adiciona alguém que JÁ TEM conta direto ao quadro, como editor. */
+/**
+ * convidar cria o convite e JÁ O ACEITA com a conta convidada, deixando a
+ * pessoa dentro do quadro como editora.
+ *
+ * São dois passos porque o produto tem dois passos: convidar deixou de pôr
+ * ninguém no quadro. Conhecer o email de alguém não concede participação — o
+ * acesso nasce de um token que a pessoa certa apresenta estando logada na conta
+ * daquele email. Antes esta função fazia só o POST, e a pessoa já saía membro.
+ */
 export async function convidar(req: APIRequestContext, dono: Conta, boardId: string, quem: Conta) {
 	const resp = await req.post(`${API}/boards/${boardId}/membros`, {
 		data: { email: quem.email, papel: 'editor' },
 		headers: { Cookie: `${dono.cookie.name}=${dono.cookie.value}` }
 	});
 	if (!resp.ok()) throw new Error(`convidar ${quem.nome}: ${resp.status()} ${await resp.text()}`);
+
+	const { link } = (await resp.json()) as { link: string };
+	const token = link.split('/convite/')[1];
+	if (!token) throw new Error(`link de convite em formato inesperado: ${link}`);
+
+	const aceite = await req.post(`${API}/convites/${token}/aceitar`, {
+		headers: { Cookie: `${quem.cookie.name}=${quem.cookie.value}` }
+	});
+	if (!aceite.ok()) {
+		throw new Error(`aceitar convite de ${quem.nome}: ${aceite.status()} ${await aceite.text()}`);
+	}
 }
 
 /** criarColuna cria uma coluna pela API — usado para preparar o cenário. */

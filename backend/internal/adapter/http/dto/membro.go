@@ -50,11 +50,15 @@ type MembrosResponse struct {
 	Convites []ConvitePendenteResponse `json:"convites"`
 }
 
-// ConviteCriadoResponse é o resultado de convidar.
+// ConviteCriadoResponse é o resultado de convidar: sempre um convite pendente
+// e o link, que aparece NESTA resposta e em nenhuma outra.
 //
-// Os dois caminhos são diferentes o bastante para a tela precisar saber qual
-// aconteceu: adicionado é true quando a pessoa já tinha conta e entrou agora;
-// caso contrário vem o link, que aparece NESTA resposta e em nenhuma outra.
+// Adicionado e Membro são campos de TRANSIÇÃO. Existia um caminho em que a
+// pessoa com conta virava membro na hora, e o cliente publicado ainda ramifica
+// por esse campo. Ele foi removido do domínio, então `adicionado` agora é
+// sempre false e `membro` nunca vem preenchido — o cliente antigo cai no ramo
+// do link, que é o comportamento correto. Os dois campos saem quando não
+// houver mais cliente antigo em campo.
 type ConviteCriadoResponse struct {
 	Adicionado bool                     `json:"adicionado"`
 	Membro     *MembroResponse          `json:"membro,omitempty"`
@@ -66,8 +70,14 @@ type ConviteCriadoResponse struct {
 // aceitar — sem exigir sessão, porque quem foi convidado costuma ainda não ter
 // conta.
 type ConviteDetalheResponse struct {
-	Quadro       string `json:"quadro"`
-	Email        string `json:"email"`
-	Papel        string `json:"papel"`
-	ConvidadoPor string `json:"convidadoPor,omitempty"`
+	Quadro string `json:"quadro"`
+	// EmailMascarado substituiu o campo `email`, que devolvia o endereço
+	// inteiro numa rota pública — quem tivesse o link ficava sabendo o email de
+	// quem foi convidado. O nome do campo mudou de propósito, em vez de só
+	// mudar o valor: um cliente antigo lendo `email` mostra vazio, o que é
+	// visivelmente errado e se conserta, enquanto um campo `email` com valor
+	// mascarado passaria despercebido como se ainda fosse o endereço real.
+	EmailMascarado string `json:"emailMascarado"`
+	Papel          string `json:"papel"`
+	ConvidadoPor   string `json:"convidadoPor,omitempty"`
 }

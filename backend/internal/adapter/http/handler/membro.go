@@ -72,8 +72,8 @@ func (h *MembroHandler) Listar(w http.ResponseWriter, r *http.Request) {
 	responderJSON(w, http.StatusOK, resposta)
 }
 
-// Convidar acrescenta alguém ao quadro pelo email. Responde 201 com o membro
-// criado (quando a pessoa já tinha conta) ou com o link do convite.
+// Convidar cria o convite e responde 201 com ele e o link. Não existe mais o
+// caminho de virar membro na hora: conhecer um email não concede participação.
 func (h *MembroHandler) Convidar(w http.ResponseWriter, r *http.Request) {
 	usuarioID, ok := h.usuario(w, r)
 	if !ok {
@@ -92,16 +92,14 @@ func (h *MembroHandler) Convidar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resposta := dto.ConviteCriadoResponse{Adicionado: resultado.Adicionado}
-	if resultado.Adicionado {
-		m := paraMembroResponse(*resultado.Participante)
-		resposta.Membro = &m
-	} else {
-		c := paraConviteResponse(*resultado.Convite)
-		resposta.Convite = &c
-		resposta.Link = h.linkDoConvite(resultado.Token)
-	}
-	responderJSON(w, http.StatusCreated, resposta)
+	c := paraConviteResponse(*resultado.Convite)
+	// A resposta carrega o link e, por isso, o token em texto puro: precisa de
+	// no-store como qualquer credencial. Ver middleware.SemCache.
+	responderJSON(w, http.StatusCreated, dto.ConviteCriadoResponse{
+		Adicionado: false,
+		Convite:    &c,
+		Link:       h.linkDoConvite(resultado.Token),
+	})
 }
 
 // AlterarPapel troca o papel de quem participa. Só o dono.
@@ -164,10 +162,10 @@ func (h *MembroHandler) DetalharConvite(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	responderJSON(w, http.StatusOK, dto.ConviteDetalheResponse{
-		Quadro:       detalhe.TituloQuadro,
-		Email:        detalhe.Email,
-		Papel:        string(detalhe.Papel),
-		ConvidadoPor: detalhe.ConvidadoPor,
+		Quadro:         detalhe.TituloQuadro,
+		EmailMascarado: detalhe.EmailMascarado,
+		Papel:          string(detalhe.Papel),
+		ConvidadoPor:   detalhe.ConvidadoPor,
 	})
 }
 

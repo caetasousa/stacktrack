@@ -34,6 +34,14 @@ var (
 	// ErrOutroDestinatario é retornado quando quem abre o convite está logado
 	// com uma conta de email diferente do convidado.
 	ErrOutroDestinatario = errors.New("este convite é para outro email")
+	// ErrJaResolvido é retornado quando se tenta aceitar ou revogar um convite
+	// que já saiu do estado pendente — porque outra requisição chegou primeiro.
+	//
+	// É separado de ErrInvalido de propósito: ErrInvalido é a resposta genérica
+	// dada a QUEM TEM O TOKEN, e precisa continuar não distinguindo "não existe"
+	// de "já foi usado". Este aqui não vai para a borda pública: ele descreve
+	// uma corrida entre duas escritas, e quem o lê é o usecase.
+	ErrJaResolvido = errors.New("este convite já foi aceito ou revogado")
 )
 
 // Convite é a permissão pendente de alguém entrar em um quadro.
@@ -48,6 +56,47 @@ type Convite struct {
 	ExpiraEm  time.Time
 	// AceitoEm é nil enquanto o convite está pendente.
 	AceitoEm *time.Time
+	// RevogadoEm é nil enquanto o convite não foi revogado.
+	//
+	// Revogar MARCA, e não apaga. O DELETE anterior levava junto a resposta
+	// para "quem convidou quem, e quando" — e, pior, liberava a vaga do índice
+	// de forma indistinguível de um convite que nunca existiu.
+	RevogadoEm *time.Time
+}
+
+// Estado é o resultado terminal (ou não) de um convite.
+type Estado string
+
+const (
+	// EstadoPendente é o convite que ainda pode ser aceito.
+	EstadoPendente Estado = "pendente"
+	// EstadoAceito é terminal.
+	EstadoAceito Estado = "aceito"
+	// EstadoRevogado é terminal.
+	EstadoRevogado Estado = "revogado"
+	// EstadoExpirado é o convite que passou da validade sem ser resolvido. Não
+	// é terminal no banco — é uma leitura do relógio —, e é o domínio que o
+	// transforma em revogado quando precisa liberar a vaga.
+	EstadoExpirado Estado = "expirado"
+)
+
+// EstadoEm devolve em que situação o convite está em relação a agora.
+//
+// A ordem das checagens importa: aceito e revogado são fatos gravados e vencem
+// o relógio. Um convite aceito ontem e "vencido" hoje continua sendo aceito —
+// tratá-lo como expirado faria a auditoria mudar de resposta com o passar do
+// tempo.
+func (c *Convite) EstadoEm(agora time.Time) Estado {
+	switch {
+	case c.AceitoEm != nil:
+		return EstadoAceito
+	case c.RevogadoEm != nil:
+		return EstadoRevogado
+	case agora.After(c.ExpiraEm):
+		return EstadoExpirado
+	default:
+		return EstadoPendente
+	}
 }
 
 // Novo cria um convite pendente com validade de TTL. O email é normalizado
@@ -77,16 +126,35 @@ func Novo(id, boardID, email string, papel membro.Papel, tokenHash, criadoPor st
 
 // Pendente informa se o convite ainda pode ser aceito em relação a agora.
 func (c *Convite) Pendente(agora time.Time) bool {
-	return c.AceitoEm == nil && !agora.After(c.ExpiraEm)
+	return c.EstadoEm(agora) == EstadoPendente
 }
 
 // Aceitar marca o convite como usado. Retorna ErrInvalido se ele já tiver sido
-// aceito ou já estiver vencido — um convite vale uma vez só, senão o link
-// vazado continuaria valendo depois de a pessoa certa já ter entrado.
+// aceito, revogado ou já estiver vencido — um convite vale uma vez só, senão o
+// link vazado continuaria valendo depois de a pessoa certa já ter entrado.
 func (c *Convite) Aceitar(agora time.Time) error {
 	if !c.Pendente(agora) {
 		return ErrInvalido
 	}
 	c.AceitoEm = &agora
 	return nil
+}
+
+// Revogar marca o convite como cancelado, invalidando o link já entregue.
+//
+// Revogar um convite VENCIDO é permitido, e é o caminho normal de quem convida
+// de novo o mesmo email: a vaga do índice de pendência só é liberada por um
+// fato gravado, e o vencimento não é um.
+//
+// Revogar o que já é terminal devolve ErrJaResolvido em vez de sobrescrever a
+// data: quem chegou primeiro decidiu, e regravar apagaria o instante real de
+// uma decisão que já vale.
+func (c *Convite) Revogar(agora time.Time) error {
+	switch c.EstadoEm(agora) {
+	case EstadoPendente, EstadoExpirado:
+		c.RevogadoEm = &agora
+		return nil
+	default:
+		return ErrJaResolvido
+	}
 }

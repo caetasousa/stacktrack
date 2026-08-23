@@ -44,14 +44,17 @@ func novaColaboracao(t *testing.T) *colaboracao {
 // conta cria um usuário de verdade pelo usecase de cadastro e devolve o id.
 func (c *colaboracao) conta(t *testing.T, nome, email string) string {
 	t.Helper()
-	out, err := c.cadastro.Executar(context.Background(), ucauth.CadastroInput{Nome: nome, Email: email, Senha: "senha-boa-123"})
+	out, err := c.cadastro.Executar(context.Background(), ucauth.CadastroInput{Nome: nome, Email: email, Senha: "senha-boa-de-teste-123"})
 	if err != nil {
 		t.Fatalf("cadastro de %s falhou: %v", nome, err)
 	}
 	return out.UsuarioID
 }
 
-func TestConvidarQuemJaTemContaAdicionaNaHora(t *testing.T) {
+// O ponto desta etapa: conhecer o email de alguém NÃO põe essa pessoa no
+// quadro. O caminho que fazia isso foi removido — todo acesso passa a nascer de
+// um token que a pessoa certa apresenta estando logada.
+func TestConvidarQuemJaTemContaNaoCriaParticipacao(t *testing.T) {
 	c := novaColaboracao(t)
 	ana := c.conta(t, "Ana", "ana@exemplo.com")
 	bob := c.conta(t, "Bob", "bob@exemplo.com")
@@ -62,24 +65,22 @@ func TestConvidarQuemJaTemContaAdicionaNaHora(t *testing.T) {
 		t.Fatalf("erro ao convidar: %v", err)
 	}
 
-	if !resultado.Adicionado {
-		t.Fatal("quem já tem conta entra direto, sem passar por convite")
+	if resultado.Token == "" {
+		t.Fatal("mesmo quem já tem conta precisa receber um link para aceitar")
 	}
-	if resultado.Token != "" {
-		t.Error("não faz sentido gerar link para quem já entrou")
-	}
-	if c.convites.Quantidade() != 0 {
-		t.Error("nenhum convite devia ter sido criado")
+	if resultado.Convite == nil || resultado.Convite.Papel != membro.PapelEditor {
+		t.Fatalf("convite = %+v, esperado pendente como editor", resultado.Convite)
 	}
 
 	vinculo, _ := c.membros.Buscar(context.Background(), boardID, bob)
-	if vinculo == nil || vinculo.Papel != membro.PapelEditor {
-		t.Errorf("vínculo = %+v, esperado editor", vinculo)
+	if vinculo != nil {
+		t.Fatal("Bob virou membro só porque Ana sabia o email dele")
 	}
 }
 
-// O email é a chave: quem se cadastrou com outra caixa é a mesma pessoa.
-func TestConvidarReconheceContaComOutraCaixaNoEmail(t *testing.T) {
+// O email é a chave: quem se cadastrou com outra caixa é a mesma pessoa, e
+// convidá-la de novo continua sendo um convite — não uma adição.
+func TestConvidarNormalizaOEmailDoConvite(t *testing.T) {
 	c := novaColaboracao(t)
 	ana := c.conta(t, "Ana", "ana@exemplo.com")
 	c.conta(t, "Bob", "bob@exemplo.com")
@@ -89,8 +90,30 @@ func TestConvidarReconheceContaComOutraCaixaNoEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao convidar: %v", err)
 	}
-	if !resultado.Adicionado {
-		t.Error("devia ter reconhecido a conta existente")
+	if resultado.Convite.Email != "bob@exemplo.com" {
+		t.Errorf("email do convite = %q, esperado normalizado", resultado.Convite.Email)
+	}
+}
+
+// Quem JÁ participa não é convidável: o convite não teria o que conceder, e
+// aceitar duas vezes não pode virar duas participações.
+func TestConvidarQuemJaParticipaEhConflito(t *testing.T) {
+	c := novaColaboracao(t)
+	ana := c.conta(t, "Ana", "ana@exemplo.com")
+	bob := c.conta(t, "Bob", "bob@exemplo.com")
+	boardID := c.criarQuadro(t, ana, "Estudos")
+
+	primeiro, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bob@exemplo.com", membro.PapelEditor)
+	if err != nil {
+		t.Fatalf("erro ao convidar: %v", err)
+	}
+	if _, _, err := c.membroUC.Aceitar(context.Background(), primeiro.Token, bob); err != nil {
+		t.Fatalf("erro ao aceitar: %v", err)
+	}
+
+	_, err = c.membroUC.Convidar(context.Background(), boardID, ana, "bob@exemplo.com", membro.PapelEditor)
+	if !errors.Is(err, dconvite.ErrJaEMembro) {
+		t.Errorf("erro = %v, esperado ErrJaEMembro", err)
 	}
 }
 
@@ -104,9 +127,6 @@ func TestConvidarQuemNaoTemContaGeraLink(t *testing.T) {
 		t.Fatalf("erro ao convidar: %v", err)
 	}
 
-	if resultado.Adicionado {
-		t.Fatal("não há conta para adicionar")
-	}
 	if resultado.Token == "" {
 		t.Fatal("o convite pendente precisa devolver o token para montar o link")
 	}
@@ -288,8 +308,13 @@ func TestDetalharConviteNaoExigeSessao(t *testing.T) {
 		t.Fatalf("erro ao detalhar: %v", err)
 	}
 
-	if detalhe.TituloQuadro != "Estudos" || detalhe.Email != "novo@exemplo.com" {
+	if detalhe.TituloQuadro != "Estudos" {
 		t.Errorf("detalhe = %+v", detalhe)
+	}
+	// A rota é pública: quem tem o link não é necessariamente quem foi
+	// convidado, e o endereço inteiro ali seria vazamento de email.
+	if detalhe.EmailMascarado != "n***@exemplo.com" {
+		t.Errorf("emailMascarado = %q, esperado mascarado", detalhe.EmailMascarado)
 	}
 	if detalhe.ConvidadoPor != "Ana" {
 		t.Errorf("convidadoPor = %q, esperado o nome de quem convidou", detalhe.ConvidadoPor)
@@ -301,7 +326,14 @@ func TestListarMembrosTrazTodosComNomeEEmail(t *testing.T) {
 	ana := c.conta(t, "Ana", "ana@exemplo.com")
 	bob := c.conta(t, "Bob", "bob@exemplo.com")
 	boardID := c.criarQuadro(t, ana, "Estudos")
-	c.membroUC.Convidar(context.Background(), boardID, ana, "bob@exemplo.com", membro.PapelLeitor)
+	// Convidar não põe ninguém no quadro: quem entra é quem ACEITA.
+	conviteDeBob, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bob@exemplo.com", membro.PapelLeitor)
+	if err != nil {
+		t.Fatalf("erro ao convidar: %v", err)
+	}
+	if _, _, err := c.membroUC.Aceitar(context.Background(), conviteDeBob.Token, bob); err != nil {
+		t.Fatalf("erro ao aceitar: %v", err)
+	}
 
 	// Até o leitor enxerga a lista: saber com quem se divide um quadro é parte
 	// de participar dele.
@@ -470,8 +502,15 @@ func TestMudancaDeMembroAvisaOQuadro(t *testing.T) {
 		esperado evento.Tipo
 		agir     func() error
 	}{
-		{"ser adicionado ao quadro", evento.MembroAdicionado, func() error {
-			_, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bruno@exemplo.com", membro.PapelEditor)
+		// "Entrar" passou a ser sempre aceitar um convite: o caminho em que o
+		// dono adicionava direto quem já tinha conta foi removido, e com ele o
+		// evento membro.adicionado deixou de ser produzido.
+		{"entrar pelo convite", evento.MembroEntrou, func() error {
+			pendente, err := c.membroUC.Convidar(context.Background(), boardID, ana, "bruno@exemplo.com", membro.PapelEditor)
+			if err != nil {
+				return err
+			}
+			_, _, err = c.membroUC.Aceitar(context.Background(), pendente.Token, bruno)
 			return err
 		}},
 		{"trocar de papel", evento.MembroPapelAlterado, func() error {

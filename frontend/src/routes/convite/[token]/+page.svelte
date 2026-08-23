@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { aceitarConvite } from '$lib/api/membros';
 	import { ApiError } from '$lib/api/client';
+	import { mascararEmail } from '$lib/email';
 
 	let { data } = $props();
 
@@ -11,7 +12,14 @@
 	// Três situações diferentes, e cada uma pede uma ação diferente: sem conta,
 	// logado com a conta certa, e logado com outra conta.
 	const logado = $derived(data.usuario !== null);
-	const emailConfere = $derived(data.usuario?.email === data.convite.email);
+	// A comparação é entre MÁSCARAS: a rota pública do convite não devolve mais
+	// o endereço inteiro. É uma dica de tela, não uma autorização — duas contas
+	// do mesmo domínio com a mesma inicial produzem a mesma máscara, e quem
+	// decide de verdade é o servidor no aceite, que responde 403 quando o email
+	// da sessão não é o do convite.
+	const emailConfere = $derived(
+		data.usuario ? mascararEmail(data.usuario.email) === data.convite.emailMascarado : false
+	);
 
 	// Para onde voltar depois de entrar ou criar conta.
 	const voltar = $derived(`/convite/${encodeURIComponent(data.token)}`);
@@ -58,7 +66,7 @@
 	<dl class="mt-5 rounded-md border border-hairline bg-surface-elevated p-4 text-xs">
 		<div class="flex justify-between gap-3">
 			<dt class="text-mute">Convite para</dt>
-			<dd class="truncate font-medium text-ink">{data.convite.email}</dd>
+			<dd class="truncate font-medium text-ink">{data.convite.emailMascarado}</dd>
 		</div>
 	</dl>
 
@@ -68,8 +76,8 @@
 
 	{#if !logado}
 		<p class="mt-5 text-sm text-mute">
-			Entre com <b class="text-ink">{data.convite.email}</b> para aceitar. Se ainda não tem conta, crie
-			uma com esse email.
+			Entre com <b class="text-ink">{data.convite.emailMascarado}</b> para aceitar. Se ainda não tem conta,
+			crie uma com esse email.
 		</p>
 		<div class="mt-4 flex flex-wrap gap-2">
 			<a href="/cadastro?voltar={encodeURIComponent(voltar)}" class="botao w-auto px-5">
@@ -88,7 +96,8 @@
 		     colocaria qualquer pessoa dentro do quadro. -->
 		<p class="mt-5 text-sm text-mute">
 			Você está com a conta <b class="text-ink">{data.usuario?.email}</b>, e este convite é para
-			<b class="text-ink">{data.convite.email}</b>. Saia e entre com a conta convidada para aceitar.
+			<b class="text-ink">{data.convite.emailMascarado}</b>. Saia e entre com a conta convidada para
+			aceitar.
 		</p>
 		<a href="/painel" class="botao-secundario mt-4 inline-block w-auto px-5">Ir para o painel</a>
 	{/if}

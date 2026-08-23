@@ -48,7 +48,9 @@
 		try {
 			const resultado = await convidar(data.quadro.id, email, papel);
 			email = '';
-			recemCriado = resultado.adicionado ? null : resultado;
+			// Sempre há link a mostrar: conhecer o email de alguém deixou de pôr
+			// essa pessoa no quadro, então todo convite precisa ser entregue.
+			recemCriado = resultado;
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível convidar');

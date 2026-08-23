@@ -49,6 +49,15 @@ func convidar(t *testing.T, api *apiDeQuadro, cookie *http.Cookie, boardID, emai
 	return corpo
 }
 
+// aceitar transforma o convite em participação, com a sessão informada.
+func aceitar(t *testing.T, api *apiDeQuadro, cookie *http.Cookie, token string) {
+	t.Helper()
+	rec := chamar(api, http.MethodPost, "/convites/"+token+"/aceitar", "", cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("aceitar: status = %d, esperado 200: %s", rec.Code, rec.Body)
+	}
+}
+
 // tokenDoLink extrai o token da URL devolvida ao dono.
 func tokenDoLink(t *testing.T, link string) string {
 	t.Helper()
@@ -59,22 +68,35 @@ func tokenDoLink(t *testing.T, link string) string {
 	return partes[1]
 }
 
-func TestConvidarQuemJaTemContaResponde201ComOMembro(t *testing.T) {
+// Conhecer o email de uma conta não concede participação: a resposta é a mesma
+// de quem não tem conta — um link a entregar.
+func TestConvidarQuemJaTemContaDevolveLinkENaoMembro(t *testing.T) {
 	api := montarAPIDeQuadro()
 	cookieAna, _ := api.conta(t, "Ana", "ana@exemplo.com")
-	_, bobID := api.conta(t, "Bob", "bob@exemplo.com")
+	api.conta(t, "Bob", "bob@exemplo.com")
 	boardID := api.criarQuadro(t, cookieAna, "Estudos")
 
 	corpo := convidar(t, api, cookieAna, boardID, "bob@exemplo.com", "editor")
 
-	if !corpo.Adicionado {
-		t.Fatal("quem já tem conta entra direto")
+	// `adicionado` é campo de transição e agora é sempre false: o cliente antigo
+	// cai no ramo do link, que é o comportamento correto.
+	if corpo.Adicionado {
+		t.Error("adicionado precisa ser sempre false: ninguém entra sem aceitar")
 	}
-	if corpo.Membro == nil || corpo.Membro.UsuarioID != bobID || corpo.Membro.Papel != "editor" {
-		t.Errorf("membro = %+v", corpo.Membro)
+	if corpo.Membro != nil {
+		t.Errorf("membro = %+v, esperado nenhum", corpo.Membro)
 	}
-	if corpo.Link != "" {
-		t.Error("não faz sentido devolver link para quem já entrou")
+	if !strings.HasPrefix(corpo.Link, "http://localhost:5173/convite/") {
+		t.Errorf("link = %q, esperado apontando para o frontend", corpo.Link)
+	}
+
+	// E a participação não existe: a listagem de membros continua só com Ana.
+	var lista struct {
+		Membros []struct{ Nome string } `json:"membros"`
+	}
+	json.Unmarshal(chamar(api, http.MethodGet, "/boards/"+boardID+"/membros", "", cookieAna).Body.Bytes(), &lista)
+	if len(lista.Membros) != 1 {
+		t.Errorf("membros = %d, esperado só a dona", len(lista.Membros))
 	}
 }
 
@@ -85,9 +107,6 @@ func TestConvidarQuemNaoTemContaDevolveOLink(t *testing.T) {
 
 	corpo := convidar(t, api, cookieAna, boardID, "novo@exemplo.com", "leitor")
 
-	if corpo.Adicionado {
-		t.Fatal("não há conta para adicionar")
-	}
 	if !strings.HasPrefix(corpo.Link, "http://localhost:5173/convite/") {
 		t.Errorf("link = %q, esperado apontando para o frontend", corpo.Link)
 	}
@@ -120,7 +139,10 @@ func TestListagemMostraConvitesSoParaODono(t *testing.T) {
 	cookieAna, _ := api.conta(t, "Ana", "ana@exemplo.com")
 	cookieBob, _ := api.conta(t, "Bob", "bob@exemplo.com")
 	boardID := api.criarQuadro(t, cookieAna, "Estudos")
-	convidar(t, api, cookieAna, boardID, "bob@exemplo.com", "editor")
+	// Bob entra aceitando o convite; o segundo fica pendente, sem conta do outro
+	// lado, e é o único que o dono deve ver na lista de convites.
+	deBob := convidar(t, api, cookieAna, boardID, "bob@exemplo.com", "editor")
+	aceitar(t, api, cookieBob, tokenDoLink(t, deBob.Link))
 	convidar(t, api, cookieAna, boardID, "novo@exemplo.com", "leitor")
 
 	var comoDono, comoEditor struct {
@@ -155,10 +177,23 @@ func TestDetalheDoConviteNaoExigeSessao(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, esperado 200: %s", rec.Code, rec.Body)
 	}
-	var detalhe struct{ Quadro, Email, Papel, ConvidadoPor string }
+	var detalhe struct {
+		Quadro         string `json:"quadro"`
+		EmailMascarado string `json:"emailMascarado"`
+		Papel          string `json:"papel"`
+		ConvidadoPor   string `json:"convidadoPor"`
+	}
 	json.Unmarshal(rec.Body.Bytes(), &detalhe)
-	if detalhe.Quadro != "Estudos" || detalhe.Email != "novo@exemplo.com" || detalhe.ConvidadoPor != "Ana" {
+	if detalhe.Quadro != "Estudos" || detalhe.ConvidadoPor != "Ana" {
 		t.Errorf("detalhe = %+v", detalhe)
+	}
+	// O endereço inteiro não pode sair numa rota pública: quem tem o link não é
+	// necessariamente quem foi convidado.
+	if detalhe.EmailMascarado != "n***@exemplo.com" {
+		t.Errorf("emailMascarado = %q", detalhe.EmailMascarado)
+	}
+	if strings.Contains(rec.Body.String(), "novo@exemplo.com") {
+		t.Errorf("o email completo vazou na resposta pública: %s", rec.Body)
 	}
 }
 

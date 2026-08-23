@@ -27,9 +27,14 @@ export interface Participacao {
 	convites: ConvitePendente[];
 }
 
-// ConviteCriado é o resultado de convidar. Quando `adicionado` é true a pessoa
-// já tinha conta e entrou agora; caso contrário vem o `link`, que a API devolve
-// NESTA resposta e em nenhuma outra — o banco guarda só o hash do token.
+// ConviteCriado é o resultado de convidar: sempre um convite pendente e o
+// `link`, que a API devolve NESTA resposta e em nenhuma outra — o banco guarda
+// só o hash do token.
+//
+// `adicionado` e `membro` são campos de TRANSIÇÃO do servidor: existia um
+// caminho em que quem já tinha conta virava membro na hora, sem aceitar nada.
+// Ele foi removido, `adicionado` é sempre false e `membro` nunca vem. Ficam
+// declarados enquanto o servidor os enviar.
 export interface ConviteCriado {
 	adicionado: boolean;
 	membro?: Membro;
@@ -39,7 +44,9 @@ export interface ConviteCriado {
 
 export interface ConviteDetalhe {
 	quadro: string;
-	email: string;
+	// Mascarado (`a***@exemplo.com`) porque a rota é pública: quem tem o link
+	// não é necessariamente quem foi convidado. Ver $lib/email.
+	emailMascarado: string;
 	papel: Papel;
 	convidadoPor?: string;
 }

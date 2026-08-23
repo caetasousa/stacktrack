@@ -31,7 +31,7 @@ func (r *Convites) Salvar(ctx context.Context, c *convite.Convite) error {
 		if existente.ID != c.ID &&
 			existente.BoardID == c.BoardID &&
 			existente.Email == c.Email &&
-			existente.AceitoEm == nil {
+			existente.AceitoEm == nil && existente.RevogadoEm == nil {
 			return convite.ErrJaConvidado
 		}
 	}
@@ -40,12 +40,37 @@ func (r *Convites) Salvar(ctx context.Context, c *convite.Convite) error {
 	return nil
 }
 
-func (r *Convites) Atualizar(ctx context.Context, c *convite.Convite) error {
+// Aceitar e Revogar espelham os UPDATEs CONDICIONAIS do Postgres: a transição
+// só acontece se o convite ainda estiver no estado de partida, e quem chega
+// depois recebe convite.ErrJaResolvido.
+//
+// Reproduzir a condição aqui é o que faz este repositório servir de teste: um
+// `Atualizar(c)` que gravasse o agregado inteiro esconderia justamente a
+// corrida que o WHERE existe para resolver, e o teste passaria enquanto o
+// Postgres reprovaria.
+func (r *Convites) Aceitar(ctx context.Context, id string, em time.Time) error {
 	if r.ErroForcado != nil {
 		return r.ErroForcado
 	}
-	copia := *c
-	r.porID[c.ID] = &copia
+	c, ok := r.porID[id]
+	if !ok || c.AceitoEm != nil || c.RevogadoEm != nil || em.After(c.ExpiraEm) {
+		return convite.ErrJaResolvido
+	}
+	quando := em
+	c.AceitoEm = &quando
+	return nil
+}
+
+func (r *Convites) Revogar(ctx context.Context, id string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	c, ok := r.porID[id]
+	if !ok || c.AceitoEm != nil || c.RevogadoEm != nil {
+		return convite.ErrJaResolvido
+	}
+	quando := em
+	c.RevogadoEm = &quando
 	return nil
 }
 
@@ -80,7 +105,7 @@ func (r *Convites) BuscarPendentePorEmail(ctx context.Context, boardID, email st
 	}
 	alvo := usuario.NormalizarEmail(email)
 	for _, c := range r.porID {
-		if c.BoardID == boardID && c.Email == alvo && c.AceitoEm == nil {
+		if c.BoardID == boardID && c.Email == alvo && c.AceitoEm == nil && c.RevogadoEm == nil {
 			copia := *c
 			return &copia, nil
 		}
@@ -94,17 +119,12 @@ func (r *Convites) ListarPendentes(ctx context.Context, boardID string) ([]convi
 	}
 	lista := make([]convite.Convite, 0)
 	for _, c := range r.porID {
-		if c.BoardID == boardID && c.AceitoEm == nil {
+		if c.BoardID == boardID && c.AceitoEm == nil && c.RevogadoEm == nil {
 			lista = append(lista, *c)
 		}
 	}
 	sort.Slice(lista, func(i, j int) bool { return lista[i].CriadoEm.After(lista[j].CriadoEm) })
 	return lista, nil
-}
-
-func (r *Convites) Remover(ctx context.Context, id string) error {
-	delete(r.porID, id)
-	return nil
 }
 
 // Vencer empurra o convite para o passado, para os testes exercitarem o

@@ -961,26 +961,36 @@ A cadeia fecha: chave exclusiva → `restrict` + comando forçado → wrapper va
 → `sudo` restrito a um arquivo → Docker. Uma chave vazada da esteira rende três
 verbos.
 
+### O hardening aplicado
+
+Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
+
+- `ufw status`: ativo, `deny (incoming)`, com 22, 80 e 443 em IPv4 e IPv6;
+- `sshd -T`: `passwordauthentication no`, `permitrootlogin no`,
+  `kbdinteractiveauthentication no`, `allowagentforwarding no`,
+  `x11forwarding no`;
+- `apt-mark showhold`: os quatro pacotes do Docker travados;
+- `20auto-upgrades` e `52stacktrack-unattended` no lugar;
+- varredura de fora: 22, 80 e 443 abertas; 5432, 3000, 8080, 2375 e 2376
+  fechadas;
+- `https://stacktrack.duckdns.org` em 200, e os quatro containers do agendaGo
+  intactos com duas semanas de uptime.
+
 ### O que só você pode fazer
 
 1. ~~**Gerar a chave exclusiva da esteira**~~ — feito. Par próprio instalado em
    `stacktrack-deploy` com `restrict` e comando forçado, e os segredos do GitHub
    trocados. A chave do agendaGo continua em `deploy`, que é o acesso do
    operador e do vizinho.
-2. **Testar o console do provedor** antes de rodar `make infra-preparar`: o
-   hardening desliga a senha do SSH e sobe o firewall. Ele é a única parte que
-   alcança o HOST INTEIRO, e o host é dividido com o agendaGo — por isso tem tag
-   própria e pode ficar para outro momento (`--skip-tags hardening`). Nada mais
-   da A5 sai do que é do stacktrack: o resto é um usuário do Linux, um script em
-   `/usr/local/bin` e um papel no banco que já existe. Nenhum servidor novo,
-   nenhum container novo.
-3. ~~**`make infra-preparar` e `make infra-apply`**~~ — feito, sem o hardening.
-   O usuário da esteira, o wrapper e o papel de runtime do banco já estão no
-   servidor. Falta a role `hardening`
-   (`make infra-preparar ARGS="--tags hardening"`), com o console do provedor
-   testado antes.
-4. **GitHub**: criar o Environment `production` com os segredos `VPS_*` dentro
-   dele e proteger a `main` com os checks da esteira.
+2. ~~**`make infra-preparar` e `make infra-apply`**~~ — feito, hardening
+   incluído. Usuário da esteira, wrapper, papel de runtime do banco, SSH sem
+   senha, firewall e atualização automática de segurança estão no servidor, com
+   o agendaGo intacto.
+3. **GitHub**: criar o Environment `production` com os segredos `VPS_*` dentro
+   dele e proteger a `main` com os checks da esteira. É o último critério aberto
+   que depende só de configuração.
+4. **Medir a idempotência**: dois `make infra-apply` seguidos, e o segundo tem
+   de sair `changed=0`.
 
 ### Decisão tomada, e por quê
 
@@ -1106,8 +1116,7 @@ comprometido.
 - [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
 - [ ] `main` e o Environment de produção aplicam os gates definidos. *(painel do
       GitHub)*
-- [ ] Portas internas não estão expostas à internet. *(o UFW está escrito e
-      recusa subir com porta desconhecida; falta aplicar e varrer de fora)*
+- [x] Portas internas não estão expostas à internet.
 
 ---
 

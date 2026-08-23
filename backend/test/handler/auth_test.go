@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"stacktrack/internal/adapter/http/handler"
 	"stacktrack/internal/adapter/http/middleware"
+	"stacktrack/internal/domain/usuario"
 	ucauth "stacktrack/internal/usecase/auth"
 	"stacktrack/test/repository/memoria"
 
@@ -25,7 +28,10 @@ func montarAPI(cookieSeguro bool) (http.Handler, *memoria.Usuarios) {
 	sessoes := memoria.NovasSessoes()
 	hasher := &memoria.Hasher{}
 
-	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), cookieSeguro)
+	// Teto de cookies desconhecidos desligado: quem o exercita é o teste
+	// dedicado, e um teto ligado aqui derrubaria os casos que apresentam cookie
+	// inválido de propósito.
+	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), cookieSeguro, 0, time.Minute)
 	h := handler.NovoAuthHandler(
 		ucauth.NovoCadastrarUseCase(usuarios, sessoes, hasher),
 		ucauth.NovoLoginUseCase(usuarios, sessoes, hasher),
@@ -73,7 +79,7 @@ func cookieDeSessao(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
-const cadastroValido = `{"nome":"Ana","email":"ana@exemplo.com","senha":"senha-boa-123"}`
+const cadastroValido = `{"nome":"Ana","email":"ana@exemplo.com","senha":"senha-boa-de-teste-123"}`
 
 func TestCadastroResponde201ComCookieDeSessao(t *testing.T) {
 	api, _ := montarAPI(false)
@@ -172,8 +178,28 @@ func TestCadastroComSenhaCurtaResponde400ComMotivo(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, esperado 400", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "8") {
+	if !strings.Contains(rec.Body.String(), strconv.Itoa(usuario.TamanhoMinimoSenha)) {
 		t.Errorf("a mensagem devia dizer qual é o mínimo: %s", rec.Body)
+	}
+}
+
+// A senha da lista de comuns é erro DE ENTRADA, e o status precisa dizer isso.
+//
+// Este teste existe por causa de um 500 encontrado em smoke test: o erro novo
+// não estava na lista de erros de validação do domínio, então uma senha recusada
+// por ser previsível chegava ao formulário como "erro interno" — a pessoa não
+// tinha como saber que bastava escolher outra.
+func TestCadastroComSenhaComumResponde400ComMotivo(t *testing.T) {
+	api, _ := montarAPI(false)
+
+	rec := chamar(api, http.MethodPost, "/auth/cadastro",
+		`{"nome":"Ana","email":"ana@exemplo.com","senha":"senhasenhasenha"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, esperado 400: %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "erro interno") {
+		t.Errorf("a recusa por senha comum virou erro interno: %s", rec.Body)
 	}
 }
 
@@ -182,8 +208,8 @@ func TestCadastroComCorpoQuebradoResponde400(t *testing.T) {
 
 	casos := map[string]string{
 		"json inválido":   `{"nome":`,
-		"email sem forma": `{"nome":"Ana","email":"nao-e-email","senha":"senha-boa-123"}`,
-		"sem nome":        `{"email":"ana@exemplo.com","senha":"senha-boa-123"}`,
+		"email sem forma": `{"nome":"Ana","email":"nao-e-email","senha":"senha-boa-de-teste-123"}`,
+		"sem nome":        `{"email":"ana@exemplo.com","senha":"senha-boa-de-teste-123"}`,
 	}
 
 	for nome, corpo := range casos {
@@ -204,7 +230,7 @@ func TestEmailComEspacosNasPontasEAceito(t *testing.T) {
 	api, _ := montarAPI(false)
 
 	rec := chamar(api, http.MethodPost, "/auth/cadastro",
-		`{"nome":"Ana","email":"  Ana@Exemplo.COM  ","senha":"senha-boa-123"}`)
+		`{"nome":"Ana","email":"  Ana@Exemplo.COM  ","senha":"senha-boa-de-teste-123"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("cadastro: status = %d, esperado 201: %s", rec.Code, rec.Body)
 	}
@@ -213,7 +239,7 @@ func TestEmailComEspacosNasPontasEAceito(t *testing.T) {
 	}
 
 	login := chamar(api, http.MethodPost, "/auth/login",
-		`{"email":" ANA@exemplo.com ","senha":"senha-boa-123"}`)
+		`{"email":" ANA@exemplo.com ","senha":"senha-boa-de-teste-123"}`)
 	if login.Code != http.StatusOK {
 		t.Errorf("login: status = %d, esperado 200: %s", login.Code, login.Body)
 	}

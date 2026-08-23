@@ -201,6 +201,11 @@ func TestCardDetalhadoTrazAConversa(t *testing.T) {
 	if !presente || lista == nil {
 		t.Fatalf("comentarios = %v, esperado lista vazia — null quebra a tela", lista)
 	}
+	if revisao, presente := cru["revisao"]; !presente {
+		t.Fatal("resposta do modal não trouxe o campo revisao")
+	} else if _, numero := revisao.(float64); !numero {
+		t.Fatalf("revisao = %T, esperado número JSON", revisao)
+	}
 
 	chamar(api, http.MethodPost, "/cards/"+cardID+"/comentarios", `{"texto":"primeiro"}`, cookieAna)
 

@@ -21,13 +21,17 @@ describe('cadastrar', () => {
 		vi.stubGlobal('fetch', fetchFalso);
 
 		await expect(
-			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })
+			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-de-teste-123' })
 		).resolves.toEqual(conta);
 		expect(fetchFalso).toHaveBeenCalledWith(`${BASE_URL}/auth/cadastro`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
-			body: JSON.stringify({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })
+			body: JSON.stringify({
+				nome: 'Ana',
+				email: 'ana@exemplo.com',
+				senha: 'senha-boa-de-teste-123'
+			})
 		});
 	});
 
@@ -38,7 +42,7 @@ describe('cadastrar', () => {
 		);
 
 		await expect(
-			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-123' })
+			cadastrar({ nome: 'Ana', email: 'ana@exemplo.com', senha: 'senha-boa-de-teste-123' })
 		).rejects.toThrowError(
 			expect.objectContaining({ status: 409, message: 'já existe uma conta com este email' })
 		);
@@ -52,7 +56,7 @@ describe('entrar', () => {
 			.mockResolvedValue(respostaFalsa({ id: '1', nome: 'Ana', email: 'ana@exemplo.com' }));
 		vi.stubGlobal('fetch', fetchFalso);
 
-		await entrar({ email: 'ana@exemplo.com', senha: 'senha-boa-123' });
+		await entrar({ email: 'ana@exemplo.com', senha: 'senha-boa-de-teste-123' });
 
 		expect(fetchFalso.mock.calls[0][0]).toBe(`${BASE_URL}/auth/login`);
 	});

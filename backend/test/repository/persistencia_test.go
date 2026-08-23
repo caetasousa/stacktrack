@@ -111,8 +111,8 @@ func TestFundoDoQuadroSobreviveAoBanco(t *testing.T) {
 	if err := b.DefinirFundo("oceano"); err != nil {
 		t.Fatalf("definir fundo: %v", err)
 	}
-	if err := repo.Atualizar(context.Background(), b); err != nil {
-		t.Fatalf("atualizar: %v", err)
+	if err := repo.DefinirFundo(context.Background(), b.ID, b.Fundo, b.AtualizadoEm); err != nil {
+		t.Fatalf("definir fundo: %v", err)
 	}
 
 	relido, err := repo.BuscarPorID(context.Background(), boardID)

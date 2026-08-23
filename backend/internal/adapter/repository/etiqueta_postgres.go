@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // EtiquetaPostgres persiste etiquetas e a aplicação delas nos cards.
@@ -18,7 +17,7 @@ type EtiquetaPostgres struct {
 }
 
 // NovoEtiquetaPostgres cria o repositório de etiquetas sobre o pool informado.
-func NovoEtiquetaPostgres(pool *pgxpool.Pool) *EtiquetaPostgres {
+func NovoEtiquetaPostgres(pool Fonte) *EtiquetaPostgres {
 	return &EtiquetaPostgres{db: pool}
 }
 

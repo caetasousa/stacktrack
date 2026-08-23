@@ -86,7 +86,7 @@ func novoQuadro() *quadro {
 		quadros:      quadros,
 		publicacao:   ucboard.NovoPublicacaoUseCase(publicacoes, membros, boards, colunas, cards, etiquetas, checklists),
 		coluna:       ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem),
-		card:         ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
+		card:         ucboard.NovoCardUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem),
 	}
 }
 

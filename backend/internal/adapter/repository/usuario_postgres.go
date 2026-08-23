@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // codigoViolacaoUnique é o SQLSTATE do Postgres para violação de UNIQUE.
@@ -20,7 +19,7 @@ type UsuarioPostgres struct {
 }
 
 // NovoUsuarioPostgres cria o repositório de usuários sobre o pool informado.
-func NovoUsuarioPostgres(pool *pgxpool.Pool) *UsuarioPostgres {
+func NovoUsuarioPostgres(pool Fonte) *UsuarioPostgres {
 	return &UsuarioPostgres{db: pool}
 }
 

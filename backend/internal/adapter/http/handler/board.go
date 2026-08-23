@@ -115,7 +115,8 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 
 	responderJSON(w, http.StatusOK, dto.BoardDetalhadoResponse{
 		ID: detalhado.Board.ID, Titulo: detalhado.Board.Titulo,
-		Papel: string(detalhado.Papel), Fundo: detalhado.Board.FundoEfetivo(),
+		Revisao: detalhado.Revisao,
+		Papel:   string(detalhado.Papel), Fundo: detalhado.Board.FundoEfetivo(),
 		Publico: detalhado.Publico,
 		Colunas: colunas, Etiquetas: paraEtiquetasResponse(detalhado.Etiquetas),
 	})
@@ -387,8 +388,16 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	//
 	// ErrConflito é o bloqueio otimista: outra pessoa gravou entre a leitura e
 	// esta chamada. A tela recarrega o card em vez de insistir.
-	case errors.Is(err, dcard.ErrConflito):
+	case errors.Is(err, dcard.ErrConflito),
+		errors.Is(err, dcoluna.ErrConflito):
 		responderErro(w, http.StatusConflict, err.Error())
+	// 503, e não 500: o quadro estava ocupado por outra escrita e o lock
+	// estourou o prazo. Nada deu errado — a operação simplesmente não coube
+	// agora, e repetir daqui a um segundo é a ação certa. O Retry-After é o que
+	// diz isso a um cliente que não sabe interpretar prosa.
+	case errors.Is(err, ucboard.ErrQuadroOcupado):
+		w.Header().Set("Retry-After", "1")
+		responderErro(w, http.StatusServiceUnavailable, err.Error())
 	// Vizinhos fora de ordem, ou chave malformada vinda do banco. É 409 e não
 	// 500: o estado é que não comporta a escrita, e a tela resolve recarregando
 	// — dizer "erro interno" mandaria a pessoa procurar um problema que não é
@@ -399,6 +408,12 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusConflict, err.Error())
 	case errors.Is(err, danexo.ErrArquivoGrande):
 		responderErro(w, http.StatusRequestEntityTooLarge, err.Error())
+	// Cota estourada é 422, e não 413: o pedido está bem formado e o ARQUIVO
+	// pode estar dentro do limite individual — o que não cabe é o conjunto. Um
+	// 413 mandaria a pessoa procurar um arquivo grande demais que não existe.
+	case errors.Is(err, danexo.ErrAnexosDemaisNoCard),
+		errors.Is(err, danexo.ErrCotaDoQuadroExcedida):
+		responderErro(w, http.StatusUnprocessableEntity, err.Error())
 	// 415: o tipo do conteúdo é que não é aceito.
 	case errors.Is(err, danexo.ErrTipoNaoPermitido):
 		responderErro(w, http.StatusUnsupportedMediaType, err.Error())
@@ -477,6 +492,7 @@ func (h *BoardHandler) DetalharCard(w http.ResponseWriter, r *http.Request) {
 	responderJSON(w, http.StatusOK, dto.CardDetalhadoResponse{
 		CardResponse:    comResponsaveis(paraCardResponse(detalhe.Card), detalhe.Responsaveis),
 		BoardID:         detalhe.BoardID,
+		Revisao:         detalhe.Revisao,
 		EtiquetasDoCard: paraEtiquetasResponse(detalhe.Etiquetas),
 		Checklists:      checklists,
 		Anexos:          paraAnexosResponse(detalhe.Anexos),

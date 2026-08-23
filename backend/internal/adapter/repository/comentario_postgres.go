@@ -8,7 +8,6 @@ import (
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ComentarioPostgres persiste a conversa dos cards.
@@ -17,7 +16,7 @@ type ComentarioPostgres struct {
 }
 
 // NovoComentarioPostgres cria o repositório de comentários sobre o pool informado.
-func NovoComentarioPostgres(pool *pgxpool.Pool) *ComentarioPostgres {
+func NovoComentarioPostgres(pool Fonte) *ComentarioPostgres {
 	return &ComentarioPostgres{db: pool}
 }
 

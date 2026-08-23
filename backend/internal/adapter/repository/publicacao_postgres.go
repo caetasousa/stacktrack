@@ -7,7 +7,6 @@ import (
 	"stacktrack/internal/domain/publicacao"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PublicacaoPostgres persiste os links públicos de quadro no PostgreSQL.
@@ -16,7 +15,7 @@ type PublicacaoPostgres struct {
 }
 
 // NovoPublicacaoPostgres cria o repositório de publicações sobre o pool informado.
-func NovoPublicacaoPostgres(pool *pgxpool.Pool) *PublicacaoPostgres {
+func NovoPublicacaoPostgres(pool Fonte) *PublicacaoPostgres {
 	return &PublicacaoPostgres{db: pool}
 }
 

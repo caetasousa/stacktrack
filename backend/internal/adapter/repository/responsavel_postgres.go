@@ -8,7 +8,6 @@ import (
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ResponsavelPostgres persiste quem é responsável por cada card.
@@ -17,7 +16,7 @@ type ResponsavelPostgres struct {
 }
 
 // NovoResponsavelPostgres cria o repositório de responsáveis sobre o pool informado.
-func NovoResponsavelPostgres(pool *pgxpool.Pool) *ResponsavelPostgres {
+func NovoResponsavelPostgres(pool Fonte) *ResponsavelPostgres {
 	return &ResponsavelPostgres{db: pool}
 }
 

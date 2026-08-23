@@ -92,21 +92,35 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chave := chaveDeConta("login", req.Email.String())
-	if h.limitadorPorConta.Excedido(w, r, chave) {
+	reserva, permitido := h.limitadorPorConta.Reservar(w, chave)
+	if !permitido {
 		logging.RequisicaoLogger(r).Warn("login bloqueado: teto de tentativas da conta",
-			slog.String("email", req.Email.String()), slog.String("ip", r.RemoteAddr))
+			slog.String("email", usuario.MascararEmail(req.Email.String())),
+			slog.String("ip", r.RemoteAddr))
 		return
+	}
+	if reserva != nil {
+		defer reserva.Cancelar()
 	}
 
 	out, err := h.login.Executar(r.Context(), ucauth.LoginInput{Email: req.Email.String(), Senha: req.Senha})
 	if err != nil {
-		// só o fracasso conta para o teto — quem acerta a senha nunca fica
-		// trancado fora da própria conta por excesso de logins
-		h.limitadorPorConta.Registrar(w, r, chave)
-
 		if errors.Is(err, ucauth.ErrCredenciaisInvalidas) {
+			// So credencial invalida conta. Erro de banco ou do hasher devolve a
+			// reserva: indisponibilidade nao pode trancar a conta depois que o
+			// servico se recuperar.
+			if reserva != nil {
+				reserva.Confirmar(w)
+			}
+			// O email vai MASCARADO. Um log de acesso guardado por trinta dias,
+			// enviado a um agregador e lido por quem opera não pode conter a
+			// lista de quem tem conta aqui — nem, pelas tentativas fracassadas,
+			// a lista de endereços que alguém está testando contra o sistema.
+			// A máscara mantém o que o log serve para responder ("está tendo
+			// brute-force contra a mesma conta?") e descarta o resto.
 			logging.RequisicaoLogger(r).Warn("login recusado",
-				slog.String("email", req.Email.String()), slog.String("ip", r.RemoteAddr))
+				slog.String("email", usuario.MascararEmail(req.Email.String())),
+				slog.String("ip", r.RemoteAddr))
 			responderErro(w, http.StatusUnauthorized, err.Error())
 			return
 		}
@@ -161,5 +175,6 @@ func erroDeValidacaoDoDominio(err error) bool {
 		errors.Is(err, usuario.ErrEmailObrigatorio) ||
 		errors.Is(err, usuario.ErrEmailInvalido) ||
 		errors.Is(err, usuario.ErrSenhaObrigatoria) ||
-		errors.Is(err, usuario.ErrSenhaCurta)
+		errors.Is(err, usuario.ErrSenhaCurta) ||
+		errors.Is(err, usuario.ErrSenhaComum)
 }

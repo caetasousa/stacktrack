@@ -53,7 +53,7 @@ func (a *ambiente) cadastrar(t *testing.T, nome, email, senha string) *ucauth.Se
 func TestCadastroCriaContaEJaAbreSessao(t *testing.T) {
 	a := novoAmbiente()
 
-	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	if out.Token == "" {
 		t.Error("o cadastro devia devolver um token de sessão")
@@ -74,7 +74,7 @@ func TestCadastroCriaContaEJaAbreSessao(t *testing.T) {
 func TestCadastroPersisteApenasOHashDoToken(t *testing.T) {
 	a := novoAmbiente()
 
-	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	if s, _ := a.sessoes.BuscarPorTokenHash(context.Background(), out.Token); s != nil {
 		t.Fatal("a sessão foi encontrada pelo token puro — ele está sendo persistido")
@@ -90,7 +90,7 @@ func TestCadastroPersisteApenasOHashDoToken(t *testing.T) {
 
 func TestCadastroRecusaEmailJaCadastrado(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	_, err := a.cadastro.Executar(context.Background(), ucauth.CadastroInput{
 		Nome: "Outra Ana", Email: "ana@exemplo.com", Senha: "outra-senha-123",
@@ -108,10 +108,10 @@ func TestCadastroRecusaEmailJaCadastrado(t *testing.T) {
 // "Ana@Exemplo.com" no cadastro e "ana@exemplo.com" no login é a mesma pessoa.
 func TestCadastroRecusaMesmoEmailComOutraCaixa(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	_, err := a.cadastro.Executar(context.Background(), ucauth.CadastroInput{
-		Nome: "Ana de novo", Email: "  ANA@Exemplo.COM ", Senha: "senha-boa-123",
+		Nome: "Ana de novo", Email: "  ANA@Exemplo.COM ", Senha: "senha-boa-de-teste-123",
 	})
 
 	if !errors.Is(err, usuario.ErrEmailEmUso) {
@@ -136,9 +136,9 @@ func TestCadastroRecusaSenhaCurtaAntesDeGravar(t *testing.T) {
 
 func TestLoginAceitaCredenciaisCorretas(t *testing.T) {
 	a := novoAmbiente()
-	cadastro := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	cadastro := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
-	out, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-123"})
+	out, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-de-teste-123"})
 	if err != nil {
 		t.Fatalf("login falhou: %v", err)
 	}
@@ -156,16 +156,16 @@ func TestLoginAceitaCredenciaisCorretas(t *testing.T) {
 
 func TestLoginAceitaEmailComOutraCaixa(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
-	if _, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: " Ana@EXEMPLO.com ", Senha: "senha-boa-123"}); err != nil {
+	if _, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: " Ana@EXEMPLO.com ", Senha: "senha-boa-de-teste-123"}); err != nil {
 		t.Errorf("login com email em outra caixa devia funcionar: %v", err)
 	}
 }
 
 func TestLoginRecusaSenhaErrada(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	_, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-errada"})
 
@@ -180,7 +180,7 @@ func TestLoginRecusaSenhaErrada(t *testing.T) {
 // cadastro aqui.
 func TestLoginComEmailInexistenteGastaOMesmoCustoDeVerificacao(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	a.hasher.Chamadas = 0
 	_, errInexistente := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ninguem@exemplo.com", Senha: "chute"})
@@ -207,7 +207,7 @@ func TestLoginPropagaFalhaDeInfraestrutura(t *testing.T) {
 	falha := errors.New("conexão recusada")
 	a.usuarios.ErroForcado = falha
 
-	_, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-123"})
+	_, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-de-teste-123"})
 
 	if !errors.Is(err, falha) {
 		t.Errorf("erro = %v, esperado a falha de infraestrutura", err)
@@ -217,23 +217,47 @@ func TestLoginPropagaFalhaDeInfraestrutura(t *testing.T) {
 	}
 }
 
-func TestLoginVarreSessoesVencidas(t *testing.T) {
+// O LOGIN NÃO VARRE MAIS. O teste é o oposto do que era, e a inversão é
+// deliberada.
+//
+// A varredura oportunista era barata com a tabela pequena e deixa de ser com a
+// tabela grande: vira um DELETE sobre `sessions` inteira no caminho crítico do
+// login, de modo que cada pessoa que entra paga a limpeza de todo mundo — e a
+// conta cresce justamente quando há mais gente usando. Pior, ela roda durante a
+// rajada de logins de uma manhã de segunda-feira, que é quando ninguém pode
+// esperar.
+//
+// Quem limpa agora é o job horário, em lotes, fora de qualquer requisição
+// (internal/usecase/manutencao). A sessão vencida continua sem valer nada — a
+// validação confere a expiração —, ela só não é apagada na hora.
+func TestLoginNaoVarreSessoesVencidas(t *testing.T) {
 	a := novoAmbiente()
-	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 	a.sessoes.Salvar(context.Background(), session.Nova("hash-velho", "outro", -time.Hour))
 
-	if _, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-123"}); err != nil {
+	if _, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-de-teste-123"}); err != nil {
 		t.Fatalf("login falhou: %v", err)
 	}
 
-	if s, _ := a.sessoes.BuscarPorTokenHash(context.Background(), "hash-velho"); s != nil {
-		t.Error("a sessão vencida devia ter sido varrida no login")
+	if s, _ := a.sessoes.BuscarPorTokenHash(context.Background(), "hash-velho"); s == nil {
+		t.Error("o login varreu a tabela de sessões: a limpeza é do job horário")
+	}
+}
+
+// E a sessão vencida continua sem valer nada, que é o que de fato importa: a
+// validação confere a expiração, não a existência da linha.
+func TestSessaoVencidaNaoAutenticaMesmoSemTerSidoApagada(t *testing.T) {
+	a := novoAmbiente()
+	a.sessoes.Salvar(context.Background(), session.Nova("hash-velho", "outro", -time.Hour))
+
+	if _, err := a.validar.Executar(context.Background(), "qualquer-token"); err == nil {
+		t.Error("uma sessão vencida não pode autenticar ninguém")
 	}
 }
 
 func TestValidarSessaoDevolveIdentidade(t *testing.T) {
 	a := novoAmbiente()
-	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	id, err := a.validar.Executar(context.Background(), out.Token)
 	if err != nil {
@@ -266,7 +290,7 @@ func TestValidarSessaoRecusaSessaoVencida(t *testing.T) {
 
 func TestLogoutInvalidaASessaoNoServidor(t *testing.T) {
 	a := novoAmbiente()
-	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	if err := a.logout.Executar(context.Background(), out.Token); err != nil {
 		t.Fatalf("logout falhou: %v", err)
@@ -288,8 +312,8 @@ func TestLogoutDeTokenDesconhecidoNaoEErro(t *testing.T) {
 // Sair de um dispositivo não pode derrubar os outros.
 func TestLogoutNaoDerrubaAsOutrasSessoesDoUsuario(t *testing.T) {
 	a := novoAmbiente()
-	primeira := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
-	segunda, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-123"})
+	primeira := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
+	segunda, err := a.login.Executar(context.Background(), ucauth.LoginInput{Email: "ana@exemplo.com", Senha: "senha-boa-de-teste-123"})
 	if err != nil {
 		t.Fatalf("login falhou: %v", err)
 	}
@@ -305,7 +329,7 @@ func TestLogoutNaoDerrubaAsOutrasSessoesDoUsuario(t *testing.T) {
 
 func TestPerfilDevolveAContaAutenticada(t *testing.T) {
 	a := novoAmbiente()
-	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-123")
+	out := a.cadastrar(t, "Ana", "ana@exemplo.com", "senha-boa-de-teste-123")
 
 	u, err := a.perfil.Executar(context.Background(), out.UsuarioID)
 	if err != nil {

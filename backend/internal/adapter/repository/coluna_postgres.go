@@ -3,12 +3,12 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"stacktrack/internal/domain/coluna"
 	"stacktrack/internal/domain/cor"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ColunaPostgres persiste colunas no PostgreSQL.
@@ -17,7 +17,7 @@ type ColunaPostgres struct {
 }
 
 // NovoColunaPostgres cria o repositório de colunas sobre o pool informado.
-func NovoColunaPostgres(pool *pgxpool.Pool) *ColunaPostgres {
+func NovoColunaPostgres(pool Fonte) *ColunaPostgres {
 	return &ColunaPostgres{db: pool}
 }
 
@@ -33,10 +33,27 @@ func (r *ColunaPostgres) Salvar(ctx context.Context, c *coluna.Coluna) error {
 }
 
 // Atualizar grava as alterações de uma coluna existente.
-func (r *ColunaPostgres) Atualizar(ctx context.Context, c *coluna.Coluna) error {
+// Renomear grava título e cor — os dois campos que a mesma ação altera —, sem
+// tocar na CHAVE de ordenação.
+//
+// Separar é o ponto: com o UPDATE largo, renomear uma coluna regravava a chave
+// lida antes, e uma reordenação que acontecesse nesse meio-tempo era desfeita
+// em silêncio. A coluna voltava sozinha para o lugar antigo, sem erro e sem
+// ninguém entender por quê.
+func (r *ColunaPostgres) Renomear(ctx context.Context, id, titulo string, cores cor.Cor, em time.Time) error {
 	_, err := r.db.Exec(ctx,
-		`UPDATE colunas SET titulo = $2, cor = $3, chave = $4, atualizado_em = $5 WHERE id = $1`,
-		c.ID, c.Titulo, vazioParaNulo(string(c.Cor)), c.Chave, c.AtualizadoEm,
+		`UPDATE colunas SET titulo = $2, cor = $3, atualizado_em = $4 WHERE id = $1`,
+		id, titulo, vazioParaNulo(string(cores)), em,
+	)
+	return err
+}
+
+// DefinirChave grava SÓ a chave de ordenação. É o comando do arraste, e por não
+// tocar em título nem cor ele não desfaz uma renomeação simultânea.
+func (r *ColunaPostgres) DefinirChave(ctx context.Context, id, chave string, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE colunas SET chave = $2, atualizado_em = $3 WHERE id = $1`,
+		id, chave, em,
 	)
 	return err
 }

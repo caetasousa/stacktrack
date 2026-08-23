@@ -8,9 +8,9 @@ import (
 
 // LoginUseCase autentica um usuário e abre uma nova sessão.
 type LoginUseCase struct {
-	usuarios buscadorUsuario
-	sessoes  repositorioSessao
-	hasher   hasherSenha
+	usuarios BuscadorUsuario
+	sessoes  RepositorioSessao
+	hasher   HasherSenha
 	// hashDummy é verificado contra a senha informada quando o email não
 	// existe, para equalizar o tempo de resposta — ver equalizarTempo.
 	hashDummy string
@@ -21,7 +21,7 @@ type LoginUseCase struct {
 // O hash dummy é calculado aqui, no boot, a partir de um valor aleatório: um
 // hash fixo no código pareceria uma credencial esquecida no repositório, e
 // gerá-lo a cada login custaria o mesmo Argon2id que se quer economizar.
-func NovoLoginUseCase(usuarios buscadorUsuario, sessoes repositorioSessao, hasher hasherSenha) *LoginUseCase {
+func NovoLoginUseCase(usuarios BuscadorUsuario, sessoes RepositorioSessao, hasher HasherSenha) *LoginUseCase {
 	uc := &LoginUseCase{usuarios: usuarios, sessoes: sessoes, hasher: hasher}
 	if aleatorio, err := token.Gerar(); err == nil {
 		uc.hashDummy, _ = hasher.Gerar(aleatorio)

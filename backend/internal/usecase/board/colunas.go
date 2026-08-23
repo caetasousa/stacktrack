@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+
 	dcoluna "stacktrack/internal/domain/coluna"
 	dcor "stacktrack/internal/domain/cor"
 	"stacktrack/internal/domain/evento"
@@ -13,11 +14,12 @@ import (
 // ColunaUseCase reúne as operações sobre colunas.
 type ColunaUseCase struct {
 	eventos
+	exclusoes
 	membros RepositorioMembro
 	colunas RepositorioColuna
 	// anexos e armazem existem só para a LIMPEZA do disco ao apagar: o cascata
 	// do schema leva as linhas de anexo junto e não toca no volume.
-	anexos  repositorioAnexo
+	anexos  RepositorioAnexo
 	armazem armazemDeArquivos
 }
 
@@ -25,7 +27,7 @@ type ColunaUseCase struct {
 func NovoColunaUseCase(
 	membros RepositorioMembro,
 	colunas RepositorioColuna,
-	anexos repositorioAnexo,
+	anexos RepositorioAnexo,
 	armazem armazemDeArquivos,
 ) *ColunaUseCase {
 	return &ColunaUseCase{membros: membros, colunas: colunas, anexos: anexos, armazem: armazem}
@@ -37,22 +39,31 @@ func (uc *ColunaUseCase) Criar(ctx context.Context, boardID, usuarioID, titulo s
 		return nil, err
 	}
 
-	ultimaChave, err := uc.colunas.UltimaChave(ctx, boardID)
+	// Assim como no card, só o id nasce fora da transação. A posição é lida e
+	// gravada sob o lock do quadro para que duas criações no mesmo fim não
+	// partam do mesmo estado.
+	colunaID := uuid.NewString()
+	rascunho, err := dcoluna.Nova(colunaID, boardID, titulo, cores, ordem.ChaveInicial)
 	if err != nil {
 		return nil, err
 	}
-	chave, err := ordem.ChaveEntre(ultimaChave, "")
-	if err != nil {
-		return nil, err
-	}
-
-	c, err := dcoluna.Nova(uuid.NewString(), boardID, titulo, cores, chave)
-	if err != nil {
-		return nil, err
-	}
+	var c *dcoluna.Coluna
 	if err := uc.escreverEPublicar(ctx, evento.ColunaCriada, boardID, usuarioID,
-		DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor)},
-		uc.escrita(), func(e Escrita) error { return e.Colunas.Salvar(ctx, c) }); err != nil {
+		DadosDaColuna{ColunaID: colunaID, Titulo: rascunho.Titulo, Cor: string(rascunho.Cor)},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			chave, err := uc.chaveNoFimDoQuadroSobLock(ctx, e, boardID)
+			if err != nil {
+				return erroDeOrdenacaoDaColuna(err)
+			}
+			c, err = dcoluna.Nova(colunaID, boardID, rascunho.Titulo, rascunho.Cor, chave)
+			if err != nil {
+				return err
+			}
+			return e.Colunas.Salvar(ctx, c)
+		}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -72,12 +83,39 @@ func (uc *ColunaUseCase) Renomear(ctx context.Context, colunaID, usuarioID, titu
 	if err := c.DefinirCor(cores); err != nil {
 		return nil, err
 	}
-	dados := DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor)}
+	dados := &DadosDaColuna{ColunaID: c.ID, Titulo: c.Titulo, Cor: string(c.Cor)}
 	if tituloAnterior != c.Titulo {
 		dados.TituloAnterior = tituloAnterior
 	}
 	if err := uc.escreverEPublicar(ctx, evento.ColunaAlterada, c.BoardID, usuarioID, dados,
-		uc.escrita(), func(e Escrita) error { return e.Colunas.Atualizar(ctx, c) }); err != nil {
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, c.BoardID, usuarioID); err != nil {
+				return err
+			}
+			atual, err := e.Colunas.BuscarPorID(ctx, c.ID)
+			if err != nil {
+				return err
+			}
+			if atual == nil || atual.BoardID != c.BoardID {
+				return dcoluna.ErrNaoEncontrada
+			}
+			dados.TituloAnterior = ""
+			if atual.Titulo != c.Titulo {
+				dados.TituloAnterior = atual.Titulo
+			}
+			if err := atual.Renomear(c.Titulo); err != nil {
+				return err
+			}
+			if err := atual.DefinirCor(c.Cor); err != nil {
+				return err
+			}
+			dados.Titulo, dados.Cor = atual.Titulo, string(atual.Cor)
+			if err := e.Colunas.Renomear(ctx, atual.ID, atual.Titulo, atual.Cor, atual.AtualizadoEm); err != nil {
+				return err
+			}
+			c = atual
+			return nil
+		}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -89,18 +127,33 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 	if err != nil {
 		return err
 	}
-	// Antes do DELETE, enquanto os anexos dos cards desta coluna ainda existem.
-	orfaos, err := uc.anexos.CaminhosDeArquivoDaColuna(ctx, colunaID)
-	if err != nil {
-		return err
-	}
-
+	var orfaos []string
+	dados := &DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo, Cor: string(c.Cor)}
 	if err := uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
-		DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo, Cor: string(c.Cor)},
-		uc.escrita(), func(e Escrita) error { return e.Colunas.Apagar(ctx, colunaID) }); err != nil {
+		dados,
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, c.BoardID, usuarioID); err != nil {
+				return err
+			}
+			atual, err := e.Colunas.BuscarPorID(ctx, colunaID)
+			if err != nil {
+				return err
+			}
+			if atual == nil || atual.BoardID != c.BoardID {
+				return dcoluna.ErrNaoEncontrada
+			}
+			dados.Titulo, dados.Cor = atual.Titulo, string(atual.Cor)
+			orfaos, err = e.Anexos.CaminhosDeArquivoDaColuna(ctx, colunaID)
+			if err != nil {
+				return err
+			}
+			if err := registrarExclusaoDeArquivos(ctx, e, c.BoardID, orfaos); err != nil {
+				return err
+			}
+			return e.Colunas.Apagar(ctx, colunaID)
+		}); err != nil {
 		return err
 	}
-	descartarArquivos(ctx, uc.armazem, orfaos)
 	return nil
 }
 

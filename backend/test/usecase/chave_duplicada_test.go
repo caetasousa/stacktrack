@@ -14,6 +14,17 @@ import (
 	ucboard "stacktrack/internal/usecase/board"
 )
 
+func afirmarChavesUnicas(t *testing.T, chaves []string) {
+	t.Helper()
+	vistas := make(map[string]struct{}, len(chaves))
+	for _, chave := range chaves {
+		if _, existe := vistas[chave]; existe {
+			t.Fatalf("chave %q ficou duplicada: %v", chave, chaves)
+		}
+		vistas[chave] = struct{}{}
+	}
+}
+
 // chavesDaColuna devolve as chaves na ordem em que a leitura entrega.
 func chavesDaColuna(t *testing.T, q *quadro, boardID, colunaID string) []string {
 	t.Helper()
@@ -65,13 +76,9 @@ func TestArrastarSeguidamenteNaoRepeteChave(t *testing.T) {
 	}
 }
 
-// A CONCORRÊNCIA DE VERDADE: duas pessoas soltam no mesmo ponto ao mesmo tempo,
-// as duas enxergando os mesmos vizinhos.
-//
-// Aqui a repetição É possível — é uma propriedade conhecida da indexação
-// fracionária, e o sorteio dentro da folga só reduz a chance, não a elimina. O
-// que este teste tranca é a CONSEQUÊNCIA: mesmo empatadas, as duas gravações
-// dão certo, e o quadro continua legível.
+// Duas pessoas podem soltar no mesmo ponto com a mesma visão antiga dos
+// vizinhos. O lock serializa os cálculos e a candidata é conferida contra as
+// chaves em uso, então ambas as gravações passam sem deixar empate.
 func TestDuasSolturasSimultaneasNoMesmoPontoNaoQuebram(t *testing.T) {
 	q := novoQuadro()
 	ana := "u-ana"
@@ -101,6 +108,7 @@ func TestDuasSolturasSimultaneasNoMesmoPontoNaoQuebram(t *testing.T) {
 			t.Error("card ficou sem chave")
 		}
 	}
+	afirmarChavesUnicas(t, chaves)
 }
 
 // E se as duas EMPATAREM, arrastar entre elas não pode virar "erro interno".
@@ -117,4 +125,57 @@ func TestArrastarEntreDuasChavesIguaisRecusaComErroDeDominio(t *testing.T) {
 	if err != ordem.ErrForaDeOrdem {
 		t.Errorf("erro = %v, esperado ErrForaDeOrdem — é ele que o handler traduz em 409", err)
 	}
+}
+
+func TestMoverNaoAceitaCandidataJaEmUso(t *testing.T) {
+	q := novoQuadro()
+	ana := "u-ana"
+	boardID := q.criarQuadro(t, ana, "Estudos")
+	colunaID := q.criarColuna(t, boardID, ana, "A fazer")
+
+	anterior := q.criarCard(t, colunaID, ana, "anterior")
+	ocupante := q.criarCard(t, colunaID, ana, "ocupante")
+	proximo := q.criarCard(t, colunaID, ana, "próximo")
+	movel := q.criarCard(t, colunaID, ana, "móvel")
+	// Entre b e d existe uma única chave de um caractere: c, já ocupada. O
+	// cálculo antigo aceitava a candidata sem conferir e criava duplicidade.
+	for id, chave := range map[string]string{anterior: "b", ocupante: "c", proximo: "d", movel: "f"} {
+		card, _ := q.cards.BuscarPorID(context.Background(), id)
+		card.Chave = chave
+		if err := q.cards.Salvar(context.Background(), card); err != nil {
+			t.Fatalf("preparar chave: %v", err)
+		}
+	}
+
+	if _, err := q.card.Mover(context.Background(), movel, ana, colunaID,
+		ucboard.Vizinhos{AnteriorID: anterior, ProximoID: proximo}); err != nil {
+		t.Fatalf("mover: %v", err)
+	}
+	afirmarChavesUnicas(t, chavesDaColuna(t, q, boardID, colunaID))
+}
+
+func TestMoverRecarregaVersaoDepoisDeRebalancear(t *testing.T) {
+	q := novoQuadro()
+	ana := "u-ana"
+	boardID := q.criarQuadro(t, ana, "Estudos")
+	colunaID := q.criarColuna(t, boardID, ana, "A fazer")
+
+	primeiro := q.criarCard(t, colunaID, ana, "primeiro")
+	segundo := q.criarCard(t, colunaID, ana, "segundo")
+	movel := q.criarCard(t, colunaID, ana, "móvel")
+	// A duplicidade força o rebalanceamento, que incrementa também a versão do
+	// card móvel. Usar o agregado anterior à transação conflitaria consigo
+	// mesmo no UPDATE otimista e desfaria o reparo.
+	for _, id := range []string{primeiro, segundo} {
+		card, _ := q.cards.BuscarPorID(context.Background(), id)
+		card.Chave = "m"
+		if err := q.cards.Salvar(context.Background(), card); err != nil {
+			t.Fatalf("preparar duplicidade: %v", err)
+		}
+	}
+
+	if _, err := q.card.Mover(context.Background(), movel, ana, colunaID, ucboard.Vizinhos{}); err != nil {
+		t.Fatalf("o reparo não devia conflitar com a própria versão: %v", err)
+	}
+	afirmarChavesUnicas(t, chavesDaColuna(t, q, boardID, colunaID))
 }

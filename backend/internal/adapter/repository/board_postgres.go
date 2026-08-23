@@ -3,13 +3,13 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/membro"
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // BoardPostgres persiste quadros no PostgreSQL.
@@ -18,7 +18,7 @@ type BoardPostgres struct {
 }
 
 // NovoBoardPostgres cria o repositório de quadros sobre o pool informado.
-func NovoBoardPostgres(pool *pgxpool.Pool) *BoardPostgres {
+func NovoBoardPostgres(pool Fonte) *BoardPostgres {
 	return &BoardPostgres{db: pool}
 }
 
@@ -32,11 +32,31 @@ func (r *BoardPostgres) Salvar(ctx context.Context, b *board.Board) error {
 	return err
 }
 
-// Atualizar grava as alterações de um quadro existente.
-func (r *BoardPostgres) Atualizar(ctx context.Context, b *board.Board) error {
+// Renomear grava SÓ o título.
+//
+// Comando estreito, e não um `Atualizar` que grava o agregado inteiro. A
+// diferença aparece na concorrência: com o UPDATE largo, quem renomeia o quadro
+// grava também o fundo que leu há dez segundos, desfazendo em silêncio a troca
+// de fundo que outra pessoa fez nesse meio-tempo. Nenhum erro, nenhum conflito
+// — a mudança some.
+//
+// Escrever só a coluna que mudou faz duas edições de campos DIFERENTES
+// conviverem sem se atropelar, que é o comportamento que a pessoa espera. Duas
+// edições do MESMO campo continuam sendo "a última vence", e aí a última
+// realmente é a última.
+func (r *BoardPostgres) Renomear(ctx context.Context, id, titulo string, em time.Time) error {
 	_, err := r.db.Exec(ctx,
-		`UPDATE boards SET titulo = $2, fundo = $3, atualizado_em = $4 WHERE id = $1`,
-		b.ID, b.Titulo, vazioParaNulo(b.Fundo), b.AtualizadoEm,
+		`UPDATE boards SET titulo = $2, atualizado_em = $3 WHERE id = $1`,
+		id, titulo, em,
+	)
+	return err
+}
+
+// DefinirFundo grava SÓ o fundo. Ver Renomear para o porquê de ser estreito.
+func (r *BoardPostgres) DefinirFundo(ctx context.Context, id, fundo string, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE boards SET fundo = $2, atualizado_em = $3 WHERE id = $1`,
+		id, vazioParaNulo(fundo), em,
 	)
 	return err
 }
@@ -45,9 +65,10 @@ func (r *BoardPostgres) Atualizar(ctx context.Context, b *board.Board) error {
 func (r *BoardPostgres) BuscarPorID(ctx context.Context, id string) (*board.Board, error) {
 	var b board.Board
 	var fundo *string
+	var revisao *int64
 	err := r.db.QueryRow(ctx,
-		`SELECT id, titulo, fundo, criado_em, atualizado_em FROM boards WHERE id = $1`, id,
-	).Scan(&b.ID, &b.Titulo, &fundo, &b.CriadoEm, &b.AtualizadoEm)
+		`SELECT id, titulo, fundo, criado_em, atualizado_em, revisao FROM boards WHERE id = $1`, id,
+	).Scan(&b.ID, &b.Titulo, &fundo, &b.CriadoEm, &b.AtualizadoEm, &revisao)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -55,6 +76,12 @@ func (r *BoardPostgres) BuscarPorID(ctx context.Context, id string) (*board.Boar
 		return nil, err
 	}
 	b.Fundo = valorOuVazio(fundo)
+	// NULL é quadro anterior à migration da revisão, ou quadro sem mutação
+	// nenhuma. Zero é a leitura certa dos dois — e é a mesma que o COALESCE do
+	// incremento usa.
+	if revisao != nil {
+		b.Revisao = *revisao
+	}
 	return &b, nil
 }
 
@@ -104,7 +131,7 @@ type MembroPostgres struct {
 }
 
 // NovoMembroPostgres cria o repositório de vínculos sobre o pool informado.
-func NovoMembroPostgres(pool *pgxpool.Pool) *MembroPostgres {
+func NovoMembroPostgres(pool Fonte) *MembroPostgres {
 	return &MembroPostgres{db: pool}
 }
 

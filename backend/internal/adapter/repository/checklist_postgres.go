@@ -3,12 +3,12 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"stacktrack/internal/domain/checklist"
 	ucboard "stacktrack/internal/usecase/board"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ChecklistPostgres persiste checklists e os itens delas.
@@ -17,7 +17,7 @@ type ChecklistPostgres struct {
 }
 
 // NovoChecklistPostgres cria o repositório de checklists sobre o pool informado.
-func NovoChecklistPostgres(pool *pgxpool.Pool) *ChecklistPostgres {
+func NovoChecklistPostgres(pool Fonte) *ChecklistPostgres {
 	return &ChecklistPostgres{db: pool}
 }
 
@@ -103,11 +103,26 @@ func (r *ChecklistPostgres) SalvarItem(ctx context.Context, i *checklist.Item) e
 }
 
 // AtualizarItem grava texto e marcação de uma linha existente.
-func (r *ChecklistPostgres) AtualizarItem(ctx context.Context, i *checklist.Item) error {
+// EditarItem grava SÓ o texto.
+//
+// Estreito porque marcar a caixa e reescrever o texto são ações independentes
+// que duas pessoas fazem ao mesmo tempo o tempo todo — é o caso mais comum de
+// concorrência num checklist. Com o UPDATE largo, quem renomeia o item regrava
+// o `concluido` que leu antes e DESMARCA a caixa que a outra pessoa acabou de
+// marcar.
+func (r *ChecklistPostgres) EditarItem(ctx context.Context, id, texto string, em time.Time) error {
 	_, err := r.db.Exec(ctx,
-		`UPDATE checklist_itens SET texto = $2, concluido = $3, posicao = $4, atualizado_em = $5
-		 WHERE id = $1`,
-		i.ID, i.Texto, i.Concluido, i.Posicao, i.AtualizadoEm,
+		`UPDATE checklist_itens SET texto = $2, atualizado_em = $3 WHERE id = $1`,
+		id, texto, em,
+	)
+	return err
+}
+
+// MarcarItem grava SÓ a conclusão. Ver EditarItem.
+func (r *ChecklistPostgres) MarcarItem(ctx context.Context, id string, concluido bool, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE checklist_itens SET concluido = $2, atualizado_em = $3 WHERE id = $1`,
+		id, concluido, em,
 	)
 	return err
 }

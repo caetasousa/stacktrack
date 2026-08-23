@@ -3,10 +3,12 @@ package memoria
 import (
 	"context"
 	"sort"
+	"time"
 
 	"stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/coluna"
+	"stacktrack/internal/domain/cor"
 	"stacktrack/internal/domain/membro"
 	ucboard "stacktrack/internal/usecase/board"
 )
@@ -43,8 +45,33 @@ func (r *Boards) Salvar(ctx context.Context, b *board.Board) error {
 	return nil
 }
 
-func (r *Boards) Atualizar(ctx context.Context, b *board.Board) error {
-	return r.Salvar(ctx, b)
+// Renomear e DefinirFundo escrevem CAMPO A CAMPO, como o SQL estreito faz.
+//
+// Regravar o agregado inteiro aqui esconderia justamente o defeito que os
+// comandos estreitos existem para corrigir: o teste de "renomear não desfaz a
+// troca de fundo" passaria em memória e reprovaria no Postgres.
+func (r *Boards) Renomear(ctx context.Context, id, titulo string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	b, ok := r.porID[id]
+	if !ok {
+		return nil
+	}
+	b.Titulo, b.AtualizadoEm = titulo, em
+	return nil
+}
+
+func (r *Boards) DefinirFundo(ctx context.Context, id, fundo string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	b, ok := r.porID[id]
+	if !ok {
+		return nil
+	}
+	b.Fundo, b.AtualizadoEm = fundo, em
+	return nil
 }
 
 func (r *Boards) BuscarPorID(ctx context.Context, id string) (*board.Board, error) {
@@ -212,8 +239,37 @@ func (r *Colunas) Salvar(ctx context.Context, c *coluna.Coluna) error {
 	return nil
 }
 
-func (r *Colunas) Atualizar(ctx context.Context, c *coluna.Coluna) error {
-	return r.Salvar(ctx, c)
+// Renomear e DefinirChave escrevem campo a campo, como o SQL estreito. Ver
+// Boards.Renomear.
+func (r *Colunas) Renomear(ctx context.Context, id, titulo string, cores cor.Cor, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	c, ok := r.porID[id]
+	if !ok {
+		return nil
+	}
+	c.Titulo, c.Cor, c.AtualizadoEm = titulo, cores, em
+	return nil
+}
+
+// ForcarChave grava a chave direto — ver Cards.ForcarChave.
+func (r *Colunas) ForcarChave(colunaID, chave string) {
+	if c, ok := r.porID[colunaID]; ok {
+		c.Chave = chave
+	}
+}
+
+func (r *Colunas) DefinirChave(ctx context.Context, id, chave string, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	c, ok := r.porID[id]
+	if !ok {
+		return nil
+	}
+	c.Chave, c.AtualizadoEm = chave, em
+	return nil
 }
 
 func (r *Colunas) BuscarPorID(ctx context.Context, id string) (*coluna.Coluna, error) {
@@ -312,6 +368,33 @@ func (r *Cards) ListarDoBoard(ctx context.Context, boardID string) ([]card.Card,
 	for _, c := range r.porID {
 		col, ok := r.colunas.porID[c.ColunaID]
 		if ok && col.BoardID == boardID {
+			lista = append(lista, *c)
+		}
+	}
+	ordenarPorChave(lista, func(c card.Card) (string, string) { return c.Chave, c.ID })
+	return lista, nil
+}
+
+// ForcarChave grava uma chave direto, sem passar pelo domínio.
+//
+// Existe só para os testes montarem duplicidade HERDADA — o estado que a versão
+// anterior da aplicação conseguia gravar e que o comando de reparo precisa
+// consertar. Pelo caminho normal isso é impossível de produzir de propósito, e
+// é justamente por ser impossível que o teste precisa de uma porta dos fundos.
+func (r *Cards) ForcarChave(cardID, chave string) {
+	if c, ok := r.porID[cardID]; ok {
+		c.Chave = chave
+	}
+}
+
+// ListarDaColuna devolve os cards de uma coluna, em ordem de chave.
+func (r *Cards) ListarDaColuna(ctx context.Context, colunaID string) ([]card.Card, error) {
+	if r.ErroForcado != nil {
+		return nil, r.ErroForcado
+	}
+	lista := make([]card.Card, 0)
+	for _, c := range r.porID {
+		if c.ColunaID == colunaID {
 			lista = append(lista, *c)
 		}
 	}

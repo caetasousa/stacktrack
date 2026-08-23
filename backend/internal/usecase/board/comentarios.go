@@ -53,10 +53,16 @@ func (uc *ComentarioUseCase) Criar(ctx context.Context, cardID, usuarioID, texto
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.comentarios.Salvar(ctx, c); err != nil {
+	if err := uc.escreverEPublicarNoCard(ctx, evento.ComentarioCriado, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID)},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAcesso(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Comentarios.Salvar(ctx, c)
+		}); err != nil {
 		return nil, err
 	}
-	uc.publicarNoCard(ctx, evento.ComentarioCriado, boardID, cardID, usuarioID, DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID)})
 	return c, nil
 }
 
@@ -75,14 +81,20 @@ func (uc *ComentarioUseCase) Editar(ctx context.Context, comentarioID, usuarioID
 	if err := c.Editar(texto); err != nil {
 		return nil, err
 	}
-	if err := uc.comentarios.Atualizar(ctx, c); err != nil {
-		return nil, err
-	}
 	// Editar e apagar NÃO entram no histórico do card: quem lê o histórico quer
 	// saber o que aconteceu com o trabalho, e a conversa já está logo acima, com
 	// a marca de "editado" em cada mensagem. O evento continua saindo ao vivo,
 	// para a tela de quem está junto recarregar.
-	uc.publicarNoCard(ctx, evento.ComentarioEditado, boardID, c.CardID, usuarioID, DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)})
+	if err := uc.escreverEPublicarNoCard(ctx, evento.ComentarioEditado, boardID, c.CardID, usuarioID,
+		DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAcesso(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Comentarios.Atualizar(ctx, c)
+		}); err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
@@ -94,16 +106,26 @@ func (uc *ComentarioUseCase) Apagar(ctx context.Context, comentarioID, usuarioID
 		return err
 	}
 
-	if !c.EhAutor(usuarioID) {
+	ehAutor := c.EhAutor(usuarioID)
+	if !ehAutor {
 		if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 			return err
 		}
 	}
-	if err := uc.comentarios.Apagar(ctx, comentarioID); err != nil {
-		return err
-	}
-	uc.publicarNoCard(ctx, evento.ComentarioApagado, boardID, c.CardID, usuarioID, DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)})
-	return nil
+	return uc.escreverEPublicarNoCard(ctx, evento.ComentarioApagado, boardID, c.CardID, usuarioID,
+		DadosDoCard{CardID: c.CardID, Titulo: tituloDoCard(ctx, uc.cards, c.CardID)},
+		uc.escrita(), func(e Escrita) error {
+			var err error
+			if ehAutor {
+				err = revalidarAcesso(ctx, e, boardID, usuarioID)
+			} else {
+				err = revalidarAdministracao(ctx, e, boardID, usuarioID)
+			}
+			if err != nil {
+				return err
+			}
+			return e.Comentarios.Apagar(ctx, comentarioID)
+		})
 }
 
 // carregar busca o comentário e confere que quem pede participa do quadro dele.

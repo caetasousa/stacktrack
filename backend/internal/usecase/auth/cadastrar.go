@@ -9,14 +9,23 @@ import (
 
 // CadastrarUseCase cria uma conta nova e já abre a sessão dela.
 type CadastrarUseCase struct {
-	usuarios repositorioUsuario
-	sessoes  repositorioSessao
-	hasher   hasherSenha
+	usuarios RepositorioUsuario
+	sessoes  RepositorioSessao
+	hasher   HasherSenha
+	unidade  UnidadeDeAutenticacao
 }
 
 // NovoCadastrarUseCase cria uma instância de CadastrarUseCase com as dependências injetadas.
-func NovoCadastrarUseCase(usuarios repositorioUsuario, sessoes repositorioSessao, hasher hasherSenha) *CadastrarUseCase {
+func NovoCadastrarUseCase(usuarios RepositorioUsuario, sessoes RepositorioSessao, hasher HasherSenha) *CadastrarUseCase {
 	return &CadastrarUseCase{usuarios: usuarios, sessoes: sessoes, hasher: hasher}
+}
+
+// ComUnidadeDeTrabalho liga a transação que grava conta e sessão juntas.
+//
+// Sem ela, o usecase continua funcionando com as duas escritas em sequência —
+// que é o que os testes de regra querem, já que não há banco nenhum ali.
+func (uc *CadastrarUseCase) ComUnidadeDeTrabalho(u UnidadeDeAutenticacao) {
+	uc.unidade = u
 }
 
 // Executar valida os dados, verifica duplicidade de email, persiste a conta e
@@ -51,9 +60,32 @@ func (uc *CadastrarUseCase) Executar(ctx context.Context, input CadastroInput) (
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.usuarios.Salvar(ctx, u); err != nil {
+
+	s, t, err := novaSessao(u)
+	if err != nil {
 		return nil, err
 	}
 
-	return abrirSessao(ctx, uc.sessoes, u)
+	// Conta e sessão no MESMO commit. A checagem de email acima é conveniência
+	// para dar uma mensagem boa; quem de fato decide a duplicidade é o UNIQUE do
+	// banco, e entre a consulta e o INSERT cabe outro cadastro igual.
+	//
+	// Sem a unidade ligada (testes de regra), as duas escritas acontecem em
+	// sequência — o comportamento anterior, preservado de propósito para que os
+	// testes de domínio não precisem de transação.
+	gravar := func(e EscritaDeAuth) error {
+		if err := e.Usuarios.Salvar(ctx, u); err != nil {
+			return err
+		}
+		return e.Sessoes.Salvar(ctx, s)
+	}
+	if uc.unidade != nil {
+		if err := uc.unidade.Executar(ctx, gravar); err != nil {
+			return nil, err
+		}
+	} else if err := gravar(EscritaDeAuth{Usuarios: uc.usuarios, Sessoes: uc.sessoes}); err != nil {
+		return nil, err
+	}
+
+	return sessaoAberta(s, t, u), nil
 }

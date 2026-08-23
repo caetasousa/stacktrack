@@ -10,11 +10,11 @@ import (
 // ValidarSessaoUseCase valida um token de sessão e devolve a identidade do
 // usuário autenticado.
 type ValidarSessaoUseCase struct {
-	sessoes repositorioSessao
+	sessoes RepositorioSessao
 }
 
 // NovoValidarSessaoUseCase cria uma instância de ValidarSessaoUseCase com as dependências injetadas.
-func NovoValidarSessaoUseCase(sessoes repositorioSessao) *ValidarSessaoUseCase {
+func NovoValidarSessaoUseCase(sessoes RepositorioSessao) *ValidarSessaoUseCase {
 	return &ValidarSessaoUseCase{sessoes: sessoes}
 }
 

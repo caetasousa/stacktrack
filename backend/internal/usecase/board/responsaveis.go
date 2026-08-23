@@ -59,12 +59,28 @@ func (uc *ResponsavelUseCase) Atribuir(ctx context.Context, cardID, alvoID, usua
 	if err != nil {
 		return err
 	}
-	if err := uc.responsaveis.Atribuir(ctx, cardID, alvoID); err != nil {
-		return err
-	}
-	uc.publicarNoCard(ctx, evento.ResponsavelAtribuido, boardID, cardID, usuarioID,
-		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: uc.nomeDe(ctx, cardID, alvoID)})
-	return nil
+	// O nome do alvo é resolvido pela lista de MEMBROS, e não pela lista de
+	// responsáveis do card: no instante do payload a atribuição ainda não
+	// aconteceu (ela acontece dentro da transação, logo abaixo), então buscá-la
+	// ali devolveria vazio e o evento sairia sem dizer quem foi atribuído.
+	return uc.escreverEPublicarNoCard(ctx, evento.ResponsavelAtribuido, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: uc.nomeNoQuadro(ctx, boardID, alvoID)},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			// A pessoa pode sair do quadro entre a validação acima e a aquisição do
+			// lock. Revalidar com o repositório da transação faz a atribuição e a
+			// participação observarem o mesmo estado serializado.
+			vinculo, err := e.Membros.Buscar(ctx, boardID, alvoID)
+			if err != nil {
+				return err
+			}
+			if vinculo == nil {
+				return dmembro.ErrNaoEMembro
+			}
+			return e.Responsaveis.Atribuir(ctx, cardID, alvoID)
+		})
 }
 
 // Desatribuir tira a pessoa da responsabilidade do card. Exige papel de edição.
@@ -76,12 +92,14 @@ func (uc *ResponsavelUseCase) Desatribuir(ctx context.Context, cardID, alvoID, u
 	// O nome é resolvido ANTES da remoção: depois dela a pessoa já não está na
 	// lista do card, e o evento sairia sem dizer quem saiu.
 	nome := uc.nomeDe(ctx, cardID, alvoID)
-	if err := uc.responsaveis.Remover(ctx, cardID, alvoID); err != nil {
-		return err
-	}
-	uc.publicarNoCard(ctx, evento.ResponsavelRemovido, boardID, cardID, usuarioID,
-		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: nome})
-	return nil
+	return uc.escreverEPublicarNoCard(ctx, evento.ResponsavelRemovido, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: nome},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Responsaveis.Remover(ctx, cardID, alvoID)
+		})
 }
 
 // nomeDe resolve o nome de quem responde pelo card, para o payload do evento.
@@ -97,6 +115,24 @@ func (uc *ResponsavelUseCase) nomeDe(ctx context.Context, cardID, alvoID string)
 	for _, r := range lista {
 		if r.UsuarioID == alvoID {
 			return r.Nome
+		}
+	}
+	return ""
+}
+
+// nomeNoQuadro resolve o nome de quem PARTICIPA do quadro, para o payload de um
+// evento gravado ANTES de a atribuição existir.
+//
+// Falha ou ausência viram string vazia: a frase encolhe, e o evento continua
+// existindo — a mesma decisão de nomeDe e de tituloDoCard.
+func (uc *ResponsavelUseCase) nomeNoQuadro(ctx context.Context, boardID, alvoID string) string {
+	participantes, err := uc.membros.Participantes(ctx, boardID)
+	if err != nil {
+		return ""
+	}
+	for _, p := range participantes {
+		if p.UsuarioID == alvoID {
+			return p.Nome
 		}
 	}
 	return ""

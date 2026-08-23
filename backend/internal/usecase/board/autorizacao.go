@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+
 	dboard "stacktrack/internal/domain/board"
 	"stacktrack/internal/domain/membro"
 )
@@ -48,4 +49,24 @@ func acessoDeAdministracao(ctx context.Context, membros RepositorioMembro, board
 		return nil, membro.ErrSemPermissao
 	}
 	return m, nil
+}
+
+// revalidar* executam a autorização com os repositórios DA unidade de
+// trabalho. A checagem inicial continua útil para recusar cedo, mas não é uma
+// garantia: a pessoa pode ser removida ou rebaixada enquanto espera o lock do
+// quadro. Só esta segunda leitura observa o mesmo estado serializado que a
+// mutação.
+func revalidarAcesso(ctx context.Context, e Escrita, boardID, usuarioID string) error {
+	_, err := acesso(ctx, e.Membros, boardID, usuarioID)
+	return err
+}
+
+func revalidarEdicao(ctx context.Context, e Escrita, boardID, usuarioID string) error {
+	_, err := acessoDeEdicao(ctx, e.Membros, boardID, usuarioID)
+	return err
+}
+
+func revalidarAdministracao(ctx context.Context, e Escrita, boardID, usuarioID string) error {
+	_, err := acessoDeAdministracao(ctx, e.Membros, boardID, usuarioID)
+	return err
 }

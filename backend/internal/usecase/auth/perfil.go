@@ -7,11 +7,11 @@ import (
 
 // PerfilUseCase devolve os dados da conta autenticada.
 type PerfilUseCase struct {
-	usuarios buscadorUsuario
+	usuarios BuscadorUsuario
 }
 
 // NovoPerfilUseCase cria uma instância de PerfilUseCase com as dependências injetadas.
-func NovoPerfilUseCase(usuarios buscadorUsuario) *PerfilUseCase {
+func NovoPerfilUseCase(usuarios BuscadorUsuario) *PerfilUseCase {
 	return &PerfilUseCase{usuarios: usuarios}
 }
 

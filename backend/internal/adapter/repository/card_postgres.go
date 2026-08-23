@@ -8,7 +8,6 @@ import (
 	"stacktrack/internal/domain/cor"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // CardPostgres persiste cards no PostgreSQL.
@@ -17,7 +16,7 @@ type CardPostgres struct {
 }
 
 // NovoCardPostgres cria o repositório de cards sobre o pool informado.
-func NovoCardPostgres(pool *pgxpool.Pool) *CardPostgres {
+func NovoCardPostgres(pool Fonte) *CardPostgres {
 	return &CardPostgres{db: pool}
 }
 
@@ -92,6 +91,40 @@ func (r *CardPostgres) ListarDoBoard(ctx context.Context, boardID string) ([]car
 		 JOIN colunas col ON col.id = c.coluna_id
 		 WHERE col.board_id = $1
 		 ORDER BY c.chave COLLATE "C", c.id`, boardID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	cards := make([]card.Card, 0)
+	for linhas.Next() {
+		var c card.Card
+		var corLida *string
+		if err := linhas.Scan(&c.ID, &c.ColunaID, &c.Titulo, &c.Descricao, &corLida, &c.Chave, &c.Version, &c.Prazo, &c.CriadoEm, &c.AtualizadoEm); err != nil {
+			return nil, err
+		}
+		c.Cor = cor.Cor(valorOuVazio(corLida))
+		cards = append(cards, c)
+	}
+	return cards, linhas.Err()
+}
+
+// ListarDaColuna devolve os cards de UMA coluna, em ordem de chave.
+//
+// Existe para o rebalanceamento, que precisa das chaves em uso naquele
+// contêiner e nada além. Filtrar ListarDoBoard em memória serviria, e seria
+// carregar o quadro inteiro — mil cards — para reescrever vinte.
+//
+// A ordenação repete o COLLATE "C" de ListarDoBoard de propósito: a chave é
+// comparada byte a byte pelo domínio, e uma collation que ignore caixa
+// devolveria uma ordem diferente da que o domínio assume.
+func (r *CardPostgres) ListarDaColuna(ctx context.Context, colunaID string) ([]card.Card, error) {
+	linhas, err := r.db.Query(ctx,
+		`SELECT id, coluna_id, titulo, descricao, cor, chave, version, prazo, criado_em, atualizado_em
+		 FROM cards
+		 WHERE coluna_id = $1
+		 ORDER BY chave COLLATE "C", id`, colunaID,
 	)
 	if err != nil {
 		return nil, err

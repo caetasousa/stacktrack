@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+
 	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/ordem"
@@ -15,7 +16,7 @@ type EtiquetaUseCase struct {
 	membros   RepositorioMembro
 	colunas   RepositorioColuna
 	cards     RepositorioCard
-	etiquetas repositorioEtiqueta
+	etiquetas RepositorioEtiqueta
 }
 
 // NovoEtiquetaUseCase cria uma instância de EtiquetaUseCase com as dependências injetadas.
@@ -23,7 +24,7 @@ func NovoEtiquetaUseCase(
 	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
-	etiquetas repositorioEtiqueta,
+	etiquetas RepositorioEtiqueta,
 ) *EtiquetaUseCase {
 	return &EtiquetaUseCase{membros: membros, colunas: colunas, cards: cards, etiquetas: etiquetas}
 }
@@ -52,11 +53,16 @@ func (uc *EtiquetaUseCase) Criar(ctx context.Context, boardID, usuarioID, nome s
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.etiquetas.Salvar(ctx, e); err != nil {
+	if err := uc.escreverEPublicar(ctx, evento.EtiquetaCriada, boardID, usuarioID,
+		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)},
+		uc.escrita(), func(esc Escrita) error {
+			if err := revalidarEdicao(ctx, esc, boardID, usuarioID); err != nil {
+				return err
+			}
+			return esc.Etiquetas.Salvar(ctx, e)
+		}); err != nil {
 		return nil, err
 	}
-	uc.publicar(ctx, evento.EtiquetaCriada, boardID, usuarioID,
-		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)})
 	return e, nil
 }
 
@@ -70,14 +76,19 @@ func (uc *EtiquetaUseCase) Editar(ctx context.Context, etiquetaID, usuarioID, no
 	if err := e.Editar(nome, cor); err != nil {
 		return nil, err
 	}
-	if err := uc.etiquetas.Atualizar(ctx, e); err != nil {
-		return nil, err
-	}
 	dados := DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)}
 	if nomeAnterior != e.Nome {
 		dados.NomeAnterior = nomeAnterior
 	}
-	uc.publicar(ctx, evento.EtiquetaAlterada, e.BoardID, usuarioID, dados)
+	if err := uc.escreverEPublicar(ctx, evento.EtiquetaAlterada, e.BoardID, usuarioID, dados,
+		uc.escrita(), func(esc Escrita) error {
+			if err := revalidarEdicao(ctx, esc, e.BoardID, usuarioID); err != nil {
+				return err
+			}
+			return esc.Etiquetas.Atualizar(ctx, e)
+		}); err != nil {
+		return nil, err
+	}
 	return e, nil
 }
 
@@ -88,12 +99,14 @@ func (uc *EtiquetaUseCase) Apagar(ctx context.Context, etiquetaID, usuarioID str
 	if err != nil {
 		return err
 	}
-	if err := uc.etiquetas.Apagar(ctx, etiquetaID); err != nil {
-		return err
-	}
-	uc.publicar(ctx, evento.EtiquetaApagada, e.BoardID, usuarioID,
-		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)})
-	return nil
+	return uc.escreverEPublicar(ctx, evento.EtiquetaApagada, e.BoardID, usuarioID,
+		DadosDaEtiqueta{Nome: e.Nome, Cor: string(e.Cor)},
+		uc.escrita(), func(esc Escrita) error {
+			if err := revalidarEdicao(ctx, esc, e.BoardID, usuarioID); err != nil {
+				return err
+			}
+			return esc.Etiquetas.Apagar(ctx, etiquetaID)
+		})
 }
 
 // Aplicar pendura a etiqueta no card. Aplicar duas vezes não é erro: a chave
@@ -103,11 +116,8 @@ func (uc *EtiquetaUseCase) Aplicar(ctx context.Context, cardID, etiquetaID, usua
 	if err := uc.conferirMesmoQuadro(ctx, cardID, etiquetaID, usuarioID); err != nil {
 		return err
 	}
-	if err := uc.etiquetas.Aplicar(ctx, cardID, etiquetaID); err != nil {
-		return err
-	}
-	uc.publicarDoCard(ctx, evento.EtiquetaAplicada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID))
-	return nil
+	return uc.escreverDoCard(ctx, evento.EtiquetaAplicada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID),
+		func(esc Escrita) error { return esc.Etiquetas.Aplicar(ctx, cardID, etiquetaID) })
 }
 
 // Remover tira a etiqueta do card, sem apagá-la do quadro.
@@ -115,16 +125,10 @@ func (uc *EtiquetaUseCase) Remover(ctx context.Context, cardID, etiquetaID, usua
 	if err := uc.conferirMesmoQuadro(ctx, cardID, etiquetaID, usuarioID); err != nil {
 		return err
 	}
-	if err := uc.etiquetas.Remover(ctx, cardID, etiquetaID); err != nil {
-		return err
-	}
-	uc.publicarDoCard(ctx, evento.EtiquetaRetirada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID))
-	return nil
+	return uc.escreverDoCard(ctx, evento.EtiquetaRetirada, cardID, usuarioID, uc.nomeDaEtiqueta(ctx, etiquetaID),
+		func(esc Escrita) error { return esc.Etiquetas.Remover(ctx, cardID, etiquetaID) })
 }
 
-// publicarDoCard resolve o quadro a partir do card e avisa a sala. Falha aqui
-// não desfaz a escrita nem vira erro para quem chamou: o dado já mudou, e o
-// pior que acontece é a outra aba levar um F5 para ver.
 // nomeDaEtiqueta resolve o nome para o payload do evento.
 //
 // O NOME, e não o id: o log registra o que era verdade na hora, e uma etiqueta
@@ -140,17 +144,34 @@ func (uc *EtiquetaUseCase) nomeDaEtiqueta(ctx context.Context, etiquetaID string
 	return e.Nome
 }
 
-func (uc *EtiquetaUseCase) publicarDoCard(ctx context.Context, tipo evento.Tipo, cardID, usuarioID, etiqueta string) {
+// escreverDoCard resolve o quadro a partir do card e grava mudança e evento no
+// mesmo commit.
+//
+// A resolução do quadro PROPAGA erro. Antes ela era um `return` mudo — o evento
+// simplesmente não saía — e o efeito era pior do que parece: a escrita já tinha
+// acontecido, então o quadro mudava sem nada no log e sem ninguém ser avisado.
+// Como esta função agora envolve a escrita, falhar aqui é falhar antes de
+// gravar, que é o comportamento correto.
+func (uc *EtiquetaUseCase) escreverDoCard(
+	ctx context.Context, tipo evento.Tipo, cardID, usuarioID, etiqueta string,
+	mudanca func(Escrita) error,
+) error {
 	boardID, err := uc.boardDoCard(ctx, cardID)
 	if err != nil {
-		return
+		return err
 	}
 	titulo := ""
 	if c, err := uc.cards.BuscarPorID(ctx, cardID); err == nil && c != nil {
 		titulo = c.Titulo
 	}
-	uc.publicarNoCard(ctx, tipo, boardID, cardID, usuarioID,
-		DadosDoCard{CardID: cardID, Titulo: titulo, Alvo: etiqueta})
+	return uc.escreverEPublicarNoCard(ctx, tipo, boardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: titulo, Alvo: etiqueta},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return mudanca(e)
+		})
 }
 
 // conferirMesmoQuadro é a checagem que impede pendurar num card a etiqueta de

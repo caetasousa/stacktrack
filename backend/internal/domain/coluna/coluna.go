@@ -14,6 +14,14 @@ import (
 // pergunta não participa do quadro dela.
 var ErrNaoEncontrada = errors.New("coluna não encontrada")
 
+// ErrConflito é devolvido quando a reordenação não conseguiu uma chave livre
+// nem depois de redistribuir as chaves do quadro.
+//
+// É conflito, e não erro interno: quem chamou pediu algo legítimo e o estado
+// mudou embaixo dele. A ação certa é recarregar e arrastar de novo, e é isso
+// que um 409 comunica.
+var ErrConflito = errors.New("a ordem das colunas mudou; recarregue e tente de novo")
+
 // Coluna é uma etapa do fluxo dentro de um quadro.
 type Coluna struct {
 	ID      string

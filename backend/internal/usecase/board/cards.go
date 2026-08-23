@@ -21,32 +21,39 @@ import (
 // CardUseCase reúne as operações sobre cards.
 type CardUseCase struct {
 	eventos
+	exclusoes
+	boards       RepositorioBoard
 	membros      RepositorioMembro
 	colunas      RepositorioColuna
 	cards        RepositorioCard
-	etiquetas    repositorioEtiqueta
-	checklists   repositorioChecklist
-	anexos       repositorioAnexo
+	etiquetas    RepositorioEtiqueta
+	checklists   RepositorioChecklist
+	anexos       RepositorioAnexo
 	responsaveis RepositorioResponsavel
 	comentarios  RepositorioComentario
 	// armazem existe só para a LIMPEZA do disco ao apagar. Ver limpeza.go.
 	armazem armazemDeArquivos
+	// instantaneo mantém o card, a autorização, a revisão do quadro e tudo que
+	// o modal mostra sobre a mesma fotografia do banco. Sem ele, cada coleção
+	// seria lida sob um instante diferente de READ COMMITTED.
+	instantaneo InstantaneoConsistente
 }
 
 // NovoCardUseCase cria uma instância de CardUseCase com as dependências injetadas.
 func NovoCardUseCase(
+	boards RepositorioBoard,
 	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
-	etiquetas repositorioEtiqueta,
-	checklists repositorioChecklist,
-	anexos repositorioAnexo,
+	etiquetas RepositorioEtiqueta,
+	checklists RepositorioChecklist,
+	anexos RepositorioAnexo,
 	responsaveis RepositorioResponsavel,
 	comentarios RepositorioComentario,
 	armazem armazemDeArquivos,
 ) *CardUseCase {
 	return &CardUseCase{
-		membros: membros, colunas: colunas, cards: cards,
+		boards: boards, membros: membros, colunas: colunas, cards: cards,
 		etiquetas: etiquetas, checklists: checklists, anexos: anexos, responsaveis: responsaveis, comentarios: comentarios,
 		armazem: armazem,
 	}
@@ -55,59 +62,101 @@ func NovoCardUseCase(
 // Detalhar devolve o card com tudo que pende dele — é o que o modal mostra.
 // Qualquer membro pode ver; editar é que exige papel.
 func (uc *CardUseCase) Detalhar(ctx context.Context, cardID, usuarioID string) (*CardDetalhado, error) {
-	c, err := uc.cards.BuscarPorID(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-	if c == nil {
-		return nil, dcard.ErrNaoEncontrado
-	}
-	col, err := uc.colunas.BuscarPorID(ctx, c.ColunaID)
-	if err != nil {
-		return nil, err
-	}
-	if col == nil {
-		return nil, dcard.ErrNaoEncontrado
-	}
-	if _, err := acesso(ctx, uc.membros, col.BoardID, usuarioID); err != nil {
-		return nil, traduzirParaCard(err)
+	var (
+		c            *dcard.Card
+		col          *dcoluna.Coluna
+		quadro       *dboard.Board
+		responsaveis []Responsavel
+		comentarios  []ComentarioComAutor
+		etiquetas    []detiqueta.Etiqueta
+		listas       []dchecklist.Checklist
+		comItens     []ChecklistComItens
+		anexos       []danexo.Anexo
+	)
+
+	montar := func(l Leitura) error {
+		var err error
+		if c, err = l.Cards.BuscarPorID(ctx, cardID); err != nil {
+			return err
+		}
+		if c == nil {
+			return dcard.ErrNaoEncontrado
+		}
+		if col, err = l.Colunas.BuscarPorID(ctx, c.ColunaID); err != nil {
+			return err
+		}
+		if col == nil {
+			return dcard.ErrNaoEncontrado
+		}
+		// O vínculo faz parte do mesmo snapshot. Checá-lo antes da transação
+		// permitiria devolver o modal depois de uma remoção concorrente.
+		if _, err = acesso(ctx, l.Membros, col.BoardID, usuarioID); err != nil {
+			return traduzirParaCard(err)
+		}
+		if quadro, err = l.Boards.BuscarPorID(ctx, col.BoardID); err != nil {
+			return err
+		}
+		if quadro == nil {
+			return dcard.ErrNaoEncontrado
+		}
+
+		if responsaveis, err = l.Responsaveis.DoCard(ctx, cardID); err != nil {
+			return err
+		}
+		if comentarios, err = l.Comentarios.ListarDoCard(ctx, cardID); err != nil {
+			return err
+		}
+		if etiquetas, err = l.Etiquetas.EtiquetasDoCard(ctx, cardID); err != nil {
+			return err
+		}
+		if listas, err = l.Checklists.ListarDoCard(ctx, cardID); err != nil {
+			return err
+		}
+		if anexos, err = l.Anexos.ListarDoCard(ctx, cardID); err != nil {
+			return err
+		}
+
+		comItens = make([]ChecklistComItens, 0, len(listas))
+		for _, lista := range listas {
+			itens, err := l.Checklists.ListarItens(ctx, lista.ID)
+			if err != nil {
+				return err
+			}
+			comItens = append(comItens, ChecklistComItens{Checklist: lista, Itens: itens})
+		}
+		return nil
 	}
 
-	responsaveis, err := uc.responsaveis.DoCard(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-	comentarios, err := uc.comentarios.ListarDoCard(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-	etiquetas, err := uc.etiquetas.EtiquetasDoCard(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-	listas, err := uc.checklists.ListarDoCard(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-	anexos, err := uc.anexos.ListarDoCard(ctx, cardID)
-	if err != nil {
-		return nil, err
-	}
-
-	comItens := make([]ChecklistComItens, 0, len(listas))
-	for _, lista := range listas {
-		itens, err := uc.checklists.ListarItens(ctx, lista.ID)
-		if err != nil {
+	if uc.instantaneo != nil {
+		if err := uc.instantaneo.Executar(ctx, montar); err != nil {
 			return nil, err
 		}
-		comItens = append(comItens, ChecklistComItens{Checklist: lista, Itens: itens})
+	} else if err := montar(uc.leitura()); err != nil {
+		return nil, err
 	}
 
 	return &CardDetalhado{
-		Card: *c, BoardID: col.BoardID, Responsaveis: responsaveis,
+		Card: *c, BoardID: col.BoardID, Revisao: quadro.Revisao, Responsaveis: responsaveis,
 		Etiquetas: etiquetas, Checklists: comItens, Anexos: anexos,
 		Comentarios: comentarios,
 	}, nil
+}
+
+// ComInstantaneo liga a leitura consistente do modal. A mesma implementação é
+// compartilhada com o detalhe do quadro no wiring de produção.
+func (uc *CardUseCase) ComInstantaneo(i InstantaneoConsistente) {
+	uc.instantaneo = i
+}
+
+// leitura monta o caminho sem transação usado pelos testes de regra. Em
+// produção ComInstantaneo substitui todos estes repositórios pelos ligados à
+// mesma transação REPEATABLE READ.
+func (uc *CardUseCase) leitura() Leitura {
+	return Leitura{
+		Boards: uc.boards, Membros: uc.membros, Colunas: uc.colunas, Cards: uc.cards,
+		Etiquetas: uc.etiquetas, Checklists: uc.checklists, Anexos: uc.anexos,
+		Responsaveis: uc.responsaveis, Comentarios: uc.comentarios,
+	}
 }
 
 // DefinirPrazo marca ou limpa a data de entrega do card. Exige papel de edição.
@@ -119,7 +168,12 @@ func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID strin
 	c.DefinirPrazo(prazo)
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardAlterado, boardID, c.ID, usuarioID,
 		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, ColunaID: c.ColunaID, Version: c.Version},
-		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Cards.Atualizar(ctx, c)
+		}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -139,20 +193,46 @@ func (uc *CardUseCase) Criar(ctx context.Context, colunaID, usuarioID, titulo, d
 		return nil, traduzirParaColuna(err)
 	}
 
-	// Card novo nasce no FIM da coluna: a chave é calculada depois da última,
-	// sem próximo. Coluna vazia produz a chave inicial.
-	chave, err := uc.chaveNoFimDaColuna(ctx, colunaID)
+	// O id pode nascer antes do lock; a chave, não. Duas criações concorrentes
+	// numa coluna vazia calculavam a mesma posição a partir do mesmo estado e o
+	// schema ainda não tem uma UNIQUE que pudesse impedir o empate. O cálculo e
+	// o INSERT agora acontecem na mesma unidade de trabalho, sob o lock do
+	// quadro, e a segunda criação enxerga a primeira.
+	cardID := uuid.NewString()
+	rascunho, err := dcard.Novo(cardID, colunaID, titulo, descricao, cores, ordem.ChaveInicial)
 	if err != nil {
 		return nil, err
 	}
+	var c *dcard.Card
+	dados := &DadosDoCard{CardID: cardID, Titulo: rascunho.Titulo, Coluna: col.Titulo, ColunaID: colunaID, Version: rascunho.Version}
+	if err := uc.escreverEPublicarNoCard(ctx, evento.CardCriado, col.BoardID, cardID, usuarioID,
+		dados,
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, col.BoardID, usuarioID); err != nil {
+				return err
+			}
+			// A coluna pode ter sido apagada enquanto esta requisição esperava o
+			// lock. Conferi-la aqui evita transformar esse caso esperado numa
+			// violação crua de FK.
+			atual, err := e.Colunas.BuscarPorID(ctx, colunaID)
+			if err != nil {
+				return err
+			}
+			if atual == nil || atual.BoardID != col.BoardID {
+				return dcoluna.ErrNaoEncontrada
+			}
+			dados.Coluna = atual.Titulo
 
-	c, err := dcard.Novo(uuid.NewString(), colunaID, titulo, descricao, cores, chave)
-	if err != nil {
-		return nil, err
-	}
-	if err := uc.escreverEPublicarNoCard(ctx, evento.CardCriado, col.BoardID, c.ID, usuarioID,
-		DadosDoCard{CardID: c.ID, Titulo: c.Titulo, Coluna: col.Titulo, ColunaID: c.ColunaID, Version: c.Version},
-		uc.escrita(), func(e Escrita) error { return e.Cards.Salvar(ctx, c) }); err != nil {
+			chave, err := uc.chaveNoFimDaColunaSobLock(ctx, e, colunaID)
+			if err != nil {
+				return erroDeOrdenacaoDoCard(err)
+			}
+			c, err = dcard.Novo(cardID, colunaID, rascunho.Titulo, rascunho.Descricao, rascunho.Cor, chave)
+			if err != nil {
+				return err
+			}
+			return e.Cards.Salvar(ctx, c)
+		}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -189,7 +269,12 @@ func (uc *CardUseCase) Editar(ctx context.Context, cardID, usuarioID, titulo, de
 		dados.TituloAnterior = tituloAnterior
 	}
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardAlterado, boardID, c.ID, usuarioID, dados,
-		uc.escrita(), func(e Escrita) error { return e.Cards.Atualizar(ctx, c) }); err != nil {
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Cards.Atualizar(ctx, c)
+		}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -201,33 +286,40 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 	if err != nil {
 		return err
 	}
-	// Os caminhos são coletados ANTES do DELETE: depois dele as linhas de
-	// `anexos` já foram pela cascata, e não há mais de onde tirá-los. Ver
-	// limpeza.go.
-	orfaos, err := uc.anexos.CaminhosDeArquivoDoCard(ctx, cardID)
-	if err != nil {
-		return err
-	}
-
 	// O título vai no evento porque o card não estará mais lá para respondê-lo:
 	// "apagou um card" é bem menos útil que "apagou Migração", e depois do
 	// DELETE não há de onde tirar o nome.
+	var orfaos []string
+	dados := &DadosDoCard{CardID: cardID, Titulo: c.Titulo}
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
-		DadosDoCard{CardID: cardID, Titulo: c.Titulo},
-		uc.escrita(), func(e Escrita) error { return e.Cards.Apagar(ctx, cardID) }); err != nil {
+		dados,
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			atual, err := e.Cards.BuscarPorID(ctx, cardID)
+			if err != nil {
+				return err
+			}
+			if atual == nil {
+				return dcard.ErrNaoEncontrado
+			}
+			dados.Titulo = atual.Titulo
+			orfaos, err = e.Anexos.CaminhosDeArquivoDoCard(ctx, cardID)
+			if err != nil {
+				return err
+			}
+			// O outbox é gravado ANTES do DELETE, na mesma transação: depois
+			// dele as linhas de `anexos` já foram pelo CASCADE, e não há de
+			// onde tirar as chaves físicas.
+			if err := registrarExclusaoDeArquivos(ctx, e, boardID, orfaos); err != nil {
+				return err
+			}
+			return e.Cards.Apagar(ctx, cardID)
+		}); err != nil {
 		return err
 	}
-	descartarArquivos(ctx, uc.armazem, orfaos)
 	return nil
-}
-
-// chaveNoFimDaColuna devolve a chave de um item acrescentado no fim.
-func (uc *CardUseCase) chaveNoFimDaColuna(ctx context.Context, colunaID string) (string, error) {
-	ultima, err := uc.cards.UltimaChave(ctx, colunaID)
-	if err != nil {
-		return "", err
-	}
-	return ordem.ChaveEntre(ultima, "")
 }
 
 // carregarComAcessoDeEdicao percorre card → coluna → quadro para descobrir a

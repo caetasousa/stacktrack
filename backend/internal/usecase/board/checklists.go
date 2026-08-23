@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+
 	dcard "stacktrack/internal/domain/card"
 	dchecklist "stacktrack/internal/domain/checklist"
 	"stacktrack/internal/domain/evento"
@@ -15,7 +16,7 @@ type ChecklistUseCase struct {
 	membros    RepositorioMembro
 	colunas    RepositorioColuna
 	cards      RepositorioCard
-	checklists repositorioChecklist
+	checklists RepositorioChecklist
 }
 
 // NovoChecklistUseCase cria uma instância de ChecklistUseCase com as dependências injetadas.
@@ -23,7 +24,7 @@ func NovoChecklistUseCase(
 	membros RepositorioMembro,
 	colunas RepositorioColuna,
 	cards RepositorioCard,
-	checklists repositorioChecklist,
+	checklists RepositorioChecklist,
 ) *ChecklistUseCase {
 	return &ChecklistUseCase{membros: membros, colunas: colunas, cards: cards, checklists: checklists}
 }
@@ -43,10 +44,10 @@ func (uc *ChecklistUseCase) Criar(ctx context.Context, cardID, usuarioID, titulo
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.checklists.Salvar(ctx, c); err != nil {
+	if err := uc.escreverDoCard(ctx, evento.ChecklistCriada, cardID, usuarioID, c.Titulo,
+		func(e Escrita) error { return e.Checklists.Salvar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicarDoCard(ctx, evento.ChecklistCriada, cardID, usuarioID, c.Titulo)
 	return c, nil
 }
 
@@ -59,10 +60,10 @@ func (uc *ChecklistUseCase) Renomear(ctx context.Context, checklistID, usuarioID
 	if err := c.Renomear(titulo); err != nil {
 		return nil, err
 	}
-	if err := uc.checklists.Atualizar(ctx, c); err != nil {
+	if err := uc.escreverDoCard(ctx, evento.ChecklistAlterada, c.CardID, usuarioID, c.Titulo,
+		func(e Escrita) error { return e.Checklists.Atualizar(ctx, c) }); err != nil {
 		return nil, err
 	}
-	uc.publicarDoCard(ctx, evento.ChecklistAlterada, c.CardID, usuarioID, c.Titulo)
 	return c, nil
 }
 
@@ -72,11 +73,8 @@ func (uc *ChecklistUseCase) Apagar(ctx context.Context, checklistID, usuarioID s
 	if err != nil {
 		return err
 	}
-	if err := uc.checklists.Apagar(ctx, checklistID); err != nil {
-		return err
-	}
-	uc.publicarDoCard(ctx, evento.ChecklistApagada, c.CardID, usuarioID, c.Titulo)
-	return nil
+	return uc.escreverDoCard(ctx, evento.ChecklistApagada, c.CardID, usuarioID, c.Titulo,
+		func(e Escrita) error { return e.Checklists.Apagar(ctx, checklistID) })
 }
 
 // CriarItem acrescenta uma linha no fim da checklist.
@@ -94,10 +92,10 @@ func (uc *ChecklistUseCase) CriarItem(ctx context.Context, checklistID, usuarioI
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.checklists.SalvarItem(ctx, item); err != nil {
+	if err := uc.escreverDoChecklist(ctx, evento.ItemCriado, checklistID, usuarioID, item.Texto,
+		func(e Escrita) error { return e.Checklists.SalvarItem(ctx, item) }); err != nil {
 		return nil, err
 	}
-	uc.publicarDoChecklist(ctx, evento.ItemCriado, checklistID, usuarioID, item.Texto)
 	return item, nil
 }
 
@@ -126,10 +124,24 @@ func (uc *ChecklistUseCase) EditarItem(ctx context.Context, itemID, usuarioID st
 	if concluido != nil {
 		item.Marcar(*concluido)
 	}
-	if err := uc.checklists.AtualizarItem(ctx, item); err != nil {
+	// Só os campos que a chamada pediu para mudar chegam ao banco. `texto nil`
+	// e `concluido nil` já significavam "não mexer" na entrada; agora eles
+	// significam a mesma coisa no UPDATE, e é isso que impede uma renomeação de
+	// desmarcar a caixa que outra pessoa acabou de marcar.
+	if err := uc.escreverDoChecklist(ctx, evento.ItemAlterado, item.ChecklistID, usuarioID, item.Texto,
+		func(e Escrita) error {
+			if texto != nil {
+				if err := e.Checklists.EditarItem(ctx, item.ID, item.Texto, item.AtualizadoEm); err != nil {
+					return err
+				}
+			}
+			if concluido != nil {
+				return e.Checklists.MarcarItem(ctx, item.ID, item.Concluido, item.AtualizadoEm)
+			}
+			return nil
+		}); err != nil {
 		return nil, err
 	}
-	uc.publicarDoChecklist(ctx, evento.ItemAlterado, item.ChecklistID, usuarioID, item.Texto)
 	return item, nil
 }
 
@@ -145,35 +157,58 @@ func (uc *ChecklistUseCase) ApagarItem(ctx context.Context, itemID, usuarioID st
 	if _, err := uc.carregarComAcessoDeEdicao(ctx, item.ChecklistID, usuarioID); err != nil {
 		return dchecklist.ErrItemNaoEncontrado
 	}
-	if err := uc.checklists.ApagarItem(ctx, itemID); err != nil {
+	return uc.escreverDoChecklist(ctx, evento.ItemApagado, item.ChecklistID, usuarioID, item.Texto,
+		func(e Escrita) error { return e.Checklists.ApagarItem(ctx, itemID) })
+}
+
+// escreverDoChecklist e escreverDoCard resolvem o quadro — para achar a sala e
+// para o lock da unidade de trabalho — e gravam mudança e evento no mesmo
+// commit.
+//
+// A resolução agora PROPAGA erro, e acontece ANTES da escrita. Antes ela era um
+// `return` mudo depois de o dado já ter sido gravado: o item mudava, nada ia
+// para o log, ninguém era avisado, e não havia como distinguir isso de um item
+// que nunca foi criado.
+func (uc *ChecklistUseCase) escreverDoChecklist(
+	ctx context.Context, tipo evento.Tipo, checklistID, usuarioID, alvo string,
+	mudanca func(Escrita) error,
+) error {
+	c, err := uc.checklists.BuscarPorID(ctx, checklistID)
+	if err != nil {
 		return err
 	}
-	uc.publicarDoChecklist(ctx, evento.ItemApagado, item.ChecklistID, usuarioID, item.Texto)
-	return nil
-}
-
-// publicarDoChecklist e publicarDoCard resolvem o quadro para achar a sala.
-// Falha na resolução não desfaz a escrita nem vira erro: o dado já mudou, e o
-// pior que acontece é a outra aba precisar de um F5.
-func (uc *ChecklistUseCase) publicarDoChecklist(ctx context.Context, tipo evento.Tipo, checklistID, usuarioID, alvo string) {
-	c, err := uc.checklists.BuscarPorID(ctx, checklistID)
-	if err != nil || c == nil {
-		return
+	if c == nil {
+		return dchecklist.ErrNaoEncontrada
 	}
-	uc.publicarDoCard(ctx, tipo, c.CardID, usuarioID, alvo)
+	return uc.escreverDoCard(ctx, tipo, c.CardID, usuarioID, alvo, mudanca)
 }
 
-func (uc *ChecklistUseCase) publicarDoCard(ctx context.Context, tipo evento.Tipo, cardID, usuarioID, alvo string) {
+func (uc *ChecklistUseCase) escreverDoCard(
+	ctx context.Context, tipo evento.Tipo, cardID, usuarioID, alvo string,
+	mudanca func(Escrita) error,
+) error {
 	card, err := uc.cards.BuscarPorID(ctx, cardID)
-	if err != nil || card == nil {
-		return
+	if err != nil {
+		return err
+	}
+	if card == nil {
+		return dcard.ErrNaoEncontrado
 	}
 	col, err := uc.colunas.BuscarPorID(ctx, card.ColunaID)
-	if err != nil || col == nil {
-		return
+	if err != nil {
+		return err
 	}
-	uc.publicarNoCard(ctx, tipo, col.BoardID, cardID, usuarioID,
-		DadosDoCard{CardID: cardID, Titulo: card.Titulo, Alvo: alvo})
+	if col == nil {
+		return dcard.ErrNaoEncontrado
+	}
+	return uc.escreverEPublicarNoCard(ctx, tipo, col.BoardID, cardID, usuarioID,
+		DadosDoCard{CardID: cardID, Titulo: card.Titulo, Alvo: alvo},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarEdicao(ctx, e, col.BoardID, usuarioID); err != nil {
+				return err
+			}
+			return mudanca(e)
+		})
 }
 
 // carregarComAcessoDeEdicao percorre checklist → card → coluna → quadro. É o

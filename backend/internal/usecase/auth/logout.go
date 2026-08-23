@@ -7,11 +7,11 @@ import (
 
 // LogoutUseCase encerra a sessão atual.
 type LogoutUseCase struct {
-	sessoes repositorioSessao
+	sessoes RepositorioSessao
 }
 
 // NovoLogoutUseCase cria uma instância de LogoutUseCase com as dependências injetadas.
-func NovoLogoutUseCase(sessoes repositorioSessao) *LogoutUseCase {
+func NovoLogoutUseCase(sessoes RepositorioSessao) *LogoutUseCase {
 	return &LogoutUseCase{sessoes: sessoes}
 }
 

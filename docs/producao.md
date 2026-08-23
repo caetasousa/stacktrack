@@ -450,17 +450,26 @@ mantém as cinco capabilities mínimas para essa troca.
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` com folga sobre a soma dos limites das duas stacks
 
-### Passos agendados para o deploy SEGUINTE
+### Antes do próximo deploy: o contract da ordenação
 
-Os dois itens abaixo estão prontos no código e **não podem** entrar no mesmo
-deploy que os criou. Ficam aqui para não dependerem de alguém lembrar.
+O `V18` está no repositório e **é aplicado pelo Flyway no próximo deploy**. Ele
+cria os índices únicos da chave de ordenação, e o `CREATE UNIQUE INDEX` falha se
+o banco ainda tiver duplicidade herdada — falhando o Flyway, a stack não sobe.
+Por isso os dois passos abaixo são pré-deploy, não pós:
 
-- [ ] **`V18` — `UNIQUE` da chave de ordenação.** Aperto de schema exige dois
-      deploys: a versão anterior continua no ar durante o deploy e é para onde
-      um rollback volta, e ela ainda consegue gravar chave repetida. Antes de
-      criar, rodar `manutencao reparar-ordenacao --conferir` até sair 0 e
-      registrar a estimativa de lock numa cópia representativa. SQL e
-      procedimento em [backend/migrations/README.md](../backend/migrations/README.md).
+- [ ] `manutencao reparar-ordenacao --conferir` sai **0** contra o banco de
+      produção. Saindo 1, rodar `manutencao reparar-ordenacao` (sem `--conferir`)
+      e conferir de novo — ele repara um quadro por transação, com a aplicação
+      no ar.
+- [ ] Estimativa de lock registrada numa cópia representativa: linhas, tamanho
+      das tabelas e tempo de construção do índice. Não cabendo na janela, a
+      saída é criação concorrente, não abrir mão da unicidade.
+
+Os comandos e o SQL da conferência estão em
+[backend/migrations/README.md](../backend/migrations/README.md).
+
+### Passo agendado para depois
+
 - [ ] **Ativar o GC de arquivos.** O outbox `arquivo_exclusoes` já acumula e o
       coletor já funciona, mas a porta de cobertura é `CoberturaNegada` e nada
       sai do disco. Ligar exige os manifests dos backups externos — é trabalho

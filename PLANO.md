@@ -187,7 +187,7 @@ pendente:
 
 | O quê | Quando | Por quê |
 |---|---|---|
-| `UNIQUE` da chave de ordenação (`V18`) | deploy seguinte | aperto de schema exige dois deploys (`CLAUDE.md`) |
+| `UNIQUE` da chave de ordenação (`V18`) | ✅ escrita; aplica no próximo deploy | aperto de schema exige dois deploys (`CLAUDE.md`) |
 | Ativar o GC de arquivos | A6 | depende dos manifests dos backups externos |
 
 As duas estão no checklist de deploy de
@@ -234,11 +234,14 @@ prova o que o proxy escreve.
 
 ### Os dois passos agendados
 
-**`V18` — o `UNIQUE` da chave de ordenação.** Vai no deploy seguinte, depois de
-`manutencao reparar-ordenacao` sair 0 e de a estimativa de lock ser registrada
-numa cópia representativa. Não é código pendente: o domínio já não produz
-duplicidade e já sabe reparar a herdada. O SQL e o procedimento estão em
-[backend/migrations/README.md](backend/migrations/README.md).
+**`V18` — o `UNIQUE` da chave de ordenação.** A migration está escrita e entra
+no próximo deploy, aplicada pelo Flyway como qualquer outra. O que sobra dela é
+operacional e roda ANTES desse deploy: `manutencao reparar-ordenacao --conferir`
+precisa sair 0 e a estimativa de lock precisa estar registrada numa cópia
+representativa — com duplicidade herdada, o `CREATE UNIQUE INDEX` falha e leva a
+partida do Flyway junto. O procedimento está em
+[backend/migrations/README.md](backend/migrations/README.md), e os dois itens
+estão no checklist de [docs/producao.md](docs/producao.md#checklist-de-go-live).
 
 **Ativar o GC de arquivos.** O mecanismo está pronto e testado contra uma
 cobertura falsa; ligá-lo depende dos manifests dos backups externos, que são de

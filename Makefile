@@ -133,7 +133,8 @@ infra-apply: $(PASTA_ANSIBLE)/.dependencias
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --diff
 
 # O que o CI roda, e que aqui serve de ensaio antes de abrir PR: análise
-# estática dos playbooks, SEM a senha do vault e SEM tocar no servidor.
+# estática dos playbooks e o teste do wrapper de release, SEM a senha do vault e
+# SEM tocar no servidor.
 #
 # É a prova do critério de aceite "CI valida Ansible sem possuir a senha do
 # vault": se algum arquivo cifrado voltar a ser carregado por padrão, este alvo
@@ -141,6 +142,7 @@ infra-apply: $(PASTA_ANSIBLE)/.dependencias
 infra-validar: $(PASTA_ANSIBLE)/.dependencias
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --syntax-check
 	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml --syntax-check
+	@bash scripts/testa-wrapper-de-release.sh
 	@command -v ansible-lint >/dev/null || { \
 		echo "ansible-lint não encontrado. Instale com:"; \
 		echo "    pipx install ansible-lint    # ou: sudo apt install ansible-lint"; \

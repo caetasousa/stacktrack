@@ -175,6 +175,15 @@ jobs:
       - name: ansible-lint
         run: ansible-lint
 
+      # A fronteira de verdade da esteira. Quem tem a chave do CI tem exatamente
+      # o que o wrapper deixa passar, e este teste é quem prova que a lista não
+      # cresceu sem querer — ele executa o script renderizado contra um `docker`
+      # de mentira e exige recusa para shell, encadeamento, substituição de
+      # comando e SHA malformado.
+      - name: o que a chave da esteira NÃO alcança
+        working-directory: .
+        run: bash scripts/testa-wrapper-de-release.sh
+
   seguranca-codigo:
     name: Vulnerabilidades (dependências do código)
     runs-on: ubuntu-latest
@@ -458,15 +467,24 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.imagem }}
           cache-to: type=gha,mode=max,scope=${{ matrix.imagem }}
 
-  # Deploy contínuo no VPS. Não sobe binário nem código-fonte: as imagens já
-  # estão no GHCR, então o servidor recebe apenas os arquivos de configuração da
-  # stack (o .env fica no host, com os segredos) e a ordem de puxar a versão
-  # nova. É a mesma sequência do deploy manual em docs/producao.md.
+  # Deploy contínuo no VPS — e o job com MENOS poder do repositório.
   #
-  # Segredos necessários (Settings → Secrets and variables → Actions):
+  # Ele não abre shell no servidor. A chave da esteira está presa a um comando
+  # forçado (`/usr/local/bin/stacktrack-release`, instalado pelo Ansible), e o
+  # que este job manda é um de três verbos: `release <sha>`, `backup`, `estado`.
+  # Qualquer outra coisa é recusada do lado de lá.
+  #
+  # O que ele DEIXOU de fazer, e por quê: copiar o compose, o backup.sh e o
+  # bloco do Caddy. Esses arquivos são do Ansible agora — havia duas fontes
+  # escrevendo os mesmos caminhos, e a que ganhava era a última que rodou. O
+  # passo `estado` compara as impressões digitais do servidor com as do
+  # repositório e FALHA quando divergem, apontando o `make infra-apply`.
+  #
+  # Segredos (Settings → Secrets and variables → Actions, ou o Environment
+  # `production`):
   #   VPS_HOST         IP ou hostname do servidor
-  #   VPS_USER         usuário SSH (não-root, no grupo docker) — `deploy`
-  #   VPS_SSH_KEY      chave PRIVADA de deploy (a pública vai no authorized_keys)
+  #   VPS_USER         usuário SSH da esteira — `stacktrack-deploy`
+  #   VPS_SSH_KEY      chave PRIVADA da esteira, exclusiva do stacktrack
   #   VPS_PORT         opcional, padrão 22
   #   VPS_KNOWN_HOSTS  saída de `ssh-keyscan -H HOST`. Obrigatório quando
   #                    VPS_HOST existe.
@@ -476,8 +494,14 @@ jobs:
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: publicar-imagens
     runs-on: ubuntu-latest
+    # O Environment de produção: é nele que ficam os segredos do VPS e é ele que
+    # aplica a proteção (aprovação, branches permitidas). Um job de pull request
+    # não o declara e, por isso, não alcança segredo nenhum daqui.
+    environment: production
     timeout-minutes: 15
     steps:
+      # O checkout existe por UM motivo: calcular o sha256 dos arquivos de
+      # configuração para comparar com os do servidor. Nenhum arquivo sobe.
       - uses: actions/checkout@v5
 
       # Sem os segredos o job passa sem fazer nada, em vez de falhar em
@@ -514,204 +538,60 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # Pré-voo. O deploy pressupõe um host já provisionado pelo Ansible
-      # (deploy/ansible) — ele não cria o .env nem sabe a senha do banco.
-      #
-      # Sem esta conferência, um host não provisionado deixa o `docker compose
-      # up` subir a stack com TODAS as variáveis vazias: o Postgres nasce sem
-      # senha definida, a API não conecta, e o job segue verde até a verificação
-      # final falhar por um motivo que não aponta para a causa. Falhar aqui
-      # custa um minuto; falhar lá custa uma tarde.
-      - name: confere se o host está provisionado
+      # Pré-voo, e a defesa contra o furo que a mudança de dono dos arquivos
+      # abriu: o servidor recebe o compose, o backup.sh e o bloco do Caddy pelo
+      # PLAYBOOK, não mais por este job. Sem esta comparação, alterar um limite
+      # de memória e dar push produziria um deploy verde que não mudou limite
+      # nenhum — e nada diria isso.
+      - name: confere se a configuração do servidor é a deste commit
         if: steps.cfg.outputs.configurado == 'true'
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USUARIO: ${{ secrets.VPS_USER }}
           PORTA: ${{ secrets.VPS_PORT || '22' }}
         run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
-            faltando=""
-            [ -f "$HOME/stacktrack/.env" ] || faltando="$faltando .env"
-            docker network inspect borda >/dev/null 2>&1 || faltando="$faltando rede-borda"
-            grep -Eq "^PROXIES_CONFIAVEIS=.+" "$HOME/stacktrack/.env" 2>/dev/null \
-              || faltando="$faltando proxies-confiaveis (rode make infra-apply)"
-            if [ -n "$faltando" ]; then
-              echo "::error::host não provisionado (faltando:$faltando). Rode: make infra-apply"
-              exit 1
+          set -euo pipefail
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" \
+            "$USUARIO@$HOST" stacktrack-release estado | tee /tmp/estado.txt
+
+          divergiu=0
+          conferir() {
+            local arquivo="$1" nome="$2"
+            local local_hash servidor_hash
+            local_hash=$(sha256sum "$arquivo" | cut -d' ' -f1)
+            servidor_hash=$(awk -v n="$nome" '$1=="sha256" && $2==n {print $3}' /tmp/estado.txt)
+            if [ "$local_hash" != "$servidor_hash" ]; then
+              echo "::error::$nome no servidor não é o deste commit ($servidor_hash != $local_hash). Rode: make infra-apply"
+              divergiu=1
             fi
-            echo "host provisionado"
-          '
+          }
+          conferir docker-compose.prod.yml docker-compose.prod.yml
+          conferir scripts/backup.sh backup.sh
+          conferir deploy/caddy/stacktrack.caddy stacktrack.caddy
+          exit "$divergiu"
 
-      # Mantém o compose e os scripts do servidor iguais aos do repositório: sem
-      # isto, mudar o roteamento ou um limite de memória exigiria copiar arquivo
-      # na mão. O .env NUNCA é enviado — ele mora só no host, escrito pelo
-      # Ansible a partir do vault.
-      - name: sincroniza a configuração da stack
+      # O deploy inteiro numa linha, porque do outro lado ele É uma linha: o
+      # wrapper faz backup, pull, para web e api juntas, sobe a stack e limpa as
+      # imagens órfãs. A sequência mora no servidor, versionada no playbook, e
+      # não montada aqui a cada execução.
+      #
+      # O SHA deste commit é o que fixa a versão: o servidor sobe exatamente o
+      # artefato que passou nos testes, e não um `latest` que pode ter mudado no
+      # meio do caminho.
+      - name: release
         if: steps.cfg.outputs.configurado == 'true'
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USUARIO: ${{ secrets.VPS_USER }}
           PORTA: ${{ secrets.VPS_PORT || '22' }}
         run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            'mkdir -p ~/stacktrack/scripts ~/caddy/sites ~/backups'
-          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
-            docker-compose.prod.yml "$USUARIO@$HOST:~/stacktrack/"
-          # backup.sh roda por cron e precisa estar no servidor ANTES do
-          # incidente que o torna necessário.
-          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
-            scripts/backup.sh "$USUARIO@$HOST:~/stacktrack/scripts/"
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            'chmod +x ~/stacktrack/scripts/backup.sh'
+          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" \
+            "$USUARIO@$HOST" "stacktrack-release release ${{ github.sha }}"
 
-      # O bloco de site vive no Caddy do agendaGo, que é quem tem as portas 80 e
-      # 443. Instalar aqui mantém roteamento e cabeçalhos versionados junto com
-      # o app — mas o `caddy reload` só acontece se o arquivo REALMENTE mudou:
-      # recarregar o proxy do vizinho a cada deploy do stacktrack seria mexer,
-      # sem necessidade, num processo que atende outro serviço em produção.
-      - name: instala o bloco do Caddy (e recarrega só se mudou)
-        if: steps.cfg.outputs.configurado == 'true'
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          USUARIO: ${{ secrets.VPS_USER }}
-          PORTA: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          scp -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -P "$PORTA" \
-            deploy/caddy/stacktrack.caddy "$USUARIO@$HOST:~/stacktrack/stacktrack.caddy.novo"
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
-            set -e
-            destino="$HOME/caddy/sites/stacktrack.caddy"
-            if cmp -s "$HOME/stacktrack/stacktrack.caddy.novo" "$destino"; then
-              rm -f "$HOME/stacktrack/stacktrack.caddy.novo"
-              echo "bloco do Caddy inalterado; o proxy não foi recarregado"
-              exit 0
-            fi
-            mv "$HOME/stacktrack/stacktrack.caddy.novo" "$destino"
-            # Acha o Caddy pelo rótulo do compose, sem depender de saber em qual
-            # stack ele mora nem qual é o nome do container.
-            caddy=$(docker ps --filter label=com.docker.compose.service=caddy --format "{{.Names}}" | head -1)
-            if [ -z "$caddy" ]; then
-              echo "::error::nenhum container de Caddy encontrado — o bloco foi instalado, mas o proxy não recarregou"
-              exit 1
-            fi
-            # --config explícito: sem ele o reload usaria o último config
-            # carregado por API, e não o arquivo.
-            docker exec "$caddy" caddy reload --config /etc/caddy/Caddyfile
-            echo "bloco do Caddy atualizado e $caddy recarregado"
-          '
-
-      # Retrato do banco ANTES da migration deste deploy. O cron das 03:20
-      # sozinho deixa uma janela de até 23 horas: um deploy ruim ao meio-dia
-      # teria como ponto de retorno mais recente o estado da madrugada, e tudo
-      # que entrou no meio se perderia junto.
-      #
-      # A deduplicação por conteúdo do backup.sh evita arquivo extra quando nada
-      # mudou — e como ela também olha schema e imagem, este backup nasce
-      # carimbado com a versão que está SAINDO, que é o par certo para desfazer.
-      #
-      # Não trava o deploy: no primeiro deploy a stack ainda não existe, e um
-      # backup ausente não é motivo para impedir a aplicação de subir.
-      - name: backup do banco antes de migrar
-        if: steps.cfg.outputs.configurado == 'true'
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          USUARIO: ${{ secrets.VPS_USER }}
-          PORTA: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            '~/stacktrack/scripts/backup.sh' \
-            || echo "::warning::backup pré-deploy não executado (a stack já existe no VPS?)"
-
-      # A rede `borda` é declarada `external` no compose, e external significa
-      # que o Compose NÃO a cria: ele falha com "network borda declared as
-      # external, but could not be found". Criar aqui, e não uma vez na mão,
-      # porque a rede vive fora do ciclo de vida de qualquer stack: um host novo,
-      # ou um `docker network prune` numa faxina, deixaria o deploy quebrado sem
-      # nada no repositório explicando o que restaurar.
-      #
-      # Idempotente pelo inspect: `network create` de rede existente é erro.
-      - name: garante a rede compartilhada do Caddy
-        if: steps.cfg.outputs.configurado == 'true'
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          USUARIO: ${{ secrets.VPS_USER }}
-          PORTA: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            'docker network inspect borda >/dev/null 2>&1 || docker network create borda'
-
-      # Fixa a tag no SHA deste commit: o servidor sobe exatamente o artefato
-      # que passou nos testes, não um `latest` que pode ter mudado no meio.
-      #
-      # `--quiet` no pull porque o progresso por camada, sem terminal para
-      # reescrever a linha, vira milhares de linhas de "Downloading" no log — e
-      # o erro, quando existe, se perde no meio delas.
-      # API e web param JUNTAS antes do Flyway. As migrations expansivas deixam
-      # o binário anterior iniciar, mas isso não basta para protocolos: durante
-      # a V16, por exemplo, o backend antigo gravaria eventos sem revisão que o
-      # cliente novo não poderia usar como cursor. Como a topologia suportada é
-      # de uma instância, uma janela curta de manutenção é a forma simples de
-      # impedir versões semanticamente incompatíveis de conviverem.
-      - name: puxa as imagens e troca a stack sem misturar versões
-        if: steps.cfg.outputs.configurado == 'true'
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          USUARIO: ${{ secrets.VPS_USER }}
-          PORTA: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
-            "cd ~/stacktrack \
-             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml pull --quiet \
-             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml stop web api \
-             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml up -d \
-             && docker image prune -f"
-
-      # Agenda o backup diário. Deixar isso manual seria o elo fraco da
-      # estratégia: um cron esquecido não avisa, e a descoberta viria no dia em
-      # que o backup fosse necessário.
-      #
-      # Idempotente: reescreve apenas a linha do stacktrack, preservando as
-      # outras entradas do crontab — inclusive a do agendaGo, que divide a
-      # máquina.
-      # Este passo NÃO escreve mais no crontab — quem agenda o backup é o
-      # Ansible (deploy/ansible/roles/stacktrack).
-      #
-      # Escrever dos dois lados fazia os dois brigarem: o Ansible marca a
-      # entrada com `#Ansible: backup do stacktrack`, e o `crontab -l | grep -v
-      # 'stacktrack/scripts/backup.sh'` daqui removia a LINHA DO JOB sem remover
-      # o comentário, deixando o marcador órfão. O `make infra-check` seguinte
-      # acusava `changed`, reescrevia, e o deploy seguinte reescrevia de volta.
-      # Um `changed=0` que nunca estabiliza não prova nada.
-      #
-      # O que sobrou é o diagnóstico, que era a parte útil: o cron do
-      # Debian/Ubuntu não suporta CRON_TZ e interpreta a expressão sempre no
-      # fuso do HOST. Imprimir os dois juntos evita o erro silencioso de agendar
-      # "3h" achando que é horário de Brasília num servidor em UTC.
-      - name: confere o agendamento do backup
-        if: steps.cfg.outputs.configurado == 'true'
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          USUARIO: ${{ secrets.VPS_USER }}
-          PORTA: ${{ secrets.VPS_PORT || '22' }}
-        run: |
-          echo 'agendamento efetivo no servidor:'
-          ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" '
-            printf "  fuso do servidor: %s (agora: %s)\n" \
-              "$(timedatectl show --property=Timezone --value 2>/dev/null || readlink -f /etc/localtime)" \
-              "$(date "+%F %T %Z")"
-            linha=$(crontab -l 2>/dev/null | grep "stacktrack/scripts/backup.sh") || {
-              echo "::error::backup do stacktrack não está agendado. Rode: make infra-apply"
-              exit 1
-            }
-            printf "  crontab: %s\n" "$linha"
-          '
-
-      # Deploy sem verificação é deploy no escuro: se a aplicação não responder,
-      # o job falha e o erro aparece no commit.
-      #
-      # Checa a API e a página inicial. Só /api/health deixaria passar um deploy
-      # em que o container `web` subiu quebrado: a API responde, o job fica
-      # verde e quem descobre é quem usa.
+      # Deploy sem verificação é deploy no escuro. Checa a API e a página
+      # inicial: só /api/health deixaria passar um deploy em que o container
+      # `web` subiu quebrado — a API responde, o job fica verde, e quem descobre
+      # é quem usa.
       - name: verifica se a aplicação respondeu
         if: steps.cfg.outputs.configurado == 'true' && vars.DOMINIO != ''
         env:

@@ -92,10 +92,13 @@
 </div>
 
 <div class="painel-fundo fundo-{data.quadro.fundo} mt-6 rounded-lg p-4">
-	<div class="flex items-start gap-4 overflow-x-auto pb-2">
+	<!-- Mesma grade da tela do quadro: o link público mostra o mesmo quadro, e
+	     duas disposições diferentes para a mesma coisa confundiriam quem recebe
+	     o link depois de já ter visto o quadro por dentro. -->
+	<div class="grid grid-cols-2 items-start gap-4 pb-2 lg:grid-cols-4">
 		{#each data.quadro.colunas as coluna, i (i)}
 			<section
-				class="flex w-72 shrink-0 flex-col rounded-lg border {coluna.cor
+				class="flex w-full min-w-0 flex-col rounded-lg border {coluna.cor
 					? `cor-${coluna.cor}`
 					: 'border-hairline bg-surface-elevated'}"
 				style={coluna.cor

@@ -134,7 +134,7 @@
      à etapa de relance — verde no começo, amarelo no meio, azul no fim. Os
      cards têm fundo opaco e continuam saltando por cima dela. -->
 <section
-	class="flex w-72 shrink-0 flex-col rounded-lg border {coluna.cor
+	class="flex w-full min-w-0 flex-col rounded-lg border {coluna.cor
 		? `cor-${coluna.cor}`
 		: 'border-hairline bg-surface-elevated'}"
 	style={coluna.cor

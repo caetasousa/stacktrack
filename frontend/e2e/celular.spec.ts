@@ -39,11 +39,14 @@ test.beforeAll(async ({ playwright }) => {
 		ana = await criarConta(req, 'ana-celular');
 		const quadro = await criarQuadro(req, ana, 'Quadro no bolso');
 		quadroId = quadro.id;
-		// Três colunas: o quadro precisa ser mais largo que a tela para o gesto
-		// lateral ter o que rolar.
+		// Cinco colunas: com duas por linha no celular, elas ocupam três linhas e
+		// o quadro fica mais alto que a tela — que é o que o gesto vertical
+		// precisa ter para rolar. Eram três quando o quadro era uma faixa
+		// horizontal e a rolagem era lateral.
 		const coluna = await criarColuna(req, ana, quadroId, 'A fazer');
-		await criarColuna(req, ana, quadroId, 'Fazendo');
-		await criarColuna(req, ana, quadroId, 'Feito');
+		for (const titulo of ['Fazendo', 'Feito', 'Parado', 'Arquivado']) {
+			await criarColuna(req, ana, quadroId, titulo);
+		}
 		for (const titulo of ['Primeiro card', 'Segundo card']) {
 			const resp = await req.post(
 				`${process.env.E2E_API_URL ?? 'http://localhost:8080'}/colunas/${coluna.id}/cards`,
@@ -140,13 +143,22 @@ test('o modal aberto por toque não se fecha sozinho', async ({ browser }) => {
 // ele reordenava o quadro em vez de rolar — e o teste do card, que exercita só
 // a zona de dentro, não diria nada sobre isto.
 //
+// O EIXO mudou junto com o layout: a faixa horizontal virou uma grade que
+// quebra linha, então o excedente empilha para baixo e quem rola é a página.
+//
 // O alvo é a ALÇA, e não o cabeçalho: a biblioteca se recusa a arrastar quando
 // o toque começa num elemento com `value` — e `<button>` tem. Um teste mirando
 // o título da coluna passaria sem nunca chegar perto do defeito.
-test('arrastar o dedo pela alça da coluna rola o quadro, não reordena', async ({ browser }) => {
+test('arrastar o dedo pela alça da coluna rola a página, não reordena', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
+
+	// O quadro precisa ser mais alto que a tela para haver rolagem a observar.
+	// Com a grade de duas colunas por linha no celular, colunas extras empilham
+	// para baixo — que é justamente o comportamento novo sendo exercitado.
+	await pagina.evaluate(() => window.scrollTo(0, 0));
+	const rolagem = () => pagina.evaluate(() => window.scrollY || document.documentElement.scrollTop);
 
 	const alca = pagina.locator('[title="Arraste a coluna para reordenar"]').first();
 	await expect(alca).toBeVisible();
@@ -159,24 +171,28 @@ test('arrastar o dedo pela alça da coluna rola o quadro, não reordena', async 
 	const antes = await ordem();
 
 	const cdp = await contexto.newCDPSession(pagina);
-	const dedo = (type: string, tx: number) =>
+	const dedo = (type: string, ty: number) =>
 		cdp.send('Input.dispatchTouchEvent', {
 			type,
-			touchPoints: type === 'touchEnd' ? [] : [{ x: tx, y }]
+			touchPoints: type === 'touchEnd' ? [] : [{ x, y: ty }]
 		});
 
-	await dedo('touchStart', x);
-	for (let i = 1; i <= 6; i++) await dedo('touchMove', x - i * 25);
+	// O GESTO MUDOU DE EIXO junto com o layout.
+	//
+	// O quadro era uma faixa horizontal, e o dedo rolava para o lado; agora as
+	// colunas quebram linha numa grade e o excedente empilha para baixo, então
+	// quem rola é a PÁGINA, na vertical. O que o teste tranca continua sendo o
+	// mesmo: arrastar pela alça não pode levantar a coluna no celular.
+	await dedo('touchStart', y);
+	for (let i = 1; i <= 6; i++) await dedo('touchMove', y - i * 25);
 
 	// Com o dedo ainda na tela: é durante o gesto que a coluna estaria no ar.
 	await expect(pagina.locator('.item-arrastado')).toHaveCount(0);
-	// E o quadro rolou de fato — o gesto fez o que devia, e não só deixou de
+	// E a página rolou de fato — o gesto fez o que devia, e não só deixou de
 	// fazer o que não devia.
-	expect(
-		await pagina.evaluate(() => document.querySelector('.overflow-x-auto')!.scrollLeft)
-	).toBeGreaterThan(0);
+	expect(await rolagem()).toBeGreaterThan(0);
 
-	await dedo('touchEnd', x - 150);
+	await dedo('touchEnd', y - 150);
 	expect(await ordem()).toBe(antes);
 	await contexto.close();
 });

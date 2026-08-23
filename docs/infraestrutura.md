@@ -30,13 +30,20 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | quando o que é do **host** muda | `root` | Docker, rede `borda`, usuário `deploy`, acesso da esteira, hardening |
+| `preparar-host.yml` | quando o que é do **host** muda | `deploy` + `sudo` | Docker, rede `borda`, usuário `deploy`, acesso da esteira, hardening |
 | `provisionar.yml` | sempre que quiser | `deploy`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, bloco do Caddy, papéis do banco, stack no ar |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
 tudo mora no home do `deploy` e o acesso ao Docker vem do grupo. Só o outro
-exige root — e é justamente o que o CI não consegue fazer, nem deve: a chave da
-esteira está presa a um comando forçado que executa três verbos de release.
+exige privilégio — e é justamente o que o CI não consegue fazer, nem deve: a
+chave da esteira está presa a um comando forçado que executa três verbos de
+release.
+
+O `preparar-host.yml` entra como `deploy` e sobe por `sudo`, em vez de logar
+como root. Não é preferência: `PermitRootLogin no` é uma das coisas que ele
+aplica, e um playbook que só soubesse entrar como root deixaria de rodar depois
+da primeira vez que rodasse. Numa máquina NOVA, onde `deploy` ainda não existe,
+o caminho continua sendo `-u root` — ali o `become` é um no-op.
 
 O `preparar-host.yml` deixou de ser "dia zero". Ele é quem mantém o usuário da
 esteira, o wrapper, o `sudo` restrito e o hardening do host, então volta a rodar
@@ -66,11 +73,10 @@ INTEIRO — SSH, firewall e atualização automática valem para o agendaGo tamb
 não só para o stacktrack. Por isso ele tem tag própria e pode ficar para depois:
 
 ```bash
-cd deploy/ansible
 # tudo menos o hardening
-ansible-playbook preparar-host.yml -u root --ask-pass --skip-tags hardening
+make infra-preparar ARGS="--skip-tags hardening"
 # só ele, quando for a hora
-ansible-playbook preparar-host.yml -u root --ask-pass --tags hardening
+make infra-preparar ARGS="--tags hardening"
 ```
 
 O que ele NÃO faz continua valendo: não abre o `Caddyfile` do vizinho, não
@@ -106,7 +112,7 @@ substituição de comando e SHA malformado — e roda no CI.
 sudo apt install ansible          # Ubuntu 24.04: o PEP 668 bloqueia o pip
 
 make infra-segredos               # UMA vez: gera e cifra a senha do banco
-make infra-preparar               # uma vez por MÁQUINA nova (pede a senha de root)
+make infra-preparar               # o que exige privilégio (pede a senha do sudo)
 make infra-check                  # mostra o que mudaria, sem tocar em nada
 make infra-apply                  # aplica
 ```

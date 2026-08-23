@@ -73,7 +73,8 @@ test-e2e:
 # .env, compose, backup, cron e o bloco do Caddy. A ordem de uso é
 #
 #   make infra-segredos   uma vez, cria e cifra a senha do banco e o token
-#   make infra-preparar   uma vez por MÁQUINA: Docker e usuário (exige root)
+#   make infra-preparar   o que exige privilégio: Docker, usuários, esteira,
+#                         hardening (pede a senha do sudo)
 #   make infra-check      mostra o que MUDARIA, sem tocar em nada
 #   make infra-apply      aplica
 #
@@ -86,6 +87,13 @@ PASTA_ANSIBLE := deploy/ansible
 # `--syntax-check` —, e o CI, que valida o playbook sem ter direito aos segredos
 # de produção, não conseguiria rodar. Ver o comentário no ansible.cfg.
 SENHA_VAULT := --vault-password-file .senha-vault
+
+# Repassa opções para o ansible-playbook do `infra-preparar`. O uso previsto é
+# adiar o hardening, que é a única parte que alcança o host inteiro:
+#
+#   make infra-preparar ARGS="--skip-tags hardening"
+#   make infra-preparar ARGS="--tags hardening"
+ARGS ?=
 
 .PHONY: infra-segredos infra-preparar infra-check infra-apply infra-validar
 
@@ -111,15 +119,19 @@ $(PASTA_ANSIBLE)/.dependencias: $(PASTA_ANSIBLE)/requirements.yml
 infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 	@$(PASTA_ANSIBLE)/segredos.sh
 
-# Dia zero da MÁQUINA: instala o Docker e cria o usuário `deploy`. Roda uma vez
-# por servidor, e é a única parte que exige root — por isso pede a credencial na
-# hora, em vez de guardá-la. No VPS de hoje não tem o que fazer.
+# O que exige privilégio no host: Docker, os dois usuários, o wrapper da esteira
+# e o hardening. Entra como `deploy` e sobe por sudo — a senha é pedida na hora,
+# em vez de guardada.
+#
+# `--skip-tags hardening` para deixar SSH, firewall e atualização automática
+# para outro momento: são a única parte que alcança o host inteiro, que é
+# dividido com o agendaGo.
 #
 # Sem $(SENHA_VAULT), e é de propósito: este playbook não lê segredo nenhum, e um
-# playbook que roda como ROOT é o último lugar onde vale abrir os segredos por
-# hábito.
+# playbook que roda com privilégio é o último lugar onde vale abrir os segredos
+# por hábito.
 infra-preparar: $(PASTA_ANSIBLE)/.dependencias
-	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml -u root --ask-pass --diff
+	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml --ask-become-pass --diff $(ARGS)
 
 # Passo obrigatório antes do apply. O critério de aceite desta fase é ele sair
 # com `changed=0` numa SEGUNDA execução, depois que o servidor já foi montado —

@@ -166,10 +166,12 @@ make infra-check       # mostra o que mudaria, sem tocar em nada
 make infra-apply       # aplica
 ```
 
-Numa máquina nova, antes disso: `make infra-preparar`, que instala o Docker e
-cria o usuário `deploy` (é a única parte que exige root). O procedimento
-completo, os segredos e como recomeçar do zero estão em
-[infraestrutura.md](infraestrutura.md).
+Antes desses, o que exige privilégio no host: `make infra-preparar` — Docker,
+os dois usuários, o wrapper da esteira e o hardening. Ele entra como `deploy` e
+sobe por `sudo`, pedindo a senha na hora; o hardening pode ficar para depois com
+`ARGS="--skip-tags hardening"`, já que é a única parte que alcança o host
+inteiro, dividido com o agendaGo. O procedimento completo, os segredos e como
+recomeçar do zero estão em [infraestrutura.md](infraestrutura.md).
 
 O que continua valendo, e que o playbook não dispensa você de saber:
 

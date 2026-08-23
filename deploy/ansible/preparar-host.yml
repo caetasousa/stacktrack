@@ -11,11 +11,22 @@
 # nunca vai conseguir provisionar um servidor do zero: ela faz login com
 # `VPS_USER=deploy`, que num host novo ainda não existe.
 #
-# A credencial de root vem do provedor do VPS e não está no inventário nem no
-# vault: passe-a na hora, para ela não virar um segredo a mais para guardar.
+# O privilégio vem de `sudo`, e a senha é pedida na hora — nem o inventário nem
+# o vault a guardam:
 #
-#   cd deploy/ansible
-#   ansible-playbook preparar-host.yml -u root --ask-pass          # senha
+#   make infra-preparar
+#   # equivale a:
+#   cd deploy/ansible && ansible-playbook preparar-host.yml --ask-become-pass --diff
+#
+# Entrar como `deploy` e subir por sudo, em vez de logar como root, não é
+# preferência: `PermitRootLogin no` é uma das coisas que a role `hardening`
+# aplica. Um playbook que só soubesse entrar como root deixaria de rodar depois
+# da primeira vez que rodasse — e o que endurece o host precisa continuar
+# alcançável para poder consertá-lo.
+#
+# Numa MÁQUINA NOVA, onde `deploy` ainda não existe, o caminho é root:
+#
+#   ansible-playbook preparar-host.yml -u root --ask-pass          # senha (exige sshpass)
 #   ansible-playbook preparar-host.yml -u root --key-file ~/.ssh/x # ou chave
 #
 # Rodá-lo duas vezes seguidas tem de terminar em `changed=0` — é o que prova que
@@ -37,10 +48,10 @@
   hosts: producao
   gather_facts: true
 
-  # Sobrescreve o `ansible_user: deploy` do inventário. Root é o padrão aqui, e
-  # `-u` na linha de comando ainda tem precedência para quem entra por outro
-  # usuário administrativo.
-  remote_user: root
+  # Conecta como o usuário do inventário (`deploy`) e sobe por sudo. `-u root`
+  # na linha de comando continua tendo precedência, para o caso da máquina nova
+  # em que `deploy` ainda não existe — ali o become é um no-op.
+  become: true
 
   roles:
     # A ordem importa, e cada passo depende do anterior:

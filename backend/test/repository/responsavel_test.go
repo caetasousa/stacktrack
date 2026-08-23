@@ -35,8 +35,26 @@ func usuarioDeTeste(t *testing.T, nome string) string {
 
 func cardDeTeste(t *testing.T, colunaID, titulo string) string {
 	t.Helper()
-	c, _ := card.Novo(uuid.NewString(), colunaID, titulo, "", "", ordem.ChaveInicial)
-	if err := repository.NovoCardPostgres(pool).Salvar(context.Background(), c); err != nil {
+	ctx := context.Background()
+	cards := repository.NovoCardPostgres(pool)
+
+	// A chave vem DEPOIS da última da coluna, como o caso de uso faz — e não
+	// `ordem.ChaveInicial` fixa, que dava a mesma chave a todos os cards. Desde
+	// o V18 isso é duplicidade e o banco recusa; antes dele passava, e a fixture
+	// vinha criando em silêncio o estado que o comando de reparo conserta.
+	ultima, err := cards.UltimaChave(ctx, colunaID)
+	if err != nil {
+		t.Fatalf("última chave da coluna: %v", err)
+	}
+	chave := ordem.ChaveInicial
+	if ultima != "" {
+		if chave, err = ordem.ChaveEntre(ultima, ""); err != nil {
+			t.Fatalf("chave depois de %q: %v", ultima, err)
+		}
+	}
+
+	c, _ := card.Novo(uuid.NewString(), colunaID, titulo, "", "", chave)
+	if err := cards.Salvar(ctx, c); err != nil {
 		t.Fatalf("salvar card: %v", err)
 	}
 	return c.ID

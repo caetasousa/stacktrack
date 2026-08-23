@@ -10,6 +10,12 @@
 // Essa última asserção é o ponto do arquivo. Um relatório dizendo "limpo" não
 // vale nada se o índice ainda falhar na janela de manutenção — então o teste
 // tenta criar o índice de verdade.
+//
+// Desde o V18 esses índices JÁ EXISTEM no schema, e é por isso que cada teste
+// daqui começa derrubando os dois: sem isso o banco recusaria a duplicidade
+// antes de o reparo ter o que reparar, e o arquivo passaria a provar o índice em
+// vez do comando. Derrubar reconstrói o mundo em que o comando é usado — um
+// banco herdado, anterior ao contract — e recriá-los no fim é a asserção.
 package repository_test
 
 import (
@@ -33,6 +39,10 @@ import (
 // simultâneas no mesmo ponto calculavam a mesma chave. Pelo caminho de hoje isso
 // não acontece mais — e é por não acontecer mais que o teste precisa forçá-lo
 // para ter o que reparar.
+//
+// Só funciona depois de `semOsIndicesDoContract`: com o índice do V18 no lugar,
+// o banco recusa este UPDATE, que é exatamente o que o contract existe para
+// fazer.
 func forcarChaveDoCard(t *testing.T, cardID, chave string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
@@ -62,30 +72,59 @@ func cardNaColuna(t *testing.T, colunaID, titulo, chave string) string {
 	return c.ID
 }
 
-// indiceDoContractCria tenta criar os índices que o contract vai criar, e os
-// desfaz em seguida. Devolve o erro do banco.
+// semOsIndicesDoContract derruba os índices únicos do V18 e devolve a função
+// que os recria — que é, ela mesma, a asserção do contract.
 //
-// É a asserção que importa: o relatório do comando só vale se o índice de
-// verdade puder ser construído depois dele.
-func indiceDoContractCria(t *testing.T) error {
+// Recriar é o que o operador faz na janela de manutenção depois de rodar o
+// comando, e falha se sobrou uma única chave repetida. Por isso a função é
+// devolvida em vez de escondida no cleanup: o teste que quer PROVAR o contract
+// a chama e confere o erro; os outros só precisam do banco de volta no lugar, e
+// o cleanup registrado aqui cuida disso.
+//
+// Os índices são os do schema, com o nome do schema, e não uma cópia parecida:
+// uma cópia provaria que ALGUM índice único cria, não o que produção tem.
+func semOsIndicesDoContract(t *testing.T) func() error {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx,
-		`CREATE UNIQUE INDEX teste_cards_chave ON cards (coluna_id, chave COLLATE "C")`); err != nil {
-		return err
+	for _, sql := range []string{
+		`DROP INDEX idx_cards_chave_por_coluna`,
+		`DROP INDEX idx_colunas_chave_por_board`,
+	} {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("derrubar o índice do contract (%s): %v", sql, err)
+		}
 	}
-	defer pool.Exec(ctx, `DROP INDEX IF EXISTS teste_cards_chave`) //nolint:errcheck
 
-	if _, err := pool.Exec(ctx,
-		`CREATE UNIQUE INDEX teste_colunas_chave ON colunas (board_id, chave COLLATE "C")`); err != nil {
-		return err
+	// `IF NOT EXISTS` para o cleanup poder repetir o que a chamada explícita já
+	// fez — ou completar o que ela deixou pela metade, se o segundo índice tiver
+	// falhado depois de o primeiro subir.
+	recriar := func() error {
+		for _, sql := range []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_chave_por_coluna
+			     ON cards (coluna_id, chave COLLATE "C")`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_colunas_chave_por_board
+			     ON colunas (board_id, chave COLLATE "C")`,
+		} {
+			if _, err := pool.Exec(ctx, sql); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	_, _ = pool.Exec(ctx, `DROP INDEX IF EXISTS teste_colunas_chave`)
-	return nil
+
+	// Sem isto, um teste que falhasse no meio deixaria o banco sem o contract
+	// para todos os testes seguintes do pacote, que compartilham o mesmo pool.
+	t.Cleanup(func() {
+		if err := recriar(); err != nil {
+			t.Errorf("os índices do contract não voltaram ao banco: %v", err)
+		}
+	})
+	return recriar
 }
 
 func TestReparoDeixaOBancoProntoParaOContract(t *testing.T) {
 	ctx := context.Background()
+	recriarOsIndices := semOsIndicesDoContract(t)
 	boardID, colunaID, _ := cenario(t)
 
 	// Quatro cards, dois deles com a MESMA chave.
@@ -139,7 +178,7 @@ func TestReparoDeixaOBancoProntoParaOContract(t *testing.T) {
 	}
 
 	// A asserção que fecha o assunto: o índice do contract agora CRIA.
-	if err := indiceDoContractCria(t); err != nil {
+	if err := recriarOsIndices(); err != nil {
 		t.Fatalf("o contract ainda não pode ser aplicado depois do reparo: %v", err)
 	}
 }
@@ -150,6 +189,7 @@ func TestReparoDeixaOBancoProntoParaOContract(t *testing.T) {
 // nada que explicasse depois por que ela mudou.
 func TestReparoAvancaARevisaoEDeixaEvento(t *testing.T) {
 	ctx := context.Background()
+	semOsIndicesDoContract(t)
 	boardID, colunaID, _ := cenario(t)
 
 	primeiro := cardNaColuna(t, colunaID, "um", "b")
@@ -184,6 +224,7 @@ func TestReparoAvancaARevisaoEDeixaEvento(t *testing.T) {
 // abre transação nenhuma. É o que permite pôr o comando num pipeline.
 func TestReparoEhIdempotente(t *testing.T) {
 	ctx := context.Background()
+	semOsIndicesDoContract(t)
 	boardID, colunaID, _ := cenario(t)
 
 	primeiro := cardNaColuna(t, colunaID, "um", "b")
@@ -220,6 +261,7 @@ func TestReparoEhIdempotente(t *testing.T) {
 // arbitrária.
 func TestReparoPreservaAOrdemRelativa(t *testing.T) {
 	ctx := context.Background()
+	semOsIndicesDoContract(t)
 	_, colunaID, _ := cenario(t)
 
 	// Chaves distintas e crescentes, exceto o par duplicado no meio.

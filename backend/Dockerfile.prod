@@ -25,6 +25,22 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 	-ldflags="-s -w" \
 	-o /out/api ./cmd/api
 
+# O comando de manutenção vai na MESMA imagem, e não numa própria.
+#
+# Ele precisa rodar contra o mesmo schema e com o mesmo código de domínio que a
+# API — é justamente por reparar dado PELO DOMÍNIO que ele existe, em vez de um
+# UPDATE numa migration. Duas imagens abririam a possibilidade de rodar o reparo
+# com uma versão do domínio diferente da que está no ar, que é o defeito que se
+# quer evitar.
+#
+# São dois megabytes a mais numa imagem que já tem a API inteira, e o entrypoint
+# continua sendo o servidor: quem quiser o comando o invoca explicitamente
+# (docker compose run --rm api manutencao ...).
+RUN CGO_ENABLED=0 GOOS=linux go build \
+	-trimpath \
+	-ldflags="-s -w" \
+	-o /out/manutencao ./cmd/manutencao
+
 FROM alpine:3.21
 
 # ca-certificates para qualquer chamada HTTPS de saída; tzdata porque prazo de
@@ -38,6 +54,7 @@ RUN adduser -D -H -u 10001 stacktrack \
 	&& chown -R stacktrack:stacktrack /var/lib/stacktrack
 
 COPY --from=build /out/api /usr/local/bin/api
+COPY --from=build /out/manutencao /usr/local/bin/manutencao
 
 USER stacktrack
 EXPOSE 8080

@@ -117,6 +117,18 @@ services:
       APP_ENV: production
       FRONTEND_ORIGIN: https://${DOMINIO}
       ANEXOS_DIR: /var/lib/stacktrack/anexos
+      # De onde a API aceita o cabeçalho X-Real-IP. Só o Caddy fala com ela, e
+      # ele chega pela rede `borda`. Informe de preferência o IP exato do
+      # container do Caddy, ou a sub-rede exata de `borda`; confiar em toda a
+      # faixa privada permitiria que qualquer container vizinho forjasse IP.
+      #
+      # É a variável que decide se o IP do cliente é confiável, e portanto se
+      # os tetos por IP valem alguma coisa: vinda de qualquer outro lugar, a
+      # requisição escolheria o próprio balde de rate limit. Com a lista vazia
+      # a API recusa subir em produção (config.Validar) — de propósito, porque
+      # o modo "não confia em ninguém" jogaria todos os clientes no balde do
+      # IP do proxy e a primeira rajada trancaria todo mundo para fora.
+      PROXIES_CONFIAVEIS: ${PROXIES_CONFIAVEIS:?defina o IP ou CIDR exato do proxy Caddy}
     volumes:
       - anexos:/var/lib/stacktrack/anexos
     # Participa das duas redes: a interna (para falar com o Postgres) e a borda

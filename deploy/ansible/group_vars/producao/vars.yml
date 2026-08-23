@@ -53,7 +53,7 @@ usuario_esteira: stacktrack-deploy
 # forçado do outro lado.
 esteira_chave_publica: >-
   ssh-ed25519
-  AAAAC3NzaC1lZDI1NTE5AAAAIB7HEidAXJSz86YOaV2jxVAIMcVyqHAcxJc2AydOSflp
+  AAAAC3NzaC1lZDI1NTE5AAAAIO8mNIDKQwLDbQJVreykGeb1G7luPfawEHCezTeSyHaM
   github-actions-stacktrack
 
 pasta_base: /home/{{ usuario_app }}

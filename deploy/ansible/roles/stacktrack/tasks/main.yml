@@ -320,8 +320,26 @@
       - docker-compose.prod.yml
     state: present
     pull: missing
+  register: stacktrack_stack
   # Num --check contra servidor ainda sem a stack, as tasks acima apenas
   # SIMULARAM criar o diretório e o módulo falharia com "is not a directory".
   # Depois do primeiro apply o arquivo existe e o check volta a exercitar esta
   # task — que é o que o critério de `changed=0` precisa medir.
   when: not ansible_check_mode or stacktrack_compose_no_servidor.stat.exists
+  # O `flyway` roda as migrations e SAI: é serviço de execução única, e o `api`
+  # o espera por `service_completed_successfully`. Todo `compose up` encontra o
+  # container parado e o sobe de novo — o módulo reporta `changed`, e reportaria
+  # para sempre. Não existe estado do servidor em que isso convirja, então o
+  # `changed` padrão desta task media "as migrations rodaram", não "a stack
+  # mudou", e o critério de idempotência do playbook era inalcançável por
+  # construção.
+  #
+  # A correção não é silenciar a task: é medir a coisa certa. O módulo devolve
+  # em `actions` UM item por container que ele mexeu, e o de execução única é
+  # identificável pelo nome. Sobrando qualquer outro, a stack mudou de verdade.
+  #
+  # Isto não esconde falha: migration que quebra faz o `compose up` sair
+  # diferente de zero e a task falha antes de `changed_when` ser avaliado.
+  changed_when: >-
+    stacktrack_stack.actions | default([]) | map(attribute='id')
+    | reject('search', '-flyway-') | list | length > 0

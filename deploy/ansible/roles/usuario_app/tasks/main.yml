@@ -60,8 +60,8 @@
 # O sudoers apenas torna explícito o que o grupo já concede, em vez de deixar o
 # caminho passar por um container.
 #
-# O usuário da ESTEIRA é outro assunto: o sudo dele é restrito a UM arquivo
-# (roles/acesso_esteira), e é lá que o privilégio mínimo importa.
+# A chave da ESTEIRA é outro assunto: ela entra nesta mesma conta, mas presa a
+# um comando forçado — e é ali que o privilégio mínimo importa.
 - name: sudo do usuário da aplicação
   ansible.builtin.copy:
     content: |
@@ -90,6 +90,51 @@
     # provisionamento que tranca quem opera do lado de fora é pior do que um que
     # deixa uma chave a mais.
     exclusive: false
+
+# --- o acesso da esteira, na MESMA conta -------------------------------------
+#
+# O comando forçado é uma propriedade DA CHAVE, não do usuário: a mesma conta
+# aceita a chave do operador com shell normal e a da esteira presa a um único
+# programa. É o que permite a esteira entrar aqui sem ganhar o shell daqui.
+#
+# O que se abre mão, e vale saber: se um dia essa linha do authorized_keys
+# perder as opções, a chave da esteira passa a dar shell numa conta do grupo
+# `docker` — que nesta máquina é root. Com uma conta separada, o mesmo erro
+# daria um shell sem poder nenhum. Um desenho falha fechado, este falha aberto;
+# a troca foi deliberada, para não haver duas contas e um sudo no meio.
+
+- name: o wrapper de release, único comando que a chave da esteira alcança
+  ansible.builtin.template:
+    src: stacktrack-release.sh.j2
+    dest: /usr/local/bin/stacktrack-release
+    owner: root
+    group: root
+    # Root é dono e só root escreve. Nem a esteira nem a aplicação podem
+    # reescrever o arquivo que define o que a esteira pode fazer.
+    mode: '0755'
+    validate: bash -n %s
+
+- name: chave da esteira presa ao comando forçado
+  ansible.posix.authorized_key:
+    user: '{{ usuario_app }}'
+    key: '{{ esteira_chave_publica }}'
+    state: present
+    # `restrict` desliga tudo o que uma chave de deploy não usa: PTY,
+    # encaminhamento de porta, de agente e de X11. O `command` a amarra ao
+    # wrapper: o que o cliente pedir chega em SSH_ORIGINAL_COMMAND e é validado
+    # lá dentro.
+    key_options: 'restrict,command="/usr/local/bin/stacktrack-release"'
+    exclusive: false
+  when: esteira_chave_publica | default('') | length > 0
+
+- name: avisa que a esteira ainda não tem chave própria
+  ansible.builtin.debug:
+    msg: >-
+      `esteira_chave_publica` está vazia: a chave da esteira NÃO foi instalada.
+      Gere um par exclusivo (`ssh-keygen -t ed25519 -C github-actions-stacktrack
+      -f ~/.ssh/stacktrack_deploy -N ""`), ponha a pública em
+      group_vars/producao/vars.yml e a privada no secret VPS_SSH_KEY.
+  when: esteira_chave_publica | default('') | length == 0
 
 # --- a pasta que continua sendo compartilhada --------------------------------
 #

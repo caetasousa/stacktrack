@@ -950,10 +950,10 @@ E, depois da troca da chave, contra o servidor de verdade, com a chave da
 esteira:
 
 ```
-$ ssh -i stacktrack_deploy stacktrack-esteira@... 'stacktrack-release estado'
+$ ssh -i stacktrack_deploy stacktrack@... 'stacktrack-release estado'
   → compose ps, sha256 dos três arquivos, fuso e cron
 
-$ ssh -i stacktrack_deploy stacktrack-esteira@... 'bash'
+$ ssh -i stacktrack_deploy stacktrack@... 'bash'
   → stacktrack-release: verbo desconhecido: bash
 ```
 
@@ -979,9 +979,8 @@ Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
 ### O que só você pode fazer
 
 1. ~~**Gerar a chave exclusiva da esteira**~~ — feito. Par próprio instalado em
-   `stacktrack-esteira` com `restrict` e comando forçado, e os segredos do GitHub
-   trocados. A chave do agendaGo continua em `deploy`, que é o acesso do
-   operador e do vizinho.
+   `stacktrack` com `restrict` e comando forçado, e os segredos do GitHub
+   trocados.
 2. ~~**`make infra-preparar` e `make infra-apply`**~~ — feito, hardening
    incluído. Usuário da esteira, wrapper, papel de runtime do banco, SSH sem
    senha, firewall e atualização automática de segurança estão no servidor, com
@@ -994,10 +993,15 @@ Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
 
 ### Decisão tomada, e por quê
 
-O usuário da esteira é **novo** (`stacktrack-esteira`), e não o `deploy`
-apertado. O `deploy` é compartilhado com o agendaGo: tirar-lhe o shell ou o
-grupo `docker` quebraria o deploy do vizinho, que não é deste repositório. O
-novo não entra em grupo nenhum e chega ao Docker só pelo wrapper.
+A esteira **não tem conta própria**. Ela entra no `stacktrack` — a conta da
+aplicação — com uma chave presa a `restrict` e comando forçado; o que a limita é
+a chave, não o usuário.
+
+Houve uma conta separada por algumas horas, e foi retirada a pedido: duas contas
+e um `sudo` no meio custavam mais em entendimento do que entregavam em
+segurança. O que se abriu mão está escrito no critério de aceite abaixo — se a
+linha do `authorized_keys` perder as opções, a chave passa a dar shell numa
+conta do grupo `docker`. Uma conta separada faria o mesmo erro falhar fechado.
 
 ### Duas coisas que ficaram fora do escopo
 
@@ -1114,6 +1118,8 @@ comprometido.
 - [ ] Segunda aplicação do playbook é idempotente. *(medição contra o servidor)*
 - [x] API não possui DDL nem privilégios administrativos.
 - [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
+      *(pelo comando forçado da chave. A conta em que ela mora tem Docker — a
+      separação de contas foi retirada a pedido; ver a decisão acima.)*
 - [ ] `main` e o Environment de produção aplicam os gates definidos. *(painel do
       GitHub)*
 - [x] Portas internas não estão expostas à internet.

@@ -40,7 +40,7 @@
 # ele descreve a máquina, e não só a constrói uma vez.
 #
 # Ele deixou de ser só "dia zero": desde a A5 é também quem mantém o acesso da
-# esteira (usuário próprio, wrapper, sudo restrito) e o hardening do host (SSH
+# esteira (o wrapper e a chave restrita) e o hardening do host (SSH
 # sem senha, firewall, atualização automática de segurança). Isso o torna um
 # playbook que se roda de novo quando essas coisas mudam — e não uma vez na
 # vida.
@@ -69,13 +69,10 @@
     #
     #   docker          o pacote da engine é quem cria o grupo `docker`
     #   usuario_app     o usuário DONO da aplicação, que entra nesse grupo
-    #   acesso_esteira  o usuário da esteira e o wrapper que ele executa COMO
-    #                   o usuário da aplicação — que já precisa existir
     #   hardening       por último, porque ele desliga a senha do SSH e só pode
     #                   fazer isso depois de haver chave instalada
     - docker
     - usuario_app
-    - acesso_esteira
 
     # Marcado porque é a única parte que mexe no HOST INTEIRO, e o host é
     # dividido com o agendaGo: SSH sem senha, firewall e atualização automática

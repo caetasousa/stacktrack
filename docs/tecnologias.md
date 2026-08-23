@@ -1194,19 +1194,20 @@ O programa apontado (`roles/acesso_esteira/templates/stacktrack-release.sh.j2`)
 `read -ra` e nunca com `eval`: com `eval`, um `release; rm -rf /` seria
 obedecido, e o comando forçado não teria servido para nada.
 
-A outra metade é o usuário. `stacktrack-esteira` **não** entra no grupo `docker`,
-porque estar nele equivale a ser root na máquina — `docker run -v /:/host` monta
-o disco inteiro. Ele alcança o Docker por um `sudo` restrito ao wrapper:
+O detalhe que decide o desenho: a restrição é **da chave**, não da conta. A
+mesma conta pode ter, no mesmo `authorized_keys`, a chave do operador sem limite
+nenhum e a da esteira presa a um programa. Não é preciso um usuário por
+credencial.
 
-```
-stacktrack-esteira ALL=(stacktrack) NOPASSWD: /usr/local/bin/stacktrack-release
-```
+O que se paga por isso: a conta em que a chave mora tem Docker, porque é a conta
+que roda a aplicação. Se aquela linha perder as opções, a chave passa a valer um
+shell com poder de root. Uma conta separada, fora do grupo `docker`, faria o
+mesmo erro terminar em nada — falharia fechado. A mitigação escolhida foi o
+`authorized_keys` ser escrito pelo playbook e nunca à mão.
 
-Não é um furo, porque o que o sudo executa é o próprio wrapper, que valida os
-argumentos antes de qualquer coisa. O que a chave da esteira alcança é o
-conjunto de verbos daquele arquivo, e `scripts/testa-wrapper-de-release.sh`
-executa o script renderizado contra um `docker` de mentira para provar as
-recusas.
+O que a chave alcança é o conjunto de verbos do wrapper, e
+`scripts/testa-wrapper-de-release.sh` executa o script renderizado contra um
+`docker` de mentira para provar as recusas.
 
 📚 [sshd — AUTHORIZED_KEYS FILE FORMAT](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT) · [sudoers](https://www.sudo.ws/docs/man/sudoers.man/)
 

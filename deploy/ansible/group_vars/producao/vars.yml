@@ -45,19 +45,15 @@ operador_chave_publica: >-
   github-actions-agendago
 
 # --- o acesso da esteira -----------------------------------------------------
-
-# O usuário POR ONDE A ESTEIRA ENTRA. Não é o dono da aplicação, e o nome diz
-# isso: ele não gerencia arquivo nenhum.
 #
-# Não está em grupo nenhum — nem `docker`, nem o do projeto. Ele alcança o Docker
-# só através do wrapper /usr/local/bin/stacktrack-release, por um sudo restrito
-# àquele arquivo, que valida o verbo antes de agir.
-usuario_esteira: stacktrack-esteira
+# A esteira NÃO tem conta própria: ela entra na conta da aplicação, com uma
+# chave presa a um comando forçado. O comando forçado é propriedade da CHAVE,
+# não do usuário — a mesma conta aceita a sua chave com shell normal e a dela
+# limitada a três verbos.
 
 # Chave PÚBLICA exclusiva do stacktrack, cujo par privado é o secret
 # VPS_SSH_KEY. Vazia enquanto o par não for gerado — e enquanto estiver vazia, a
-# role `acesso_esteira` avisa e NÃO instala chave nenhuma, deixando o acesso
-# antigo funcionando.
+# role `usuario_app` avisa e NÃO instala chave nenhuma.
 #
 #   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
 #

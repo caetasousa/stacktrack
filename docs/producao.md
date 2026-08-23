@@ -89,8 +89,6 @@ que está rodando.
 ├── docker-compose.prod.yml
 ├── scripts/backup.sh
 └── backups/
-
-/home/stacktrack-esteira/     só .ssh/authorized_keys
 ```
 
 Cada projeto na sua conta, com uma exceção: o bloco do Caddy continua em
@@ -135,7 +133,7 @@ que não declara environment nenhum, não os alcança.
 | Tipo | Nome | Valor |
 |---|---|---|
 | Secret | `VPS_HOST` | IP do servidor |
-| Secret | `VPS_USER` | `stacktrack-esteira` |
+| Secret | `VPS_USER` | `stacktrack` |
 | Secret | `VPS_SSH_KEY` | chave **privada** exclusiva da esteira |
 | Secret | `VPS_KNOWN_HOSTS` | saída de `ssh-keyscan -H <ip>` |
 | Variable | `DOMINIO` | `stacktrack.duckdns.org` (aba Variables, no repositório) |
@@ -151,9 +149,11 @@ responder e entregar a chave de deploy junto.
 ### O que a chave da esteira consegue fazer
 
 Nada além de três verbos. Ela está no `authorized_keys` do usuário
-`stacktrack-esteira` com `restrict` e
-`command="/usr/local/bin/stacktrack-release"`: não abre shell, não faz `scp`,
-não encaminha porta nem agente.
+`stacktrack` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
+não abre shell, não faz `scp`, não encaminha porta nem agente.
+
+A restrição é **da chave**, não da conta: a mesma conta aceita a chave do
+operador sem limite algum e a da esteira limitada a três verbos.
 
 | Verbo | O que faz |
 |---|---|
@@ -161,11 +161,10 @@ não encaminha porta nem agente.
 | `backup` | um backup pontual |
 | `estado` | `compose ps`, o sha256 dos arquivos de configuração, fuso e cron |
 
-O usuário **não** está no grupo `docker` — acesso ao socket equivale a root
-nesta máquina. Ele chega ao Docker por um `sudo` restrito ao wrapper, que valida
-os argumentos antes de qualquer coisa. `scripts/testa-wrapper-de-release.sh`
-prova as recusas (shell, encadeamento, substituição de comando, SHA
-malformado) e roda no CI.
+O que limita a esteira é o comando forçado, e só ele: a conta em que a chave
+mora tem Docker, porque é a conta que roda a aplicação. `scripts/testa-wrapper-de-release.sh`
+prova as recusas (shell, encadeamento, substituição de comando, SHA malformado)
+e roda no CI.
 
 ## 3️⃣ Provisionar o servidor
 
@@ -302,7 +301,7 @@ acima.
 Automático pela esteira, que manda uma linha e nada mais:
 
 ```
-ssh stacktrack-esteira@servidor "stacktrack-release release <sha>"
+ssh stacktrack@servidor "stacktrack-release release <sha>"
 ```
 
 A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,

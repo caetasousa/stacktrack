@@ -483,7 +483,7 @@ jobs:
   # Segredos (Settings → Secrets and variables → Actions, ou o Environment
   # `production`):
   #   VPS_HOST         IP ou hostname do servidor
-  #   VPS_USER         usuário SSH da esteira — `stacktrack-esteira`
+  #   VPS_USER         usuário SSH — `stacktrack`, com a chave presa ao comando forçado
   #   VPS_SSH_KEY      chave PRIVADA da esteira, exclusiva do stacktrack
   #   VPS_PORT         opcional, padrão 22
   #   VPS_KNOWN_HOSTS  saída de `ssh-keyscan -H HOST`. Obrigatório quando

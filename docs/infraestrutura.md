@@ -114,9 +114,8 @@ misturados. A fronteira existia na documentação e em nenhum `ls`.
 Agora:
 
 ```
-/home/deploy/               agendago/ · caddy/        ← o vizinho e o compartilhado
-/home/stacktrack/           .env · docker-compose.prod.yml · scripts/ · backups/
-/home/stacktrack-esteira/   .ssh/authorized_keys, e nada mais
+/home/deploy/       agendago/ · caddy/        ← o vizinho e o compartilhado
+/home/stacktrack/   .env · docker-compose.prod.yml · scripts/ · backups/
 ```
 
 **A exceção, e por que ela existe.** O bloco de site continua sendo escrito em
@@ -126,24 +125,32 @@ editar o compose do vizinho, o que o `CLAUDE.md` proíbe. O acesso sai do grupo:
 o usuário `stacktrack` entra no grupo `deploy` e o diretório é `0775`. Uma troca
 futura do proxy desfaz essa amarra.
 
-**Por que isso não pôde ser feito com o usuário da esteira.** Quem gerencia os
-arquivos precisa falar com o Docker para subir a stack, e falar com o Docker
-equivale a root nesta máquina. Se o dono dos arquivos fosse a conta cuja chave
-está no GitHub, a chave voltaria a valer a máquina inteira. Por isso são dois:
-um dono com poder, e um gatilho sem nenhum.
+### 🔑 Duas contas, e uma chave que não vale o que a conta vale
 
-### 🔑 Três usuários, três poderes
+| | `deploy` | `stacktrack` |
+|---|---|---|
+| De quem é | do agendaGo | do stacktrack |
+| Dono de | `agendago/`, `caddy/` | a stack, os scripts, os backups |
+| Grupo `docker` | sim | sim |
 
-| | `deploy` | `stacktrack` | `stacktrack-esteira` |
-|---|---|---|---|
-| De quem é | do agendaGo | da aplicação | da esteira |
-| Dono de | `agendago/`, `caddy/` | a stack, os scripts, os backups | nada |
-| Grupo `docker` | sim | sim | **não** |
-| Alcança o Docker | direto | direto | só pelo wrapper, por `sudo` restrito a ele |
-| Chave | a do operador | a do operador | par exclusivo, com `restrict` e comando forçado |
+A esteira **não tem conta própria**: ela entra no `stacktrack`, e o que a limita
+é a chave, não o usuário.
 
-O `deploy` continua como está — apertá-lo mexeria no vizinho. O que mudou é que
-ele deixou de ser dono do stacktrack e deixou de ser o caminho da esteira.
+```
+authorized_keys do stacktrack
+├── chave do operador                                    → shell normal
+└── restrict,command="/usr/local/bin/stacktrack-release" → três verbos
+```
+
+`command=` faz o sshd executar aquele programa e ignorar o que o cliente pediu;
+o pedido vai para `SSH_ORIGINAL_COMMAND`, como dado. `restrict` desliga PTY,
+encaminhamento de porta, de agente e X11.
+
+**O que se abriu mão, para não haver duas contas.** Se um dia essa linha perder
+as opções, a chave da esteira passa a dar shell numa conta do grupo `docker` —
+que nesta máquina é root. Uma conta separada faria o mesmo erro terminar num
+shell sem poder nenhum: falharia fechado, e esta escolha falha aberta. A
+mitigação é o `authorized_keys` ser escrito pelo playbook, e não à mão.
 
 O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
 `release <sha>`, `backup` e `estado`, e recusa o resto. Ele lê
@@ -274,18 +281,19 @@ ssh -i ~/.ssh/agendago_deploy deploy@<host> "sudo mv /home/deploy/backups/stackt
 
 # 4. Confere ANTES de apagar qualquer coisa.
 curl -fsS https://<dominio>/api/health && echo OK
-ssh -i ~/.ssh/stacktrack_deploy stacktrack-esteira@<host> 'stacktrack-release estado'
+ssh -i ~/.ssh/stacktrack_deploy stacktrack@<host> 'stacktrack-release estado'
 
 # 5. Só então: remove a pasta antiga e a conta antiga da esteira.
 ssh -i ~/.ssh/agendago_deploy deploy@<host> \
-  'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-deploy'
+  'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-esteira \
+   && sudo rm -f /etc/sudoers.d/stacktrack-esteira'
 ```
 
 O cron antigo, no crontab do `deploy`, é removido pelo próprio playbook — o
 passo 2 já cuida disso. Sem essa remoção o backup rodaria duas vezes por noite,
 e a cópia velha falharia em silêncio contra um caminho que não existe mais.
 
-E, no GitHub: `VPS_USER` passa a ser `stacktrack-esteira`.
+E, no GitHub: `VPS_USER` passa a ser `stacktrack`.
 
 ---
 

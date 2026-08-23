@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# ATENÇÃO: arquivo gerado pelo Ansible (roles/acesso_esteira). Editar no
+# ATENÇÃO: arquivo gerado pelo Ansible (roles/usuario_app). Editar no
 # servidor não adianta — o próximo `make infra-preparar` sobrescreve.
 #
 # O ÚNICO comando que a esteira consegue executar neste servidor.
 #
-# A chave do CI está no authorized_keys com `command="..."` apontando para cá e
-# com `restrict`: não há shell, não há scp, não há port forwarding, não há
-# agente. O que o cliente pediu chega em SSH_ORIGINAL_COMMAND, e este script
+# A chave do CI está no authorized_keys do usuário da aplicação com
+# `command="..."` apontando para cá e com `restrict`: não há shell, não há scp,
+# não há port forwarding, não há agente. A restrição é da CHAVE — a mesma conta
+# aceita a chave do operador sem limite nenhum. O que o cliente pediu chega em SSH_ORIGINAL_COMMAND, e este script
 # decide se aquilo é uma das operações de release — ou nada.
 #
 # Por que isso importa: o job de deploy anterior abria um shell no servidor e
@@ -78,16 +79,15 @@ if [ "$#" -gt 2 ]; then
 	recusa "argumentos demais"
 fi
 
-# --- o privilégio ------------------------------------------------------------
+# --- quem executa ------------------------------------------------------------
 #
-# O usuário da esteira NÃO está no grupo `docker`, e a ausência é a metade que
-# importa: entrar nele equivale a root nesta máquina, porque um
-# `docker run -v /:/host` monta o disco inteiro. Quem fala com o Docker é o
-# usuário da aplicação, e a esteira chega até ele por um sudo que só permite
-# ESTE arquivo.
+# A esteira entra JÁ como o usuário da aplicação: a chave dela está no
+# authorized_keys dessa conta, presa a este arquivo. Então normalmente não há
+# troca de usuário nenhuma aqui.
 #
-# A validação acontece antes, e vale igual dos dois lados: o sudo não é um furo
-# porque o que ele executa é este mesmo script, com os mesmos verbos.
+# O `sudo` cobre só o caso de alguém chamar o wrapper de outra conta — root,
+# tipicamente, testando. Se não houver permissão, o comando falha em vez de
+# rodar com o usuário errado.
 if [ "$(id -un)" != "$USUARIO_APP" ]; then
 	exec sudo -n -u "$USUARIO_APP" "$0" "$verbo" ${alvo:+"$alvo"}
 fi

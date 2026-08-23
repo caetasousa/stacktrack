@@ -15,7 +15,7 @@
 set -euo pipefail
 
 raiz=$(cd "$(dirname "$0")/.." && pwd)
-template="$raiz/deploy/ansible/roles/acesso_esteira/templates/stacktrack-release.sh.j2"
+template="$raiz/deploy/ansible/roles/usuario_app/templates/stacktrack-release.sh.j2"
 
 trabalho=$(mktemp -d)
 trap 'rm -rf "$trabalho"' EXIT

@@ -37,6 +37,13 @@ var pool *pgxpool.Pool
 // pool pelo caminho de PRODUÇÃO (config.NovoPool) em vez de reaproveitar este.
 var urlDoBanco string
 
+// containerDoBanco é o container em si, para o teste dos papéis: aplicar
+// deploy/postgres/papeis.sql exige o `psql` de verdade, porque o arquivo usa
+// `\gexec` e interpolação de variável, que são recursos do cliente e não do
+// servidor. Rodá-lo por outro caminho provaria um SQL parecido, não o que o
+// Ansible aplica.
+var containerDoBanco *postgres.PostgresContainer
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -55,6 +62,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic("não foi possível subir o Postgres de teste: " + err.Error())
 	}
+	containerDoBanco = container
 
 	url, err := container.ConnectionString(ctx, "sslmode=disable")
 	urlDoBanco = url

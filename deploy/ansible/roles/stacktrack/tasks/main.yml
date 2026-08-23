@@ -177,6 +177,71 @@
   register: stacktrack_compose_no_servidor
   check_mode: false
 
+# --- papéis do banco ---------------------------------------------------------
+#
+# A API deixou de conectar como DONO do banco. Quem migra é o dono (Flyway);
+# quem serve é um papel com DML e nada mais — sem CREATE, ALTER, DROP, extensão,
+# role ou database. Uma falha de execução remota na API não alcança mais o
+# schema.
+#
+# O papel precisa EXISTIR antes de a stack subir com o .env novo, senão a API
+# sobe apontando para uma credencial que o banco não conhece. Por isso o Postgres
+# é levantado sozinho aqui, os papéis são aplicados, e só então a stack inteira
+# sobe — que é a task logo abaixo.
+
+- name: garante o banco no ar para poder aplicar os papéis
+  community.docker.docker_compose_v2:
+    project_src: '{{ pasta_stack }}'
+    files:
+      - docker-compose.prod.yml
+    services:
+      - postgres
+    state: present
+    pull: missing
+    wait: true
+  when: not ansible_check_mode or stacktrack_compose_no_servidor.stat.exists
+
+# A conferência é o que dá idempotência: sem ela a aplicação do SQL marcaria
+# `changed` em toda execução e o critério de `changed=0` deixaria de significar
+# alguma coisa. Ela pergunta as três coisas que o papeis.sql garante — o papel
+# existe, enxerga o schema e NÃO pode criar tabela.
+- name: confere o papel de runtime do banco
+  ansible.builtin.command:
+    # A consulta passa pelo OID do papel, e não pelo nome: as funções
+    # has_*_privilege ERRAM quando o papel não existe, que é justamente o
+    # primeiro caso a tratar. Sem linha em pg_roles, a subconsulta não devolve
+    # nada e o coalesce responde "ausente".
+    cmd: >-
+      docker compose -f docker-compose.prod.yml exec -T postgres
+      psql -U {{ vault_postgres_user }} -d {{ vault_postgres_db }} -tAc
+      "SELECT coalesce((SELECT has_schema_privilege(r.oid, 'public', 'USAGE')::text
+                               || ':' || has_schema_privilege(r.oid, 'public', 'CREATE')::text
+                          FROM pg_roles r WHERE r.rolname = '{{ vault_db_app_user }}'), 'ausente')"
+    chdir: '{{ pasta_stack }}'
+  register: stacktrack_papel_atual
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: aplica os papéis do banco
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -f docker-compose.prod.yml exec -T postgres
+      psql -v ON_ERROR_STOP=1 -U {{ vault_postgres_user }} -d {{ vault_postgres_db }}
+      -v dono={{ vault_postgres_user }} -v db={{ vault_postgres_db }}
+      -v app_user={{ vault_db_app_user }}
+    chdir: '{{ pasta_stack }}'
+    # A senha entra por AQUI, e não por `-v app_password=` na linha de comando:
+    # argumento de processo é legível por qualquer um com `ps` no host, e o
+    # Ansible o repete no erro quando a task falha.
+    stdin: "\\set app_password {{ vault_db_app_password }}\n{{ lookup('file', raiz_repo + '/deploy/postgres/papeis.sql') }}"
+  register: stacktrack_papeis_aplicados
+  # O SQL é idempotente; o que decide se ele PRECISA rodar é a conferência
+  # acima. `true:false` é o estado completo: o papel existe (senão viria
+  # "ausente"), enxerga o schema e não pode criar tabela.
+  when: stacktrack_papel_atual.stdout | default('') | trim != 'true:false'
+  changed_when: stacktrack_papeis_aplicados is not skipped
+
 - name: sobe a stack
   community.docker.docker_compose_v2:
     project_src: '{{ pasta_stack }}'

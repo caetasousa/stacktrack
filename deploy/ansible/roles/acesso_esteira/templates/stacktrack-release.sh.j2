@@ -62,10 +62,19 @@ if [ "$(basename -- "${argumentos[0]:-}")" = "stacktrack-release" ]; then
 	argumentos=("${argumentos[@]:1}")
 fi
 
-verbo=${argumentos[0]:-}
-alvo=${argumentos[1]:-}
+# Reposiciona os argumentos e passa a ler por $1, $2 e $#.
+#
+# O motivo é este arquivo ser um TEMPLATE. A forma do bash para contar um array
+# — cifrão, chave, jogo da velha — abre, para o Jinja, um comentário que nunca
+# fecha, e a renderização morre com "Missing end of comment tag". Nem em
+# comentário de bash ela pode aparecer: o Jinja lê o arquivo inteiro, não o
+# shell. `$#` diz a mesma coisa sem a sequência.
+set -- ${argumentos[@]+"${argumentos[@]}"}
 
-if [ "${#argumentos[@]}" -gt 2 ]; then
+verbo=${1:-}
+alvo=${2:-}
+
+if [ "$#" -gt 2 ]; then
 	recusa "argumentos demais"
 fi
 

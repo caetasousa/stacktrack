@@ -25,9 +25,37 @@ mkdir -p "$trabalho/bin" "$trabalho/stack/scripts" "$trabalho/caddy"
 
 # --- renderiza o template ----------------------------------------------------
 #
-# Substituição direta em vez de Jinja: as variáveis deste template são quatro
-# strings simples, e depender do Ansible para rodar o teste transformaria uma
-# checagem de dez segundos numa instalação.
+# Duas vezes, de propósito.
+#
+# Com o Ansible, QUANDO ele existe: é o único jeito de provar que o Jinja
+# consegue renderizar o arquivo. Já falhou em produção por causa de uma
+# sequência que o Jinja lê como abertura de comentário e o bash usa para contar
+# array — erro que nenhuma substituição de texto reproduz.
+if command -v ansible >/dev/null; then
+	ansible localhost -c local -m template \
+		-a "src=$template dest=$trabalho/jinja.sh mode=0755" \
+		-e usuario_app=deploy \
+		-e pasta_stack=/home/deploy/stacktrack \
+		-e pasta_scripts=/home/deploy/stacktrack/scripts \
+		-e pasta_caddy_sites=/home/deploy/caddy/sites \
+		-e rede_borda=borda >"$trabalho/ansible.log" 2>&1 || {
+		echo "FALHA: o Jinja não conseguiu renderizar o template:"
+		sed 's/^/       /' "$trabalho/ansible.log"
+		exit 1
+	}
+	bash -n "$trabalho/jinja.sh" || {
+		echo "FALHA: o wrapper renderizado pelo Jinja não é bash válido"
+		exit 1
+	}
+	echo "renderização por Jinja: ok"
+else
+	echo "aviso: ansible ausente — a renderização por Jinja não foi verificada"
+fi
+
+# E com `sed`, sempre: é o que dá um arquivo EXECUTÁVEL apontando para o
+# diretório de trabalho do teste, sem precisar de um host de mentira com os
+# caminhos de produção.
+#
 # O delimitador do `s` é @ porque o que se procura contém `|` — o filtro
 # `| quote` do Jinja.
 sed \
@@ -43,6 +71,16 @@ chmod +x "$wrapper"
 if grep -q '{{' "$wrapper"; then
 	echo "FALHA: sobrou variável Jinja sem substituir no wrapper renderizado:"
 	grep -n '{{' "$wrapper"
+	exit 1
+fi
+
+# A mesma checagem que a renderização acima faz, mas SEM depender do Ansible
+# estar instalado — e com a mensagem que diz o que fazer. As sequências são as
+# de abertura de comentário e de bloco do Jinja; em bash elas aparecem na forma
+# de contar array, que é cifrão, chave e jogo da velha.
+if grep -nE '\{#|\{%' "$template"; then
+	echo "FALHA: o template tem sequência que o Jinja lê como comentário ou bloco."
+	echo "       Em bash costuma ser a contagem de array — troque por 'set --' e \$#."
 	exit 1
 fi
 

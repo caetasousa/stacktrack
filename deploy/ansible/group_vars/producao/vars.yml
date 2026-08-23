@@ -16,15 +16,38 @@ dominio: stacktrack.duckdns.org
 usuario_app: deploy
 grupo_app: deploy
 
-# Chave PÚBLICA cujo par privado é o secret VPS_SSH_KEY do GitHub. É o que dá
-# acesso à esteira num servidor recém-criado. Não é segredo — chave pública é
-# feita para ser publicada —, por isso fica aqui e não no vault.
+# Chave PÚBLICA que dá acesso ao usuário da aplicação. Não é segredo — chave
+# pública é feita para ser publicada —, por isso fica aqui e não no vault.
 #
-# É a mesma chave de deploy do agendaGo, como docs/producao.md já previa.
+# É a mesma chave de deploy do agendaGo, e continua sendo o acesso do OPERADOR
+# ao usuário `deploy`. O que mudou é que ela deixou de ser o acesso da esteira:
+# quem a esteira usa é `esteira_chave_publica`, abaixo.
 deploy_chave_publica: >-
   ssh-ed25519
   AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
   github-actions-agendago
+
+# --- o acesso da esteira -----------------------------------------------------
+
+# O usuário POR ONDE A ESTEIRA ENTRA, separado do `deploy` de propósito.
+#
+# O `deploy` tem shell e está no grupo `docker`, que nesta máquina equivale a
+# root — e é compartilhado com o agendaGo, então apertá-lo mexeria no vizinho.
+# Este aqui não está em grupo nenhum: ele alcança o Docker só através do wrapper
+# /usr/local/bin/stacktrack-release, por um sudo restrito àquele arquivo.
+usuario_esteira: stacktrack-deploy
+
+# Chave PÚBLICA exclusiva do stacktrack, cujo par privado é o secret
+# VPS_SSH_KEY. Vazia enquanto o par não for gerado — e enquanto estiver vazia, a
+# role `acesso_esteira` avisa e NÃO instala chave nenhuma, deixando o acesso
+# antigo funcionando.
+#
+#   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy
+#
+# A pública vai aqui; a privada vira o secret VPS_SSH_KEY do GitHub. Não
+# reaproveitar a do agendaGo: uma chave que abre os dois projetos faz o
+# comprometimento de um ser o comprometimento do outro.
+esteira_chave_publica: ''
 
 pasta_base: /home/{{ usuario_app }}
 pasta_stack: '{{ pasta_base }}/stacktrack'

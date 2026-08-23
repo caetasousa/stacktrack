@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# ATENÇÃO: arquivo gerado pelo Ansible (roles/acesso_esteira). Editar no
+# servidor não adianta — o próximo `make infra-preparar` sobrescreve.
+#
+# O ÚNICO comando que a esteira consegue executar neste servidor.
+#
+# A chave do CI está no authorized_keys com `command="..."` apontando para cá e
+# com `restrict`: não há shell, não há scp, não há port forwarding, não há
+# agente. O que o cliente pediu chega em SSH_ORIGINAL_COMMAND, e este script
+# decide se aquilo é uma das operações de release — ou nada.
+#
+# Por que isso importa: o job de deploy anterior abria um shell no servidor e
+# mandava linhas de comando montadas no runner. Quem tivesse a chave tinha a
+# máquina, e a máquina é dividida com o agendaGo. Aqui, quem tem a chave tem
+# três verbos.
+#
+# O script serve os DOIS caminhos de invocação, de propósito:
+#
+#   - chamado por SSH com comando forçado → lê SSH_ORIGINAL_COMMAND
+#   - chamado direto, com argumentos      → usa "$@"
+#
+# É o que permite trocar o usuário da esteira sem trocar o job da esteira no
+# mesmo instante: a linha que o CI manda é a mesma nos dois mundos.
+
+set -euo pipefail
+
+USUARIO_APP={{ usuario_app | quote }}
+PASTA_STACK={{ pasta_stack | quote }}
+PASTA_SCRIPTS={{ pasta_scripts | quote }}
+COMPOSE="docker compose -f docker-compose.prod.yml"
+
+recusa() {
+	echo "stacktrack-release: $1" >&2
+	echo "verbos aceitos: release <sha|latest> · backup · estado" >&2
+	exit 2
+}
+
+# --- quem chama, e como ------------------------------------------------------
+
+if [ "$#" -gt 0 ]; then
+	argumentos=("$@")
+elif [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+	# `read -ra` e não `eval`: a linha do cliente é dado, não código. Com `eval`,
+	# um `release; rm -rf /` seria obedecido — que é exatamente o que o comando
+	# forçado existe para impedir.
+	read -ra argumentos <<<"$SSH_ORIGINAL_COMMAND"
+else
+	recusa "nenhum comando"
+fi
+
+# O cliente pode nomear o wrapper antes do verbo — e nomeia, porque a MESMA
+# linha precisa funcionar nos dois mundos:
+#
+#   com comando forçado   o sshd ignora o que veio e executa este arquivo, que
+#                         acha o nome no início de SSH_ORIGINAL_COMMAND
+#   sem comando forçado   o shell do usuário resolve `stacktrack-release` pelo
+#                         PATH e o nome vira o $0, não um argumento
+#
+# É o que permite trocar o usuário e a chave da esteira sem trocar o job da
+# esteira no mesmo instante.
+if [ "$(basename -- "${argumentos[0]:-}")" = "stacktrack-release" ]; then
+	argumentos=("${argumentos[@]:1}")
+fi
+
+verbo=${argumentos[0]:-}
+alvo=${argumentos[1]:-}
+
+if [ "${#argumentos[@]}" -gt 2 ]; then
+	recusa "argumentos demais"
+fi
+
+# --- o privilégio ------------------------------------------------------------
+#
+# O usuário da esteira NÃO está no grupo `docker`, e a ausência é a metade que
+# importa: entrar nele equivale a root nesta máquina, porque um
+# `docker run -v /:/host` monta o disco inteiro. Quem fala com o Docker é o
+# usuário da aplicação, e a esteira chega até ele por um sudo que só permite
+# ESTE arquivo.
+#
+# A validação acontece antes, e vale igual dos dois lados: o sudo não é um furo
+# porque o que ele executa é este mesmo script, com os mesmos verbos.
+if [ "$(id -un)" != "$USUARIO_APP" ]; then
+	exec sudo -n -u "$USUARIO_APP" "$0" "$verbo" ${alvo:+"$alvo"}
+fi
+
+cd "$PASTA_STACK"
+
+# --- pré-voo ----------------------------------------------------------------
+#
+# O release pressupõe um host provisionado pelo Ansible: ele não cria o .env nem
+# sabe a senha do banco. Sem esta conferência, um host não provisionado deixaria
+# o `up -d` subir a stack com TODAS as variáveis vazias — o Postgres nasce sem
+# senha, a API não conecta, e o deploy segue verde até a verificação final falhar
+# por um motivo que não aponta para a causa.
+preVoo() {
+	local faltando=""
+	[ -f "$PASTA_STACK/.env" ] || faltando="$faltando .env"
+	[ -f "$PASTA_STACK/docker-compose.prod.yml" ] || faltando="$faltando docker-compose.prod.yml"
+	docker network inspect {{ rede_borda | quote }} >/dev/null 2>&1 || faltando="$faltando rede-{{ rede_borda }}"
+	grep -Eq '^PROXIES_CONFIAVEIS=.+' "$PASTA_STACK/.env" 2>/dev/null || faltando="$faltando PROXIES_CONFIAVEIS"
+	grep -Eq '^DB_USER=.+' "$PASTA_STACK/.env" 2>/dev/null || faltando="$faltando DB_USER"
+	if [ -n "$faltando" ]; then
+		echo "host não provisionado (faltando:$faltando). Rode: make infra-apply" >&2
+		exit 1
+	fi
+}
+
+case "$verbo" in
+release)
+	# `latest` serve ao provisionamento manual; a esteira sempre manda o SHA,
+	# que é o que faz o servidor subir EXATAMENTE o artefato testado, e não um
+	# `latest` que pode ter mudado no meio do caminho.
+	if [ "$alvo" != "latest" ] && ! [[ "$alvo" =~ ^[0-9a-f]{7,40}$ ]]; then
+		recusa "referência de release inválida: ${alvo:-<vazia>}"
+	fi
+	preVoo
+
+	# Retrato do banco ANTES da migration. O cron diário sozinho deixa uma
+	# janela de até 24 horas: um deploy ruim ao meio-dia teria como ponto de
+	# retorno o estado da madrugada. Não trava o release — num host onde a
+	# stack ainda não existe não há o que salvar.
+	"$PASTA_SCRIPTS/backup.sh" || echo "aviso: backup pré-release não executado" >&2
+
+	export IMAGE_TAG="$alvo"
+	$COMPOSE pull --quiet
+	# API e web param JUNTAS antes do Flyway. As migrations expansivas deixam o
+	# binário anterior iniciar, mas isso não basta para protocolos: durante a
+	# V16, por exemplo, o backend antigo gravaria eventos sem revisão que o
+	# cliente novo não poderia usar como cursor.
+	$COMPOSE stop web api
+	$COMPOSE up -d
+	docker image prune -f
+	echo "release $alvo no ar"
+	;;
+
+backup)
+	[ -z "$alvo" ] || recusa "backup não recebe argumento"
+	preVoo
+	"$PASTA_SCRIPTS/backup.sh"
+	;;
+
+estado)
+	[ -z "$alvo" ] || recusa "estado não recebe argumento"
+	$COMPOSE ps
+
+	# As impressões digitais do que o ANSIBLE instalou. A esteira compara com o
+	# que está no repositório e falha quando divergem.
+	#
+	# Existe porque o deploy deixou de copiar estes arquivos: quem os instala é
+	# o playbook. Sem esta conferência, mudar um limite de memória no compose e
+	# dar push produziria um deploy verde que não mudou limite nenhum — o
+	# servidor continuaria com a versão anterior do arquivo, e nada diria isso.
+	for arquivo in \
+		"$PASTA_STACK/docker-compose.prod.yml" \
+		"$PASTA_SCRIPTS/backup.sh" \
+		{{ pasta_caddy_sites | quote }}/stacktrack.caddy; do
+		if [ -f "$arquivo" ]; then
+			printf 'sha256 %s %s\n' "$(basename "$arquivo")" "$(sha256sum "$arquivo" | cut -d" " -f1)"
+		else
+			printf 'sha256 %s AUSENTE\n' "$(basename "$arquivo")"
+		fi
+	done
+	# O cron do Debian não suporta CRON_TZ e interpreta a expressão sempre no
+	# fuso do HOST. Imprimir os dois juntos evita o erro silencioso de agendar
+	# "3h" achando que é horário de Brasília num servidor em UTC.
+	printf 'fuso do servidor: %s (agora: %s)\n' \
+		"$(timedatectl show --property=Timezone --value 2>/dev/null || readlink -f /etc/localtime)" \
+		"$(date '+%F %T %Z')"
+	crontab -l 2>/dev/null | grep 'stacktrack/scripts/backup.sh' \
+		|| echo "aviso: backup do stacktrack não está agendado — rode make infra-apply" >&2
+	;;
+
+*)
+	recusa "verbo desconhecido: ${verbo:-<vazio>}"
+	;;
+esac

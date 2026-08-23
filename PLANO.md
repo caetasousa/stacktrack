@@ -932,6 +932,20 @@ abaixo diz onde está a prova.
 | 6 · Mudanças controladas | `apt-mark hold` no Docker; Caddy validado antes da troca | tag `docker-upgrade`; handler restaura a cópia anterior |
 | 7 · Proteção do repositório | `environment: production` no job de deploy | falta criar o Environment e proteger a `main` |
 
+### Verificado em produção (23/08/2026)
+
+O primeiro deploy pelo caminho novo rodou, e o que ele deixou no servidor foi
+conferido de fora:
+
+- `V18` aplicada (`flyway_schema_history`), com os dois índices únicos no lugar
+  e os não-únicos removidos; zero duplicidade de ordenação;
+- a API conecta como `stacktrack_app`, e `has_schema_privilege(..., 'CREATE')`
+  responde `f` — **o critério de DDL deixou de ser só teste**;
+- o wrapper responde `estado` no servidor, e a esteira implantou por ele;
+- `/api/health` e `/` em 200;
+- os quatro containers do agendaGo com duas semanas de uptime — a fronteira do
+  host compartilhado não foi tocada.
+
 ### O que só você pode fazer
 
 1. **Gerar a chave exclusiva da esteira** e pôr a pública em
@@ -946,9 +960,11 @@ abaixo diz onde está a prova.
    da A5 sai do que é do stacktrack: o resto é um usuário do Linux, um script em
    `/usr/local/bin` e um papel no banco que já existe. Nenhum servidor novo,
    nenhum container novo.
-3. **`make infra-preparar` e `make infra-apply`**, nessa ordem. O primeiro cria
-   o usuário da esteira e endurece o host; o segundo escreve o `.env` com
-   `DB_USER` e cria o papel de runtime do banco.
+3. ~~**`make infra-preparar` e `make infra-apply`**~~ — feito, sem o hardening.
+   O usuário da esteira, o wrapper e o papel de runtime do banco já estão no
+   servidor. Falta a role `hardening`
+   (`make infra-preparar ARGS="--tags hardening"`), com o console do provedor
+   testado antes.
 4. **GitHub**: criar o Environment `production` com os segredos `VPS_*` dentro
    dele e proteger a `main` com os checks da esteira.
 
@@ -1073,7 +1089,10 @@ comprometido.
 - [x] CI valida Ansible sem possuir a senha do vault.
 - [ ] Segunda aplicação do playbook é idempotente. *(medição contra o servidor)*
 - [x] API não possui DDL nem privilégios administrativos.
-- [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
+- [ ] Credencial de deploy não oferece shell genérico nem acesso a segredos.
+      *(o wrapper e o usuário existem no servidor e funcionam; a esteira ainda
+      entra com a chave compartilhada do `deploy`, que tem shell — falta gerar a
+      chave exclusiva e trocar os segredos)*
 - [ ] `main` e o Environment de produção aplicam os gates definidos. *(painel do
       GitHub)*
 - [ ] Portas internas não estão expostas à internet. *(o UFW está escrito e

@@ -21,6 +21,23 @@ const (
 	// arquivos gigantes para encher o disco do container e derrubar tudo, banco
 	// incluído.
 	TamanhoMaximoArquivo = 10 << 20
+
+	// MaximoDeAnexosPorCard é quantos anexos um card comporta.
+	//
+	// Vinte: um card é uma unidade de trabalho, não um repositório de arquivos.
+	// O teto existe porque a listagem do card carrega TODOS os anexos dele numa
+	// consulta, e porque um card com mil anexos torna o modal inutilizável
+	// muito antes de ser um problema de armazenamento.
+	MaximoDeAnexosPorCard = 20
+
+	// MaximoDeBytesPorBoard é quanto o conjunto de arquivos de um quadro pode
+	// ocupar (1 GiB).
+	//
+	// É o teto que de fato protege o disco. O limite por arquivo não protege
+	// nada sozinho: cem arquivos de 10 MiB cabem no limite individual e enchem
+	// um gigabyte. É também o número que torna previsível o tamanho de um
+	// backup por quadro.
+	MaximoDeBytesPorBoard = 1 << 30
 )
 
 // Tipo distingue de onde vem o conteúdo do anexo.
@@ -46,6 +63,12 @@ var (
 	ErrArquivoGrande = errors.New("o arquivo passa de 10 MB")
 	// ErrTipoNaoPermitido é retornado quando o tipo do arquivo não está na lista.
 	ErrTipoNaoPermitido = errors.New("tipo de arquivo não permitido")
+	// ErrAnexosDemaisNoCard é retornado quando o card já tem
+	// MaximoDeAnexosPorCard anexos.
+	ErrAnexosDemaisNoCard = errors.New("este card já tem o número máximo de anexos")
+	// ErrCotaDoQuadroExcedida é retornado quando os arquivos do quadro já
+	// ocupam MaximoDeBytesPorBoard.
+	ErrCotaDoQuadroExcedida = errors.New("o quadro atingiu o limite de armazenamento de anexos")
 	// ErrNaoEncontrado é retornado quando o anexo não existe — ou quando quem
 	// pergunta não participa do quadro dele.
 	ErrNaoEncontrado = errors.New("anexo não encontrado")

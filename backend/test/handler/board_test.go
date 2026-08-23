@@ -6,9 +6,11 @@ package handler_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"stacktrack/internal/adapter/http/handler"
 	"stacktrack/internal/adapter/http/middleware"
@@ -26,10 +28,32 @@ type apiDeQuadro struct {
 	convites *memoria.Convites
 }
 
+// armazemDeTeste é a porta do armazém vista pelos testes — a mesma que os
+// usecases consomem, declarada aqui porque a do pacote de domínio não é
+// exportada.
+type armazemDeTeste interface {
+	Receber(conteudo io.Reader, limite int64) (ucboard.ArquivoRecebido, error)
+	Publicar(recebido ucboard.ArquivoRecebido, extensao string) (string, error)
+	Descartar(recebido ucboard.ArquivoRecebido) error
+	Abrir(caminho string) (io.ReadCloser, error)
+	Remover(caminho string) error
+}
+
 // montarAPIDeQuadro sobe autenticação e quadros juntos, espelhando o wiring do
 // main.go — inclusive o fato de as rotas de quadro viverem dentro do grupo
 // autenticado.
+// montarAPIDeQuadro monta a API com o armazém EM MEMÓRIA, que é o certo para os
+// testes de rota: eles falam de status e corpo, não de bytes em disco.
 func montarAPIDeQuadro() *apiDeQuadro {
+	return montarAPIDeQuadroCom(memoria.NovoArmazem())
+}
+
+// montarAPIDeQuadroCom permite trocar o armazém.
+//
+// Existe para o teste de upload, que precisa do armazém de DISCO: o fake em
+// memória guarda o arquivo inteiro por definição, e mediria exatamente o
+// oposto do que se quer provar.
+func montarAPIDeQuadroCom(armazem armazemDeTeste) *apiDeQuadro {
 	usuarios := memoria.NovosUsuarios()
 	sessoes := memoria.NovasSessoes()
 	hasher := &memoria.Hasher{}
@@ -43,7 +67,6 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	etiquetas := memoria.NovasEtiquetas()
 	checklists := memoria.NovasChecklists()
 	anexos := memoria.NovosAnexos()
-	armazem := memoria.NovoArmazem()
 	etiquetas.LigarQuadro(colunas, cards)
 	checklists.LigarQuadro(colunas, cards)
 	anexos.LigarQuadro(colunas, cards)
@@ -57,7 +80,10 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	publicacoes := memoria.NovasPublicacoes()
 	boards.LigarPublicacoes(publicacoes)
 
-	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false)
+	// Teto de cookies desconhecidos desligado: estes testes exercitam rotas de
+	// quadro, e um teto por IP aqui reprovaria a suíte inteira pelo IP comum do
+	// httptest.
+	autenticacao := middleware.NovoAuth(ucauth.NovoValidarSessaoUseCase(sessoes), false, 0, time.Minute)
 	identidade := func(r *http.Request) (ucauth.Identidade, bool) {
 		return middleware.IdentidadeDoContexto(r.Context())
 	}
@@ -77,7 +103,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	)
 	quadroUC.ComAtividades(atividades)
 	colunaUC := ucboard.NovoColunaUseCase(membros, colunas, anexos, armazem)
-	cardUC := ucboard.NovoCardUseCase(membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
+	cardUC := ucboard.NovoCardUseCase(boards, membros, colunas, cards, etiquetas, checklists, anexos, responsaveis, comentarios, armazem)
 	// O log RECEBE as escritas, como em produção. Sem isto, mover um card pela
 	// API não gravaria evento, e o teste da auditoria passaria por não haver o
 	// que auditar — verde pelo motivo errado.
@@ -95,7 +121,11 @@ func montarAPIDeQuadro() *apiDeQuadro {
 	extrasHandler := handler.NovoExtrasHandler(
 		ucboard.NovoEtiquetaUseCase(membros, colunas, cards, etiquetas),
 		ucboard.NovoChecklistUseCase(membros, colunas, cards, checklists),
-		ucboard.NovoAnexoUseCase(membros, colunas, cards, anexos, nil),
+		// O armazém era `nil` aqui porque nenhum teste de rota exercitava
+		// upload. O teste de streaming exercita, e um nil vira panic na
+		// primeira leitura — passar o armazém de verdade é o que torna a rota
+		// utilizável.
+		ucboard.NovoAnexoUseCase(membros, colunas, cards, anexos, armazem),
 		ucboard.NovoResponsavelUseCase(membros, colunas, cards, responsaveis),
 		ucboard.NovoComentarioUseCase(membros, colunas, cards, comentarios),
 		ucboard.NovoAtividadeUseCase(membros, colunas, cards, atividades),
@@ -149,6 +179,11 @@ func montarAPIDeQuadro() *apiDeQuadro {
 			r.Get("/atividade", extrasHandler.Atividade)
 			r.Get("/comentarios", extrasHandler.ListarComentarios)
 			r.Post("/comentarios", extrasHandler.Comentar)
+			// O envio de anexo entra aqui porque o upload em streaming é
+			// exercitado pela borda: o que se mede é o que o handler aloca ao
+			// receber o multipart.
+			r.Post("/anexos/arquivo", extrasHandler.AnexarArquivo)
+			r.Post("/anexos/link", extrasHandler.AnexarLink)
 		})
 		r.Route("/comentarios/{comentarioID}", func(r chi.Router) {
 			r.Patch("/", extrasHandler.EditarComentario)
@@ -162,7 +197,7 @@ func montarAPIDeQuadro() *apiDeQuadro {
 // conta cadastra alguém e devolve o cookie de sessão e o id.
 func (a *apiDeQuadro) conta(t *testing.T, nome, email string) (*http.Cookie, string) {
 	t.Helper()
-	rec := chamar(a, http.MethodPost, "/auth/cadastro", `{"nome":"`+nome+`","email":"`+email+`","senha":"senha-boa-123"}`)
+	rec := chamar(a, http.MethodPost, "/auth/cadastro", `{"nome":"`+nome+`","email":"`+email+`","senha":"senha-boa-de-teste-123"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("cadastro de %s falhou: %d %s", nome, rec.Code, rec.Body)
 	}

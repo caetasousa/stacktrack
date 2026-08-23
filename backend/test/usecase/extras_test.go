@@ -23,6 +23,7 @@ import (
 type extras struct {
 	*quadro
 	armazem     *memoria.Armazem
+	exclusoes   *memoria.Exclusoes
 	etiquetaUC  *ucboard.EtiquetaUseCase
 	checklistUC *ucboard.ChecklistUseCase
 	anexoUC     *ucboard.AnexoUseCase
@@ -35,9 +36,18 @@ func novoExtras() *extras {
 	// verde sem provar nada.
 	armazem := q.armazem
 
+	// O outbox das exclusões é ligado aos três usecases que apagam algo com
+	// anexo pendurado. Sem ele, o arquivo simplesmente ficaria no disco sem
+	// registro — seguro, e invisível para o teste.
+	exclusoes := memoria.NovasExclusoes()
+	q.card.ComExclusoes(exclusoes)
+	q.coluna.ComExclusoes(exclusoes)
+	q.quadros.ComExclusoes(exclusoes)
+
 	return &extras{
 		quadro:      q,
 		armazem:     armazem,
+		exclusoes:   exclusoes,
 		etiquetaUC:  ucboard.NovoEtiquetaUseCase(q.membros, q.colunas, q.cards, q.etiquetas),
 		checklistUC: ucboard.NovoChecklistUseCase(q.membros, q.colunas, q.cards, q.checklists),
 		anexoUC:     ucboard.NovoAnexoUseCase(q.membros, q.colunas, q.cards, q.anexos, armazem),
@@ -240,8 +250,7 @@ func TestAnexarArquivoGuardaConteudoERegistra(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	conteudo := "id,nome\n1,ana\n"
 
-	a, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "relatorio.csv", "text/csv",
-		int64(len(conteudo)), strings.NewReader(conteudo))
+	a, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "relatorio.csv", strings.NewReader(conteudo))
 	if err != nil {
 		t.Fatalf("erro ao anexar: %v", err)
 	}
@@ -271,7 +280,7 @@ func TestFalhaNoArmazemNaoDeixaAnexoRegistrado(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	e.armazem.ErroAoGuardar = errors.New("disco cheio")
 
-	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", strings.NewReader("teste"))
 
 	if err == nil {
 		t.Fatal("a falha do armazém devia ter subido")
@@ -288,7 +297,7 @@ func TestFalhaAoRegistrarApagaOArquivoGravado(t *testing.T) {
 	_, cardID := e.montar(t, "ana")
 	e.anexos.ErroForcado = errors.New("conexão recusada")
 
-	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", strings.NewReader("teste"))
 
 	if err == nil {
 		t.Fatal("a falha do banco devia ter subido")
@@ -301,7 +310,7 @@ func TestFalhaAoRegistrarApagaOArquivoGravado(t *testing.T) {
 func TestApagarAnexoTiraDoBancoEDoArmazem(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", strings.NewReader("teste"))
 
 	if err := e.anexoUC.Apagar(context.Background(), a.ID, "ana"); err != nil {
 		t.Fatalf("erro ao apagar: %v", err)
@@ -317,7 +326,7 @@ func TestApagarAnexoTiraDoBancoEDoArmazem(t *testing.T) {
 func TestQuemNaoParticipaNaoBaixaOAnexo(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "segredo.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "segredo.txt", strings.NewReader("teste"))
 
 	_, err := e.anexoUC.Baixar(context.Background(), a.ID, "bob")
 
@@ -329,7 +338,7 @@ func TestQuemNaoParticipaNaoBaixaOAnexo(t *testing.T) {
 func TestLeitorBaixaMasNaoAnexaNemApaga(t *testing.T) {
 	e := novoExtras()
 	boardID, cardID := e.montar(t, "ana")
-	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", "text/plain", 5, strings.NewReader("teste"))
+	a, _ := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "a.txt", strings.NewReader("teste"))
 	e.convidar(t, boardID, "bob", membro.PapelLeitor)
 
 	if _, err := e.anexoUC.Baixar(context.Background(), a.ID, "bob"); err != nil {
@@ -343,20 +352,75 @@ func TestLeitorBaixaMasNaoAnexaNemApaga(t *testing.T) {
 	}
 }
 
-func TestArquivoGrandeNaoChegaAoArmazem(t *testing.T) {
+// O teto é aplicado DURANTE a leitura, e é isso que o torna confiável.
+//
+// Antes, o tamanho vinha do `Content-Length` do multipart — declarado por quem
+// envia. O teste antigo aproveitava isso: mandava um byte dizendo que eram
+// gigabytes, e passava. Isso provava a checagem e não protegia de nada, porque
+// quem ataca declara o tamanho que quiser.
+//
+// Agora a fonte é um fluxo SEM FIM. Só termina se o limite for aplicado byte a
+// byte: se ele não fosse, o teste rodaria para sempre.
+func TestArquivoAcimaDoLimiteEhCortadoDuranteALeitura(t *testing.T) {
 	e := novoExtras()
 	_, cardID := e.montar(t, "ana")
 
-	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "grande.png", "image/png",
-		danexo.TamanhoMaximoArquivo+1, strings.NewReader("x"))
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "grande.bin", fluxoSemFim{})
 
 	if !errors.Is(err, danexo.ErrArquivoGrande) {
-		t.Errorf("erro = %v, esperado ErrArquivoGrande", err)
+		t.Fatalf("erro = %v, esperado ErrArquivoGrande", err)
 	}
-	// Validar antes de gravar: não faz sentido escrever no disco um arquivo
-	// grande demais só para apagá-lo em seguida.
+	// Nada publicado: o que foi recebido é descartado.
 	if e.armazem.Quantidade() != 0 {
-		t.Error("nada podia ter sido gravado")
+		t.Error("um arquivo acima do limite acabou publicado")
+	}
+}
+
+// fluxoSemFim produz bytes indefinidamente, como um cliente que não para de
+// enviar.
+type fluxoSemFim struct{}
+
+func (fluxoSemFim) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	return len(p), nil
+}
+
+// Arquivo vazio é recusado, e o motivo é próprio: "vazio" não é "grande demais"
+// nem "tipo não permitido", e mandar a pessoa procurar o problema errado custa
+// tempo dela.
+func TestArquivoVazioEhRecusado(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "vazio.txt", strings.NewReader(""))
+	if !errors.Is(err, danexo.ErrArquivoVazio) {
+		t.Errorf("erro = %v, esperado ErrArquivoVazio", err)
+	}
+	if e.armazem.Quantidade() != 0 {
+		t.Error("um arquivo vazio acabou publicado")
+	}
+}
+
+// O TIPO vem do CONTEÚDO, não do que o cliente declara.
+//
+// O Content-Type do multipart é escolhido por quem envia. Aceitá-lo faria a
+// lista de permissão do domínio deixar de significar o que ela diz: bastaria
+// mandar um HTML anunciando-se como PNG.
+func TestTipoEhDeduzidoDoConteudoENaoDoNome(t *testing.T) {
+	e := novoExtras()
+	_, cardID := e.montar(t, "ana")
+
+	// Extensão de imagem, conteúdo de HTML.
+	_, err := e.anexoUC.AnexarArquivo(context.Background(), cardID, "ana", "inocente.png",
+		strings.NewReader("<!DOCTYPE html><html><body>oi</body></html>"))
+
+	if !errors.Is(err, danexo.ErrTipoNaoPermitido) {
+		t.Errorf("erro = %v, esperado ErrTipoNaoPermitido", err)
+	}
+	if e.armazem.Quantidade() != 0 {
+		t.Error("um HTML disfarçado de PNG acabou publicado")
 	}
 }
 

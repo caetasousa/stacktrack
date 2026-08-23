@@ -3,7 +3,9 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -472,37 +474,67 @@ func (h *ExtrasHandler) AnexarLink(w http.ResponseWriter, r *http.Request) {
 	responderJSON(w, http.StatusCreated, paraAnexoResponse(*a))
 }
 
-// AnexarArquivo recebe um upload multipart e guarda o conteúdo.
+// nomeDoCampoDoArquivo é o campo do multipart que carrega o conteúdo.
+const nomeDoCampoDoArquivo = "arquivo"
+
+// AnexarArquivo recebe um upload multipart em STREAMING.
+//
+// `MultipartReader`, e não `FormFile`. A diferença é o que o processo segura na
+// memória: `FormFile` chama `ParseMultipartForm`, que materializa o formulário
+// inteiro — até 32 MiB em memória por padrão, o excedente em arquivos
+// temporários do sistema, e todos os campos antes de qualquer decisão. Dez
+// envios simultâneos de 10 MiB davam centenas de megabytes num container de
+// 384 MiB. Com o reader, o conteúdo passa por um buffer de 32 KiB e vai direto
+// para o disco.
 //
 // O teto de transporte já foi aplicado pelo middleware LimitarCorpo, que
 // reconhece o multipart e usa o limite maior. Aqui o domínio decide se o
-// arquivo é aceitável, e responde uma mensagem que faz sentido para quem enviou.
+// arquivo é aceitável, a partir do que foi MEDIDO — e não do que o cliente
+// declarou —, e responde uma mensagem que faz sentido para quem enviou.
 func (h *ExtrasHandler) AnexarArquivo(w http.ResponseWriter, r *http.Request) {
 	usuarioID, ok := h.usuario(w, r)
 	if !ok {
 		return
 	}
 
-	arquivo, cabecalho, err := r.FormFile("arquivo")
+	partes, err := r.MultipartReader()
 	if err != nil {
-		responderErro(w, http.StatusBadRequest, "envie um arquivo no campo 'arquivo'")
+		responderErro(w, http.StatusBadRequest, "envie o arquivo como multipart/form-data")
 		return
 	}
-	defer arquivo.Close()
 
-	// O Content-Type declarado pelo navegador é palpite dele; para o que
-	// importa (não servir HTML da nossa origem) a lista de permissão do domínio
-	// decide, e o download força Content-Disposition de qualquer forma.
-	mime := cabecalho.Header.Get("Content-Type")
+	// As partes são percorridas até achar a do arquivo. Cada `NextPart` fecha a
+	// anterior, então nenhuma delas é acumulada: um formulário com campos extras
+	// passa por aqui sem custo de memória.
+	for {
+		parte, err := partes.NextPart()
+		if errors.Is(err, io.EOF) {
+			responderErro(w, http.StatusBadRequest, "envie um arquivo no campo 'arquivo'")
+			return
+		}
+		if err != nil {
+			responderErro(w, http.StatusBadRequest, "envio interrompido ou malformado")
+			return
+		}
+		if parte.FormName() != nomeDoCampoDoArquivo {
+			parte.Close()
+			continue
+		}
 
-	a, err := h.anexos.AnexarArquivo(r.Context(),
-		chi.URLParam(r, "cardID"), usuarioID, cabecalho.Filename, mime, cabecalho.Size, arquivo,
-	)
-	if err != nil {
-		responderErroDeQuadro(w, r, "erro ao anexar arquivo", err)
+		// O nome de arquivo é METADADO, e vai sanitizado pelo domínio (ver
+		// anexo.NovoArquivo, que corta para o nome-base). Ele nunca vira
+		// caminho: o nome físico é sorteado pelo armazém.
+		a, err := h.anexos.AnexarArquivo(r.Context(),
+			chi.URLParam(r, "cardID"), usuarioID, parte.FileName(), parte,
+		)
+		parte.Close()
+		if err != nil {
+			responderErroDeQuadro(w, r, "erro ao anexar arquivo", err)
+			return
+		}
+		responderJSON(w, http.StatusCreated, paraAnexoResponse(*a))
 		return
 	}
-	responderJSON(w, http.StatusCreated, paraAnexoResponse(*a))
 }
 
 // BaixarAnexo entrega o conteúdo do arquivo a quem participa do quadro.

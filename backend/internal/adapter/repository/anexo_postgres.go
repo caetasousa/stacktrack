@@ -7,7 +7,6 @@ import (
 	"stacktrack/internal/domain/anexo"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AnexoPostgres persiste os anexos dos cards. O conteúdo dos arquivos não fica
@@ -17,7 +16,7 @@ type AnexoPostgres struct {
 }
 
 // NovoAnexoPostgres cria o repositório de anexos sobre o pool informado.
-func NovoAnexoPostgres(pool *pgxpool.Pool) *AnexoPostgres {
+func NovoAnexoPostgres(pool Fonte) *AnexoPostgres {
 	return &AnexoPostgres{db: pool}
 }
 
@@ -118,10 +117,46 @@ func (r *AnexoPostgres) ListarDoCard(ctx context.Context, cardID string) ([]anex
 }
 
 // Apagar remove o registro do anexo. O arquivo no armazém é apagado pelo
-// usecase, que é quem sabe se havia arquivo.
-func (r *AnexoPostgres) Apagar(ctx context.Context, id string) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM anexos WHERE id = $1`, id)
-	return err
+// usecase, que é quem sabe se havia arquivo. O bool só é verdadeiro para a
+// chamada que efetivamente removeu a linha.
+func (r *AnexoPostgres) Apagar(ctx context.Context, id string) (bool, error) {
+	resultado, err := r.db.Exec(ctx, `DELETE FROM anexos WHERE id = $1`, id)
+	if err != nil {
+		return false, err
+	}
+	return resultado.RowsAffected() == 1, nil
+}
+
+// ContarDoCard devolve quantos anexos o card tem AGORA.
+//
+// Existe para a cota, e é chamada DENTRO da transação que grava o anexo: uma
+// contagem feita antes, fora dela, seria lida por dois envios simultâneos que
+// veriam "19" os dois e gravariam o vigésimo primeiro juntos. Sob o lock do
+// quadro, a segunda enxerga o resultado da primeira.
+func (r *AnexoPostgres) ContarDoCard(ctx context.Context, cardID string) (int, error) {
+	var total int
+	err := r.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM anexos WHERE card_id = $1`, cardID,
+	).Scan(&total)
+	return total, err
+}
+
+// BytesDoBoard soma o tamanho dos ARQUIVOS do quadro. Links não ocupam disco e
+// por isso não entram na conta.
+//
+// COALESCE porque SUM de conjunto vazio devolve NULL, e um quadro sem anexo
+// nenhum é o caso mais comum.
+func (r *AnexoPostgres) BytesDoBoard(ctx context.Context, boardID string) (int64, error) {
+	var total int64
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(SUM(a.tamanho), 0)
+		   FROM anexos a
+		   JOIN cards c   ON c.id = a.card_id
+		   JOIN colunas l ON l.id = c.coluna_id
+		  WHERE l.board_id = $1 AND a.tipo = $2`,
+		boardID, string(anexo.TipoArquivo),
+	).Scan(&total)
+	return total, err
 }
 
 // ContarPorCardDoBoard devolve quantos anexos cada card do quadro tem — numa

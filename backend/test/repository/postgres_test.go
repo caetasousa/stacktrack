@@ -33,6 +33,10 @@ import (
 // entre casos vem dos ids, que são únicos.
 var pool *pgxpool.Pool
 
+// urlDoBanco é a DSN do container, para os testes que precisam construir o
+// pool pelo caminho de PRODUÇÃO (config.NovoPool) em vez de reaproveitar este.
+var urlDoBanco string
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -53,6 +57,7 @@ func TestMain(m *testing.M) {
 	}
 
 	url, err := container.ConnectionString(ctx, "sslmode=disable")
+	urlDoBanco = url
 	if err != nil {
 		panic(err)
 	}

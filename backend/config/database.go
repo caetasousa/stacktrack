@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -76,6 +77,35 @@ func NovoPool(ctx context.Context) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configurar pool: %w", err)
 	}
+	// Espera por conexão LIVRE do pool é bounded por repository.PoolComEspera.
+	// Este campo cobre outro trecho: estabelecer uma conexão de rede nova.
+	cfg.ConnConfig.ConnectTimeout = TempoParaConectarAoBanco()
+
+	// TETO DE TEMPO POR COMANDO, na própria conexão.
+	//
+	// A unidade de trabalho e o instantâneo já definem `statement_timeout` por
+	// transação (SET LOCAL). O que faltava era o resto: toda leitura solta —
+	// listar quadros, auditoria, detalhe do card — roda fora das duas e não
+	// tinha teto nenhum do lado do banco. Uma consulta que trave ali segura a
+	// conexão do pool até o contexto da requisição expirar, e o `SET LOCAL` de
+	// quem vier depois não desfaz o estrago que já foi feito.
+	//
+	// `RuntimeParams` entra no startup da conexão, então vale para toda consulta
+	// feita por ela — inclusive as que ninguém lembrou de cobrir. O `SET LOCAL`
+	// das transações continua valendo por cima, porque `SET LOCAL` sobrescreve o
+	// parâmetro de sessão e volta ao normal no fim da transação.
+	//
+	// idle_in_transaction_session_timeout é o par que falta: uma transação que
+	// abre e fica esperando I/O do processo (não do banco) não é pega pelo
+	// statement_timeout, porque não há statement em curso. Sem ele, um bug no
+	// caminho de escrita segura o lock do quadro indefinidamente.
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["statement_timeout"] =
+		strconv.FormatInt(TempoMaximoDeComando().Milliseconds(), 10)
+	cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] =
+		strconv.FormatInt(TempoMaximoOciosoEmTransacao().Milliseconds(), 10)
 	cfg.MaxConns = int32(MaxConexoesBanco())
 	cfg.MinConns = int32(MinConexoesBanco())
 	cfg.MaxConnLifetime = VidaMaximaConexaoBanco()

@@ -109,6 +109,40 @@
     conteudo: '{{ stacktrack_env_atual.content | b64decode }}'
   when: stacktrack_env_atual.content is defined
 
+# A VERSÃO que está no ar, e não a do `imagem_tag`.
+#
+# O `.env` gravava `latest` fixo, e a esteira passava o SHA por variável de
+# ambiente no momento do deploy, sem tocar no arquivo. A consequência só
+# apareceu quando um `infra-apply` recriou os containers: o Compose leu o
+# `.env`, subiu `latest` — que no disco do servidor era de três dias antes,
+# porque `pull: missing` não rebaixa tag existente — e produção voltou no tempo,
+# com o banco já contraído por uma migration mais nova.
+#
+# A regra é a mesma que o scripts/backup.sh já seguia: a imagem EM EXECUÇÃO é a
+# verdade, não o .env. Sem nada rodando — host novo —, vale o `imagem_tag`.
+#
+# Sem `--format` de propósito: o template Go do Docker usa as mesmas chaves
+# duplas do Jinja, e escapá-las aqui seria pior de ler do que uma coluna do awk.
+- name: descobre a versão que está no ar
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      docker ps \
+        --filter label=com.docker.compose.project=stacktrack \
+        --filter label=com.docker.compose.service=api \
+        | awk 'NR==2 {print $2}' \
+        | sed -E 's/.*://'
+    executable: /bin/bash
+  register: stacktrack_tag_no_ar
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: a versão que o .env vai declarar
+  ansible.builtin.set_fact:
+    stacktrack_imagem_tag: >-
+      {{ (stacktrack_tag_no_ar.stdout | default('') | trim) or imagem_tag }}
+
 # É esta task que faz o .env deixar de ser um arquivo que alguém escreve à mão.
 # DOMINIO, IMAGE_REPO e IMAGE_TAG convergem normalmente; os três campos do
 # initdb estão protegidos pelo assert acima.

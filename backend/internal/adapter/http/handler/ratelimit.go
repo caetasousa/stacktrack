@@ -1,13 +1,12 @@
 package handler
 
 import (
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-chi/httprate"
+	"stacktrack/internal/pkg/limite"
 )
 
 // LimitadorPorConta limita tentativas por conta (o email informado), e não por
@@ -24,57 +23,37 @@ import (
 // janela é curta e se renova sozinha, o estrago máximo é um atraso de minutos —
 // bem menor que o de uma conta tomada.
 //
-// O contador é em memória, servindo a um processo só — que é a topologia do
-// projeto. Com mais de uma réplica, cada uma teria o seu contador e o teto
-// efetivo seria multiplicado pelo número de réplicas; nesse dia, um contador
-// compartilhado (httprate.WithLimitCounter).
+// A contagem em si vive em pkg/limite, compartilhada com o teto de cookies de
+// sessão desconhecidos; o que é próprio daqui é a RESPOSTA, que fala de conta.
 type LimitadorPorConta struct {
-	limitador *httprate.RateLimiter
-	limite    int
-	janela    time.Duration
+	contador *limite.PorChave
 }
 
 // NovoLimitadorPorConta cria o limitador com o teto e a janela informados.
 // limite <= 0 devolve nil — um limitador desligado, já que os métodos toleram
 // o receptor nil.
-func NovoLimitadorPorConta(limite int, janela time.Duration) *LimitadorPorConta {
-	if limite <= 0 {
+func NovoLimitadorPorConta(teto int, janela time.Duration) *LimitadorPorConta {
+	contador := limite.NovoPorChave(teto, janela)
+	if contador == nil {
 		return nil
 	}
-	return &LimitadorPorConta{
-		limitador: httprate.NewRateLimiter(limite, janela),
-		limite:    limite,
-		janela:    janela,
-	}
+	return &LimitadorPorConta{contador: contador}
 }
 
-// Excedido responde 429 e devolve true quando a conta já estourou o teto. Não
-// contabiliza a tentativa atual — isso é papel de Registrar. Falha do contador
-// nunca barra a requisição: um erro de infraestrutura não pode virar porta
-// fechada para quem tem a senha certa.
-func (l *LimitadorPorConta) Excedido(w http.ResponseWriter, r *http.Request, chave string) bool {
+// Reservar ocupa atomicamente uma vaga antes da verificacao de senha. O
+// chamador confirma a reserva somente se as credenciais forem invalidas e a
+// cancela em sucesso ou falha de infraestrutura.
+func (l *LimitadorPorConta) Reservar(w http.ResponseWriter, chave string) (*limite.Reserva, bool) {
 	if l == nil {
-		return false
+		return nil, true
 	}
-	// Status devolve a taxa acumulada na janela sem incrementá-la; a conta
-	// estoura quando ESTA tentativa passaria do teto — o mesmo critério que o
-	// httprate usa internamente (rate + 1 > limite).
-	_, taxa, err := l.limitador.Status(chave)
-	if err != nil || int(math.Round(taxa))+1 <= l.limite {
-		return false
+	reserva, permitido := l.contador.Reservar(chave)
+	if permitido {
+		return reserva, true
 	}
-	w.Header().Set("Retry-After", strconv.Itoa(int(l.janela.Seconds())))
+	w.Header().Set("Retry-After", strconv.Itoa(l.contador.SegundosDeEspera()))
 	responderErro(w, http.StatusTooManyRequests, "muitas tentativas para esta conta; tente de novo em alguns minutos")
-	return true
-}
-
-// Registrar contabiliza uma tentativa na conta. Chamar antes de escrever a
-// resposta, para os cabeçalhos X-RateLimit-* saírem junto.
-func (l *LimitadorPorConta) Registrar(w http.ResponseWriter, r *http.Request, chave string) {
-	if l == nil {
-		return
-	}
-	l.limitador.OnLimit(w, r, chave)
+	return nil, false
 }
 
 // chaveDeConta monta a chave do limitador. O email vai em minúsculas para que

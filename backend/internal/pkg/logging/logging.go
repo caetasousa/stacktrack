@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,16 +30,65 @@ func Configurar(producao bool) {
 	slog.SetDefault(slog.New(h))
 }
 
-// Rota devolve o padrão da rota casada (ex.: "/boards/{id}"), não o caminho
-// real — assim tokens e ids que viajam no path não vão parar nos logs. Cai
-// para o caminho bruto quando nenhuma rota casou (ex.: 404).
+// SemRota é o que se registra no lugar de um caminho que não casou com rota
+// nenhuma.
+const SemRota = "(sem rota)"
+
+var (
+	prefixosMu         sync.RWMutex
+	prefixosConhecidos = map[string]struct{}{}
+)
+
+// DefinirPrefixosConhecidos informa quais primeiros segmentos de caminho
+// pertencem a rotas registradas (ex.: "boards", "convites"). Chamar uma vez no
+// boot, antes de servir.
+//
+// Serve só ao log de 404: com a lista, "alguém bateu em algo sob /boards"
+// continua aparecendo, e é a informação que faz um 404 valer a pena. Sem ela,
+// todo caminho não casado vira SemRota — seguro, e cego.
+func DefinirPrefixosConhecidos(prefixos []string) {
+	prefixosMu.Lock()
+	defer prefixosMu.Unlock()
+	prefixosConhecidos = make(map[string]struct{}, len(prefixos))
+	for _, p := range prefixos {
+		prefixosConhecidos[p] = struct{}{}
+	}
+}
+
+// Rota devolve o padrão da rota casada (ex.: "/boards/{boardID}"), NUNCA o
+// caminho real.
+//
+// O padrão é o ponto: `/convites/{token}` é o que se registra de uma
+// requisição a `/convites/8f3a…`, e o token não vai para o log.
+//
+// Quando nada casa (404), o caminho bruto NÃO é registrado. Antes ele era, e
+// era um vazamento silencioso: quem digita `/convitess/<token>` erra a rota por
+// uma letra, leva 404, e o token inteiro fica escrito no log de acesso em texto
+// puro — junto com todo caminho secreto que alguém tente adivinhar. O que sobra
+// é o primeiro segmento, e só quando ele pertence a uma rota conhecida; um
+// segredo aparece como caminho de primeiro nível e por isso nunca está nessa
+// lista.
 func Rota(r *http.Request) string {
 	if rctx := chi.RouteContext(r.Context()); rctx != nil {
 		if p := rctx.RoutePattern(); p != "" {
 			return p
 		}
 	}
-	return r.URL.Path
+	return rotaDesconhecida(r.URL.Path)
+}
+
+func rotaDesconhecida(caminho string) string {
+	primeiro, _, _ := strings.Cut(strings.TrimPrefix(caminho, "/"), "/")
+	if primeiro == "" {
+		return SemRota
+	}
+	prefixosMu.RLock()
+	_, conhecido := prefixosConhecidos[primeiro]
+	prefixosMu.RUnlock()
+	if !conhecido {
+		return SemRota
+	}
+	return "/" + primeiro + "/" + SemRota
 }
 
 // RequisicaoLogger devolve um logger com o request_id e a rota da requisição

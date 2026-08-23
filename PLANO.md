@@ -930,7 +930,7 @@ abaixo diz onde está a prova.
 | 4 · Acesso SSH separado | `roles/acesso_esteira`, comando forçado + `sudo` restrito | `scripts/testa-wrapper-de-release.sh` |
 | 5 · Hardening | `roles/hardening`: sshd, UFW, `unattended-upgrades` | `ansible-lint` + as duas travas de segurança da role |
 | 6 · Mudanças controladas | `apt-mark hold` no Docker; Caddy validado antes da troca | tag `docker-upgrade`; handler restaura a cópia anterior |
-| 7 · Proteção do repositório | `environment: production` no job de deploy | falta criar o Environment e proteger a `main` |
+| 7 · Proteção do repositório | `environment: production` no job de deploy | Environment criado; escopo dos segredos dispensado por decisão (ver abaixo) |
 
 ### Verificado em produção (23/08/2026)
 
@@ -985,11 +985,75 @@ Rodou com `--tags hardening`, e o resultado foi conferido no host e de fora:
    incluído. Usuário da esteira, wrapper, papel de runtime do banco, SSH sem
    senha, firewall e atualização automática de segurança estão no servidor, com
    o agendaGo intacto.
-3. **GitHub**: criar o Environment `production` com os segredos `VPS_*` dentro
-   dele e proteger a `main` com os checks da esteira. É o último critério aberto
-   que depende só de configuração.
-4. **Medir a idempotência**: dois `make infra-apply` seguidos, e o segundo tem
-   de sair `changed=0`.
+3. ~~**GitHub**: criar o Environment `production`~~ — feito. Os segredos
+   `VPS_*` seguem no nível do repositório por decisão (ver "Escopo dos segredos"
+   abaixo).
+4. **Proteger a `main`** com os checks obrigatórios da esteira: `Backend`,
+   `Frontend`, `Infraestrutura`, `Vulnerabilidades` e `E2E`. Os jobs de imagem e
+   deploy NÃO entram — só rodam no push para `main` e travariam todo PR.
+5. ~~**Medir a idempotência**~~ — feito, e a medição achou defeito. Ver abaixo.
+
+### O que a idempotência revelou
+
+O critério de `changed=0` não era burocracia: ao ser medido pela primeira vez,
+em 23/08/2026, ele acusou **duas** coisas, e a segunda era um defeito de
+verdade.
+
+**A primeira era atraso, não defeito.** O `.env` do servidor ainda era o
+anterior ao commit `d18aeb4` — declarava `IMAGE_TAG=latest` enquanto os
+containers rodavam `d47d3bc`. Produção estava exatamente no estado de risco que
+aquele commit foi escrito para fechar: um `infra-apply` que recriasse os
+containers leria `latest` do disco do servidor e rebaixaria a aplicação, com o
+banco já contraído por uma migration mais nova. O `apply` corrigiu, sem recriar
+container nenhum.
+
+**A segunda não convergia nunca.** A task `sobe a stack` reportava `changed` em
+toda execução, para sempre, porque o `flyway` é serviço de execução única: roda
+as migrations, sai, e o `compose up` seguinte o encontra parado e o sobe de
+novo. O `changed` daquela task media "as migrations rodaram", não "a stack
+mudou".
+
+Isso é problema por três motivos, e nenhum deles é estético:
+
+1. **Torna o critério inalcançável por construção.** Não existe estado do
+   servidor que produza `changed=0`. Um critério que nada satisfaz é um critério
+   que se aprende a ignorar.
+2. **Queima o sinal de mudança.** Um playbook que sempre diz "mudei" não
+   consegue mais avisar quando mudou de verdade. O dia em que um `apply`
+   recriasse os containers sem querer — o acidente do `IMAGE_TAG` — sairia com o
+   mesmo `changed=1` de sempre, e ninguém olharia duas vezes.
+3. **Esconde a pergunta que o `--check` existe para responder.** O
+   `make infra-check` é o passo obrigatório antes do `apply`; se ele acusa
+   mudança sempre, deixa de ser pré-voo e vira ruído.
+
+A correção está em `roles/stacktrack/tasks/main.yml` e não silencia a task: ela
+passa a computar o `changed` a partir do que o módulo devolve em `actions`,
+descartando o container de execução única. Sobrando qualquer outro container, a
+stack mudou de verdade e o playbook diz isso. Migration que falha continua
+derrubando o `apply`, porque o `compose up` sai diferente de zero antes de o
+`changed_when` ser avaliado.
+
+### Escopo dos segredos: decisão de não mover para o Environment
+
+O Environment `production` existe e o job de deploy o declara, mas os quatro
+segredos `VPS_*` **permanecem como Repository secrets**, e isso é escolha, não
+pendência.
+
+O que a mudança daria: hoje um pull request aberto de um branch DESTE
+repositório recebe os segredos do repositório, então um PR que acrescentasse um
+passo lendo `${{ secrets.VPS_SSH_KEY }}` exfiltraria a chave do VPS antes de
+qualquer review. Com os segredos dentro do Environment, esse mesmo job receberia
+string vazia.
+
+O que ela não daria, e costuma ser vendido como se desse: segredo de repositório
+não fica presente em todo job. Ele só entra no job que o referencia
+explicitamente no workflow — uma dependência comprometida do `npm install` no
+job de E2E não o alcança de qualquer forma.
+
+Com um único dono, sem colaboradores e sem PRs de terceiros, o cenário que a
+mudança evita não tem quem o execute. A decisão pode ser revista no dia em que o
+repositório ganhar um segundo committer — e nesse dia o passo é mover os quatro
+segredos para o Environment e restringir o Deployment branch a `main`.
 
 ### Decisão tomada, e por quê
 
@@ -1077,8 +1141,9 @@ comprometido.
 7. **Proteção do repositório e dos segredos**
    - Usar GitHub Environment `production`, com aprovação/proteção definida.
    - Proteger `main` com os checks obrigatórios da release.
-   - Segredos de produção ficam escopados ao Environment e não chegam a jobs de
-     pull request ou validação comum.
+   - ~~Segredos de produção ficam escopados ao Environment e não chegam a jobs
+     de pull request ou validação comum.~~ **Dispensado — ver "Escopo dos
+     segredos" em A5.**
 
 ## Contratos operacionais
 
@@ -1115,7 +1180,9 @@ comprometido.
 
 - [x] Estado persistente do host é reproduzível por Ansible.
 - [x] CI valida Ansible sem possuir a senha do vault.
-- [ ] Segunda aplicação do playbook é idempotente. *(medição contra o servidor)*
+- [x] Segunda aplicação do playbook é idempotente. *(medido contra o servidor
+      em 23/08/2026: `changed=0` em duas execuções seguidas; ver "O que a
+      idempotência revelou")*
 - [x] API não possui DDL nem privilégios administrativos.
 - [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
       *(pelo comando forçado da chave. A conta em que ela mora tem Docker — a

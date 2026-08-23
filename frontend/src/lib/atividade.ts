@@ -33,6 +33,13 @@ export interface DadosDoEvento {
 	papel?: string;
 	papelAnterior?: string;
 	fundo?: string;
+	/**
+	 * Origem de um evento de MANUTENÇÃO — o comando que rodou, sem pessoa por
+	 * trás. `autorId` vem vazio nesses casos, e é isso que ele significa.
+	 */
+	origem?: string;
+	/** Quantos contêineres o comando de manutenção redistribuiu no quadro. */
+	containers?: number;
 }
 
 /** Mantido pelo nome antigo: o histórico do card já o usava. */
@@ -179,12 +186,18 @@ export function fraseNoQuadro(a: Atividade): string {
 			return `reordenou a coluna ${coluna}`;
 
 		// --- quadro ---
+		case 'quadro.criado':
+			return d.titulo ? `criou o quadro "${d.titulo}"` : 'criou o quadro';
 		case 'quadro.renomeado':
 			return d.tituloAnterior
 				? `renomeou o quadro de "${d.tituloAnterior}" para "${d.titulo}"`
 				: `renomeou o quadro para "${d.titulo}"`;
 		case 'quadro.fundo':
 			return d.fundo ? `mudou o fundo do quadro para ${d.fundo}` : 'mudou o fundo do quadro';
+		case 'quadro.publicado':
+			return 'publicou o quadro por link';
+		case 'quadro.publicacao_revogada':
+			return 'revogou o link público do quadro';
 
 		// --- etiquetas ---
 		case 'etiqueta.criada':
@@ -259,6 +272,14 @@ export function fraseNoQuadro(a: Atividade): string {
 			return `mexeu na conversa de ${card}`;
 		case 'membros.alterados':
 			return 'mexeu na participação do quadro';
+
+		// Manutenção: não tem pessoa por trás, e a frase precisa deixar isso
+		// claro. "Alguém reordenou o quadro" faria procurar um culpado que não
+		// existe; dizer que foi manutenção explica por que a ordem mudou sozinha.
+		case 'ordenacao.reparada':
+			return d.containers && d.containers > 1
+				? `manutenção redistribuiu a ordenação de ${d.containers} listas do quadro`
+				: 'manutenção redistribuiu a ordenação do quadro';
 
 		// Tipo desconhecido vira silêncio, e a tela omite a linha: um evento novo
 		// que ainda não tem frase é melhor ausente do que como "undefined" no meio

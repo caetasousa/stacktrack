@@ -130,12 +130,15 @@ describe('fraseNoQuadro', () => {
 		['coluna.criada', { titulo: 'A fazer' }, 'criou a coluna "A fazer"'],
 		['coluna.apagada', { titulo: 'A fazer' }, 'apagou a coluna "A fazer"'],
 		['coluna.movida', { titulo: 'A fazer' }, 'reordenou a coluna "A fazer"'],
+		['quadro.criado', { titulo: 'Projeto novo' }, 'criou o quadro "Projeto novo"'],
 		[
 			'quadro.renomeado',
 			{ titulo: 'Novo', tituloAnterior: 'Velho' },
 			'renomeou o quadro de "Velho" para "Novo"'
 		],
 		['quadro.fundo', { fundo: 'oceano' }, 'mudou o fundo do quadro para oceano'],
+		['quadro.publicado', undefined, 'publicou o quadro por link'],
+		['quadro.publicacao_revogada', undefined, 'revogou o link público do quadro'],
 		['etiqueta.criada', { nome: 'urgente' }, 'criou a etiqueta "urgente"'],
 		['etiqueta.aplicada', { titulo: 'Card', alvo: 'urgente' }, 'marcou "Card" com "urgente"'],
 		['anexo.adicionado', { titulo: 'Card', alvo: 'nota.pdf' }, 'anexou "nota.pdf" em "Card"'],
@@ -147,6 +150,18 @@ describe('fraseNoQuadro', () => {
 		['item.criado', { titulo: 'Card', alvo: 'passo 1' }, 'acrescentou "passo 1" a "Card"'],
 		['membro.adicionado', { nome: 'Ana', papel: 'editor' }, 'adicionou Ana ao quadro como editor'],
 		['membro.entrou', { papel: 'editor' }, 'entrou no quadro como editor'],
+		// Manutenção não tem pessoa por trás: a frase precisa dizer isso, senão
+		// a auditoria manda procurar um culpado que não existe.
+		[
+			'ordenacao.reparada',
+			{ origem: 'reparo-de-ordenacao', containers: 1 },
+			'manutenção redistribuiu a ordenação do quadro'
+		],
+		[
+			'ordenacao.reparada',
+			{ origem: 'reparo-de-ordenacao', containers: 3 },
+			'manutenção redistribuiu a ordenação de 3 listas do quadro'
+		],
 		[
 			'membro.papel',
 			{ nome: 'Ana', papel: 'leitor', papelAnterior: 'editor' },

@@ -148,6 +148,12 @@
     owner: '{{ usuario_app }}'
     group: '{{ grupo_app }}'
     mode: '0644'
+    # A cópia do que estava lá antes, para o handler poder DESFAZER quando o
+    # `caddy validate` recusar o arquivo novo. Sem ela, um bloco inválido fica
+    # no diretório que o Caddy do agendaGo importa, e o próximo reload dele —
+    # feito por outra pessoa, por outro motivo — falha por causa do stacktrack.
+    backup: true
+  register: stacktrack_bloco_caddy
   notify: recarrega o Caddy
 
 # --- operação ----------------------------------------------------------------

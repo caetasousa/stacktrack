@@ -54,11 +54,7 @@
 
     - name: engine, CLI e plugin do Compose
       ansible.builtin.apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
+        name: '{{ docker_pacotes }}'
         state: present
         update_cache: true
 
@@ -67,6 +63,51 @@
         name: docker
         enabled: true
         state: started
+
+# --- a versão do Docker não muda por acidente --------------------------------
+#
+# O comentário do topo desta role diz que ela não atualiza o Docker; o `hold`
+# é o que faz isso valer também para quem NÃO passa por ela. Um `apt upgrade`
+# de rotina, feito à mão no host ou por atualização automática, reinicia o
+# daemon — e no reinício os containers do agendaGo caem junto com os do
+# stacktrack.
+#
+# `hold` é do dpkg, não do Ansible: ele segue valendo depois que o playbook sai.
+- name: trava a versão do Docker contra upgrade implícito
+  ansible.builtin.dpkg_selections:
+    name: '{{ item }}'
+    selection: hold
+  loop: '{{ docker_pacotes }}'
+
+# A saída consciente da trava acima. `never` faz o bloco ser PULADO em qualquer
+# execução normal: ele só roda quando alguém o pede pelo nome, sabendo que os
+# containers dos dois projetos vão reiniciar.
+#
+#   cd deploy/ansible
+#   ansible-playbook preparar-host.yml -u root --ask-pass --tags docker-upgrade
+- name: atualiza o Docker de propósito
+  tags: [docker-upgrade, never]
+  block:
+    - name: destrava os pacotes do Docker
+      ansible.builtin.dpkg_selections:
+        name: '{{ item }}'
+        selection: install
+      loop: '{{ docker_pacotes }}'
+
+    # `latest` é o pedido, não um descuido: este bloco só roda quando alguém
+    # invoca a tag `docker-upgrade` justamente para atualizar a engine. Fixar
+    # versão aqui obrigaria a editar o playbook a cada CVE.
+    - name: atualiza a engine, o CLI e o plugin do Compose # noqa: package-latest
+      ansible.builtin.apt:
+        name: '{{ docker_pacotes }}'
+        state: latest
+        update_cache: true
+
+    - name: trava de novo
+      ansible.builtin.dpkg_selections:
+        name: '{{ item }}'
+        selection: hold
+      loop: '{{ docker_pacotes }}'
 
 # A rede `borda` é declarada `external` no docker-compose.prod.yml, e external
 # significa que o Compose NÃO a cria: ele falha com "network borda declared as

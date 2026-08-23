@@ -2,6 +2,11 @@
 # Só dispara quando o bloco de site MUDA. O Caddy pertence ao agendaGo e atende
 # outro serviço em produção: recarregá-lo a cada aplicação do playbook seria
 # mexer num processo alheio sem motivo.
+#
+# E a troca é ATÔMICA do ponto de vista do proxy: o arquivo novo é validado
+# dentro do container ANTES do reload, e volta para a cópia anterior se for
+# recusado. A alternativa — instalar e recarregar — deixa o vizinho com uma
+# configuração que não carrega, e quem descobre é ele.
 - name: recarrega o Caddy
   ansible.builtin.shell:
     cmd: |
@@ -18,6 +23,24 @@
         echo "nenhum container de Caddy encontrado — o bloco foi instalado, mas o proxy não recarregou" >&2
         exit 1
       fi
+
+      novo={{ pasta_caddy_sites | quote }}/stacktrack.caddy
+      anterior={{ stacktrack_bloco_caddy.backup_file | default('') | quote }}
+
+      # `validate` lê o Caddyfile INTEIRO do vizinho, com o import que traz este
+      # bloco: é a única forma de saber se o conjunto carrega, e não só se o
+      # nosso pedaço tem sintaxe.
+      if ! docker exec "$caddy" caddy validate --config /etc/caddy/Caddyfile; then
+        if [ -n "$anterior" ] && [ -f "$anterior" ]; then
+          cp -p "$anterior" "$novo"
+          echo "bloco recusado pelo caddy validate — restaurada a versão anterior" >&2
+        else
+          rm -f "$novo"
+          echo "bloco recusado pelo caddy validate — removido (não havia versão anterior)" >&2
+        fi
+        exit 1
+      fi
+
       # --config explícito: sem ele o reload usaria o último config carregado
       # por API, e não o arquivo.
       docker exec "$caddy" caddy reload --config /etc/caddy/Caddyfile

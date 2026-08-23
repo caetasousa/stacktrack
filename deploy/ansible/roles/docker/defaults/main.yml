@@ -1,0 +1,9 @@
+---
+# Os pacotes da engine, num lugar só: eles aparecem na instalação, na trava
+# (`hold`) e na atualização deliberada, e uma lista repetida três vezes diverge
+# na primeira vez que alguém acrescentar um plugin.
+docker_pacotes:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin

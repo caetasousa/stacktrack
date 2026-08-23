@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
 	import { confirmar } from '$lib/confirmar.svelte';
 	// O modal do card: descrição em markdown, etiquetas, prazo, checklists e
 	// anexos. É onde cabe o que não cabe no card da coluna.
@@ -33,28 +32,26 @@
 	import { renderizarMarkdown } from '$lib/markdown';
 	import { sessao } from '$lib/stores/session.svelte';
 	import { descritas, quando as quandoAconteceu, type Atividade } from '$lib/atividade';
+	import type { RecarregarProjecaoAtiva } from '$lib/realtime/reconciliacao';
 
 	let {
 		cardId,
 		etiquetasDoQuadro,
 		podeEditar,
 		podeAdministrar = false,
-		pulso = 0,
 		aoFechar,
-		aoMudar
+		aoMudar,
+		registrarRecarga
 	}: {
 		cardId: string;
 		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
 		// Só o dono apaga comentário alheio — a mesma regra do servidor.
 		podeAdministrar?: boolean;
-		// Sobe a cada mudança feita por OUTRA pessoa no quadro. É o que tira o
-		// modal do mudo: sem isto ele carregava o card uma vez, na abertura, e
-		// nunca mais — duas pessoas no mesmo card não viam o comentário uma da
-		// outra, embora o quadro atrás do modal se atualizasse.
-		pulso?: number;
 		aoFechar: () => void;
 		aoMudar: () => Promise<void>;
+		/** Registra a projeção que a página precisa aguardar antes do ack. */
+		registrarRecarga: (recarregar: RecarregarProjecaoAtiva | null) => void;
 	} = $props();
 
 	let card = $state<CardDetalhado | null>(null);
@@ -145,6 +142,8 @@
 	let atividade = $state<Atividade[]>([]);
 	let historicoAberto = $state(false);
 	let carregandoHistorico = $state(false);
+	let proximaGeracaoDoHistorico = 0;
+	let ultimaGeracaoDoHistorico = 0;
 
 	const linhasDoHistorico = $derived(descritas(atividade));
 
@@ -154,14 +153,24 @@
 		await recarregarHistorico();
 	}
 
-	async function recarregarHistorico() {
+	async function recarregarHistorico(propagar = false) {
+		const id = cardId;
+		const geracao = ++proximaGeracaoDoHistorico;
 		carregandoHistorico = true;
 		try {
-			atividade = (await atividadeDoCard(cardId)).atividade;
+			const novaAtividade = (await atividadeDoCard(id)).atividade;
+			if (cardId === id && geracao >= ultimaGeracaoDoHistorico) {
+				atividade = novaAtividade;
+				ultimaGeracaoDoHistorico = geracao;
+			}
 		} catch (e) {
-			falhar(e, 'não foi possível carregar o histórico');
+			if (cardId === id && geracao >= ultimaGeracaoDoHistorico) {
+				ultimaGeracaoDoHistorico = geracao;
+				falhar(e, 'não foi possível carregar o histórico');
+			}
+			if (propagar) throw e;
 		} finally {
-			carregandoHistorico = false;
+			if (cardId === id) carregandoHistorico = false;
 		}
 	}
 
@@ -184,14 +193,14 @@
 	let membros = $state<Membro[]>([]);
 	const responsaveisAtuais = $derived(new Set(card?.responsaveis.map((r) => r.usuarioId) ?? []));
 
-	async function carregarMembros() {
-		if (!card) return;
+	async function buscarMembros(boardId: string, propagar: boolean): Promise<Membro[]> {
 		try {
-			membros = (await listarParticipacao(card.boardId)).membros;
-		} catch {
+			return (await listarParticipacao(boardId)).membros;
+		} catch (e) {
+			if (propagar) throw e;
 			// Falhar aqui não estraga o modal: sem a lista, o card continua
 			// mostrando quem já é responsável — só não dá para mudar.
-			membros = [];
+			return [];
 		}
 	}
 
@@ -208,21 +217,61 @@
 		}
 	}
 
-	async function carregar() {
+	// Respostas podem terminar fora de ordem: a abertura do modal pode ainda
+	// estar em voo quando chega a recarga do tempo real. Só a geração mais nova
+	// pode escrever na tela, evitando que a resposta antiga desfaça o snapshot
+	// que acabou de ser confirmado.
+	let proximaGeracao = 0;
+	let ultimaGeracaoDoCard = 0;
+
+	async function carregar(
+		id: string,
+		propagar = false,
+		incluirHistorico = cardId === id && historicoAberto
+	): Promise<number | undefined> {
+		const geracao = ++proximaGeracao;
+		const geracaoDoHistorico = incluirHistorico ? ++proximaGeracaoDoHistorico : undefined;
 		try {
-			card = await detalharCard(cardId);
-			await carregarMembros();
-			erro = '';
+			const novoCard = await detalharCard(id);
+			// Membros vêm depois do snapshot versionado do card. Na mesma origem de
+			// dados, essa leitura é no mínimo tão nova quanto `novoCard.revisao`.
+			const novosMembros = await buscarMembros(novoCard.boardId, propagar);
+			const novaAtividade = incluirHistorico ? (await atividadeDoCard(id)).atividade : undefined;
+
+			if (cardId === id && geracao >= ultimaGeracaoDoCard) {
+				card = novoCard;
+				membros = novosMembros;
+				if (
+					novaAtividade &&
+					geracaoDoHistorico !== undefined &&
+					geracaoDoHistorico >= ultimaGeracaoDoHistorico
+				) {
+					atividade = novaAtividade;
+					ultimaGeracaoDoHistorico = geracaoDoHistorico;
+				}
+				erro = '';
+				ultimaGeracaoDoCard = geracao;
+			}
+			return novoCard.revisao;
 		} catch (e) {
-			erro = e instanceof ApiError ? e.message : 'não foi possível carregar o card';
+			if (cardId === id && geracao >= ultimaGeracaoDoCard) {
+				ultimaGeracaoDoCard = geracao;
+				if (geracaoDoHistorico !== undefined) {
+					ultimaGeracaoDoHistorico = Math.max(ultimaGeracaoDoHistorico, geracaoDoHistorico);
+				}
+				erro = e instanceof ApiError ? e.message : 'não foi possível carregar o card';
+			}
+			if (propagar) throw e;
+			return undefined;
 		} finally {
-			carregando = false;
+			if (cardId === id) carregando = false;
 		}
 	}
 
-	// Recarrega o card E avisa a página, para os selos da coluna acompanharem.
+	// A página coordena a ordem: quadro primeiro, esta projeção depois, cursor
+	// por último. Recarregar o card aqui em paralelo abriria uma corrida entre
+	// duas respostas e permitiria confirmar antes de uma delas falhar.
 	async function recarregar() {
-		await carregar();
 		await aoMudar();
 	}
 
@@ -230,39 +279,39 @@
 		erro = e instanceof ApiError ? e.message : padrao;
 	}
 
+	// Este efeito é do CARD, e só dele: ele reinicia o modal quando o modal passa
+	// a mostrar outro card.
+	//
+	// ⚠️ Os três argumentos vão EXPLÍCITOS, e isso não é verbosidade. Os valores
+	// padrão de `carregar` são `propagar = false` e
+	// `incluirHistorico = cardId === id && historicoAberto` — expressões avaliadas
+	// na chamada, ou seja, DENTRO deste efeito. Deixar que rodem faz o efeito
+	// passar a depender de `historicoAberto`, e aí abrir o histórico o reinicia:
+	// o efeito roda de novo, executa o `historicoAberto = false` abaixo e o painel
+	// fecha sozinho no mesmo quadro de animação. Na prática o botão de histórico
+	// simplesmente não funcionava.
+	//
+	// `false` é o valor certo dos dois: o card acabou de mudar, o histórico está
+	// sendo fechado aqui mesmo, e não há o que incluir.
 	$effect(() => {
-		cardId;
+		const id = cardId;
 		carregando = true;
 		// O histórico é de OUTRO card agora: mantê-lo mostraria a história errada
 		// até a próxima abertura.
 		atividade = [];
 		historicoAberto = false;
-		// `untrack` porque este efeito é do CARD, não do pulso. Sem ele, ler
-		// `pulso` aqui torna o efeito dependente dele — e cada mudança de outra
-		// pessoa reiniciaria o modal inteiro, fechando o histórico que estava
-		// aberto e descartando o que ele já tinha carregado.
-		ultimoPulso = untrack(() => pulso);
-		carregar();
+		void carregar(id, false, false);
 	});
 
-	// Mudança de outra pessoa: relê o card.
-	//
-	// Relê SEMPRE, sem olhar de que card era o evento. Filtrar exigiria um
-	// caminho por tipo de evento para saber onde procurar o id no payload — que é
-	// exatamente o que a fase 12 pesa antes de fazer, porque um caminho errado
-	// deixa a tela discordando do banco em silêncio. Reler é sempre correto, e a
-	// página já junta rajadas de eventos numa só chamada.
-	//
-	// `ultimoPulso` é um `let` comum de propósito: se fosse `$state`, escrever
-	// nele aqui dentro reagendaria este mesmo efeito.
-	let ultimoPulso = untrack(() => pulso);
+	// O registro muda de identidade quando muda o card. Assim, se a troca ocorrer
+	// durante uma reconciliação, a página percebe o interleaving e relê a nova
+	// projeção antes de confirmar.
 	$effect(() => {
-		if (pulso === ultimoPulso) return;
-		ultimoPulso = pulso;
-		carregar();
-		// O histórico só é relido se estiver aberto — ele é carregado sob demanda
-		// justamente por não interessar na maioria das aberturas.
-		if (historicoAberto) recarregarHistorico();
+		const id = cardId;
+		const incluirHistorico = historicoAberto;
+		const recarregarProjecao: RecarregarProjecaoAtiva = () => carregar(id, true, incluirHistorico);
+		registrarRecarga(recarregarProjecao);
+		return () => registrarRecarga(null);
 	});
 
 	function abrirEdicaoDeTitulo() {
@@ -324,7 +373,6 @@
 		conflito = false;
 		editandoTitulo = false;
 		editandoDescricao = false;
-		await carregar();
 		await recarregar();
 	}
 

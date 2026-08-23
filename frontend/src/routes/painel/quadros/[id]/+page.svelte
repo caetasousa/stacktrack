@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick, untrack } from 'svelte';
 	import { confirmar } from '$lib/confirmar.svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import {
@@ -31,9 +32,20 @@
 	} from '$lib/arrastar';
 	import {
 		conectarAoQuadro,
+		eventoExigeSaidaDoQuadro,
+		pedidoDeRecargaPara,
 		type EventoDoQuadro,
+		type PedidoDeRecarga,
 		type Presente
 	} from '$lib/realtime/conexao.svelte';
+	import {
+		esperaParaReconciliar,
+		executarDepoisDaAtual,
+		executarPreservandoFalha,
+		JANELA_DE_RAJADA_MS,
+		reconciliarSnapshots,
+		type RecarregarProjecaoAtiva
+	} from '$lib/realtime/reconciliacao';
 	import { iniciais } from '$lib/iniciais';
 	import { sessao } from '$lib/stores/session.svelte';
 	import {
@@ -49,6 +61,10 @@
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
 
 	let { data } = $props();
+	// `data` inteiro muda a cada invalidateAll(), mesmo quando a navegação
+	// continua no mesmo quadro. A derivação preserva a identidade primitiva e
+	// impede que uma revisão nova reconstrua o WebSocket do mesmo quadro.
+	const boardId = $derived(data.quadro.id);
 
 	// O arraste precisa de uma cópia LOCAL: a lista que vem do load() é o estado
 	// do servidor, e mexer nela direto faria a tela discordar do que a API sabe.
@@ -74,17 +90,26 @@
 	// a outra, sem passar pelo estado "duas abertas".
 	let conexao = $state<{
 		readonly situacao: string;
+		readonly revisaoConfirmada: number | undefined;
+		confirmarRevisao: (revisao: number) => void;
+		redefinirRevisaoAposSnapshot: (revisao: number) => void;
 		anunciarEdicao: (colunaId: string | null) => void;
 		fechar: () => void;
 	} | null>(null);
 
 	$effect(() => {
-		const id = data.quadro.id;
-		const c = conectarAoQuadro(id, aoReceberEvento);
+		const id = boardId;
+		// A revisão do snapshot que já está na tela entra como cursor inicial:
+		// a conexão pede ao servidor o que aconteceu DEPOIS dela, em vez de
+		// recomeçar do zero ou aplicar por cima de um estado que não sabe de
+		// onde veio. `untrack` é essencial: o ciclo de vida é do QUADRO, não do
+		// snapshot. Sem ele cada revisão fecharia o socket e abriria outro.
+		const revisaoInicial = untrack(() => data.quadro.revisao);
+		const c = conectarAoQuadro(id, aoReceberEvento, revisaoInicial);
 		conexao = c;
 		return () => {
 			c.fechar();
-			conexao = null;
+			if (conexao === c) conexao = null;
 			presentes = [];
 			// Uma recarga agendada que dispare depois da saída invalidaria dados
 			// de um quadro que já não está na tela.
@@ -92,6 +117,11 @@
 				clearTimeout(recargaAgendada);
 				recargaAgendada = null;
 			}
+			recargaForcada = false;
+			revisaoPendente = undefined;
+			redefinirCursorPendente = false;
+			ultimaReconciliacaoEm = undefined;
+			recargaEmCurso = null;
 		};
 	});
 
@@ -104,9 +134,25 @@
 	// possível num quadro colaborativo. Recarregar é sempre correto; o custo é
 	// uma requisição.
 	//
-	// O eco do próprio autor já foi filtrado pelo servidor: tudo que chega aqui
-	// foi feito por outra pessoa.
+	// O evento da PRÓPRIA conta também chega aqui desde A3 — o servidor deixou
+	// de filtrar por autor, porque filtrar por autor filtrava junto as outras
+	// abas da mesma pessoa. A revisão permite dispensar o segundo GET apenas na
+	// aba que já atualizou o snapshot pela resposta da mutação; a outra continua
+	// recarregando normalmente.
 	function aoReceberEvento(e: EventoDoQuadro) {
+		// Um frame já enfileirado pelo socket anterior pode chegar durante a troca
+		// de rota. Ele nunca deve alimentar o agendador do quadro novo.
+		if (e.boardId !== boardId) return;
+
+		// Exclusão é terminal: não existe snapshot para buscar. Fechar antes de
+		// navegar impede a reconexão de assinar de novo uma sala cujo quadro já
+		// responde 404.
+		if (eventoExigeSaidaDoQuadro(e)) {
+			conexao?.fechar();
+			void goto('/painel');
+			return;
+		}
+
 		// Presença é estado efêmero: aplica direto, sem ir ao banco. Recarregar o
 		// quadro só porque alguém abriu a aba seria uma requisição por entrada e
 		// saída de cada pessoa.
@@ -114,44 +160,110 @@
 			presentes = (e.dados as Presente[]) ?? [];
 			return;
 		}
-		// `sincronizado` só carrega a posição atual da história — a conexão
-		// registra o seq e não há nada a mostrar. Recarregar aqui daria uma
-		// requisição a cada conexão, sem nenhuma mudança para ver.
-		if (e.tipo === 'sincronizado') return;
 
-		// Tudo o mais — inclusive `recarregue.tudo`, quando o intervalo perdido
-		// foi grande demais para repor — cai na recarga do quadro.
-		agendarRecarga();
+		// `sincronizado` não confirma nada sozinho: confirmar é dizer "apliquei
+		// até aqui", e só um snapshot permite essa afirmação. A decisão também
+		// cobre o servidor anterior, que mandava `sincronizado` sem revisão e por
+		// isso exige uma busca sem reconstruir a conexão.
+		const pedido = pedidoDeRecargaPara(e, conexao?.revisaoConfirmada);
+		if (pedido) agendarRecarga(pedido);
 	}
 
-	// Quanto tempo se espera para juntar eventos numa recarga só.
-	//
-	// Curto o bastante para continuar parecendo instantâneo, longo o bastante
-	// para colapsar uma rajada. É o que separa "uma recarga por evento" de "uma
-	// recarga por surto de atividade".
-	const JANELA_DE_RECARGA = 150;
 	let recargaAgendada: ReturnType<typeof setTimeout> | null = null;
+	let recargaForcada = false;
+	let revisaoPendente: number | undefined;
+	let redefinirCursorPendente = false;
+	let recargaEmCurso: Promise<void> | null = null;
+	let ultimaReconciliacaoEm: number | undefined;
+	let recarregarProjecaoAtiva: RecarregarProjecaoAtiva | null = null;
 
-	// Sobe a cada rajada de mudanças de outras pessoas. O modal do card escuta:
-	// recarregar a página atualiza o quadro ATRÁS do modal, e o modal tem dados
-	// próprios (comentários, histórico, anexos) que o GET do quadro não traz.
-	let pulso = $state(0);
+	function registrarRecargaDoModal(recarregarModal: RecarregarProjecaoAtiva | null) {
+		recarregarProjecaoAtiva = recarregarModal;
+	}
 
 	// Junta eventos próximos numa recarga só.
 	//
-	// Sem isto, cada evento vira um GET do quadro inteiro — e são dois os
-	// momentos em que isso machuca. Na reconexão, o backlog pode trazer até 200
-	// eventos de uma vez, o que dispararia 200 recargas em sequência. E ao vivo,
-	// o teto de requisições por sessão passa a ser consumido pelo movimento dos
-	// OUTROS: quem está apenas olhando um quadro movimentado esgotaria a própria
-	// cota e começaria a levar 429 justamente enquanto não fez nada.
-	function agendarRecarga() {
+	// A primeira rajada espera 150 ms. Sob carga contínua, a próxima execução
+	// espera até completar 3 s desde a anterior. `invalidateAll` relê sessão e
+	// quadro; com card, membros e histórico abertos são até cinco GETs por lote:
+	// cerca de 100/min, ainda abaixo do teto de 120 da sessão. A contrapartida
+	// explícita é até 3 s de latência visual sob mudanças sem parar.
+	function agendarRecarga(pedido: PedidoDeRecarga) {
+		recargaForcada ||= pedido.forcar;
+		redefinirCursorPendente ||= pedido.redefinirCursor ?? false;
+		if (pedido.revisao !== undefined) {
+			revisaoPendente = Math.max(revisaoPendente ?? 0, pedido.revisao);
+		}
 		if (recargaAgendada) return;
 		recargaAgendada = setTimeout(() => {
 			recargaAgendada = null;
-			pulso++;
-			recarregar();
-		}, JANELA_DE_RECARGA);
+			void executarRecargaAgendada();
+		}, JANELA_DE_RAJADA_MS);
+	}
+
+	async function executarRecargaAgendada() {
+		const conexaoDestaExecucao = conexao;
+		if (!conexaoDestaExecucao) return;
+
+		const jaAplicou = () =>
+			!recargaForcada &&
+			revisaoPendente !== undefined &&
+			conexao?.revisaoConfirmada !== undefined &&
+			conexao.revisaoConfirmada >= revisaoPendente;
+
+		// Uma mutação desta aba já costuma ter iniciado invalidateAll(). Esperar
+		// esse snapshot antes de abrir outro elimina o GET duplicado; a revisão
+		// ainda protege a outra aba, que não tem recarga própria para esperar.
+		if (recargaEmCurso) {
+			try {
+				await recargaEmCurso;
+				await tick();
+			} catch {
+				// A tentativa que falhou não prova que o evento foi aplicado. Continua
+				// abaixo e faz a recarga pedida pelo tempo real.
+			}
+		}
+		if (conexao !== conexaoDestaExecucao) return;
+
+		if (jaAplicou()) {
+			recargaForcada = false;
+			revisaoPendente = undefined;
+			redefinirCursorPendente = false;
+			return;
+		}
+
+		const espera = esperaParaReconciliar(performance.now(), ultimaReconciliacaoEm);
+		if (espera > 0) {
+			// Os pedidos continuam nos acumuladores enquanto se espera; eventos que
+			// chegarem neste intervalo entram no mesmo snapshot.
+			recargaAgendada = setTimeout(() => {
+				recargaAgendada = null;
+				void executarRecargaAgendada();
+			}, espera);
+			return;
+		}
+
+		const pedidoEmExecucao: PedidoDeRecarga = {
+			forcar: recargaForcada,
+			revisao: revisaoPendente,
+			redefinirCursor: redefinirCursorPendente
+		};
+		const conexaoDoPedido = conexao;
+		recargaForcada = false;
+		revisaoPendente = undefined;
+		redefinirCursorPendente = false;
+		try {
+			await executarPreservandoFalha(
+				pedidoEmExecucao,
+				(pedido) => recarregar({ redefinirCursor: pedido.redefinirCursor }),
+				(pedido) => {
+					// Não ressuscita um timer do quadro anterior após a navegação.
+					if (conexao === conexaoDoPedido && conexaoDoPedido) agendarRecarga(pedido);
+				}
+			);
+		} catch (e) {
+			tratar(e, 'não foi possível atualizar o quadro');
+		}
 	}
 
 	// Quem está com este quadro aberto agora, incluindo você.
@@ -231,11 +343,59 @@
 		brasa: 'Brasa'
 	};
 
-	// Recarrega o quadro inteiro. É o que roda depois das próprias ações e
-	// também quando chega um evento de outra pessoa.
-	async function recarregar() {
+	// Recarrega todas as projeções visíveis em ordem. O cursor só é confirmado
+	// depois do quadro e do modal ativo; a menor revisão entre ambos é o limite
+	// que a tela realmente provou ter aplicado.
+	function recarregar(opcoes: { redefinirCursor?: boolean } = {}): Promise<void> {
+		if (recargaEmCurso) {
+			const anterior = recargaEmCurso;
+			const id = boardId;
+			const conexaoAoSolicitar = conexao;
+			return executarDepoisDaAtual(anterior, async () => {
+				if (!conexaoAoSolicitar || conexao !== conexaoAoSolicitar || boardId !== id) return;
+				await recarregar(opcoes);
+			});
+		}
 		erro = '';
-		await invalidateAll();
+		const id = boardId;
+		const conexaoDestaRecarga = conexao;
+		ultimaReconciliacaoEm = performance.now();
+
+		const execucao = reconciliarSnapshots({
+			carregarQuadro: async () => {
+				await invalidateAll();
+				await tick();
+				if (boardId !== id) return undefined;
+
+				// Se o card sumiu no snapshot, o modal deixou de ser uma projeção
+				// ativa. Fechá-lo evita transformar uma exclusão válida num 404 que
+				// bloquearia o cursor indefinidamente.
+				if (
+					cardAberto &&
+					!data.quadro.colunas.some((coluna) => coluna.cards.some((card) => card.id === cardAberto))
+				) {
+					cardAberto = null;
+					await tick();
+				}
+				return data.quadro.revisao;
+			},
+			obterProjecaoAtiva: () => (boardId === id ? recarregarProjecaoAtiva : null),
+			confirmar: (revisao) => {
+				// Uma navegação não pode confirmar no socket antigo nem emprestar a
+				// revisão do quadro anterior à conexão nova.
+				if (boardId !== id || conexao !== conexaoDestaRecarga || !conexaoDestaRecarga) return;
+				if (opcoes.redefinirCursor) {
+					conexaoDestaRecarga.redefinirRevisaoAposSnapshot(revisao);
+				} else {
+					conexaoDestaRecarga.confirmarRevisao(revisao);
+				}
+			}
+		}).then(() => undefined);
+		const acompanhada = execucao.finally(() => {
+			if (recargaEmCurso === acompanhada) recargaEmCurso = null;
+		});
+		recargaEmCurso = acompanhada;
+		return acompanhada;
 	}
 
 	// --- arrastar e soltar --------------------------------------------------
@@ -706,44 +866,48 @@
 {/if}
 
 <div class="painel-fundo fundo-{data.quadro.fundo} mt-3 rounded-lg p-4">
-	<div class="flex items-start gap-4 overflow-x-auto pb-4">
-		<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
-		     faz o arraste começar na zona certa: um card é filho do <ul> de
-		     cards, não desta lista. -->
-		<div
-			class="flex items-start gap-4"
-			use:dndzone={{
-				items: colunasVisiveis,
-				type: TIPO_COLUNA,
-				flipDurationMs: DURACAO_MS,
-				dragDisabled: !podeEditar || filtrando,
-				delayTouchStart: ESPERA_DE_TOQUE_MS,
-				dropTargetStyle: {},
-				dropTargetClasses: CLASSES_ALVO,
-				transformDraggedElement: enfeitarArrastado
-			}}
-			onconsider={(e: CustomEvent<DndEvent<Coluna>>) => espelharColunas(e.detail.items)}
-			onfinalize={(e: CustomEvent<DndEvent<Coluna>>) =>
-				soltarColuna(e.detail.items, e.detail.info.id)}
-		>
-			{#each colunasVisiveis as coluna (coluna.id)}
-				<div animate:flip={{ duration: DURACAO_MS }}>
-					<ColunaDoQuadro
-						{coluna}
-						etiquetasDoQuadro={data.quadro.etiquetas}
-						{podeEditar}
-						arrasteTravado={filtrando}
-						editandoAgora={editandoPorColuna.get(coluna.id) ?? []}
-						aoEditar={(editando) => conexao?.anunciarEdicao(editando ? coluna.id : null)}
-						aoAbrirCard={(id) => (cardAberto = id)}
-						aoMudar={recarregar}
-						aoFalhar={falhar}
-						aoArrastarCards={espelharCards}
-						aoSoltarCard={soltarCard}
-					/>
-				</div>
-			{/each}
-		</div>
+	<!-- Zona das colunas. Ela ENVOLVE a zona dos cards, e é o aninhamento que
+	     faz o arraste começar na zona certa: um card é filho do <ul> de cards,
+	     não desta lista.
+	     A grade quebra linha em vez de rolar para o lado: duas colunas por linha
+	     no celular, quatro a partir do desktop, e o excedente empilha para baixo
+	     com a rolagem normal da página. A faixa horizontal escondia as colunas
+	     seguintes atrás de uma barra que ninguém vê sem procurar. -->
+	<div
+		class="grid grid-cols-2 items-start gap-4 pb-4 lg:grid-cols-4"
+		use:dndzone={{
+			items: colunasVisiveis,
+			type: TIPO_COLUNA,
+			flipDurationMs: DURACAO_MS,
+			dragDisabled: !podeEditar || filtrando,
+			delayTouchStart: ESPERA_DE_TOQUE_MS,
+			dropTargetStyle: {},
+			dropTargetClasses: CLASSES_ALVO,
+			transformDraggedElement: enfeitarArrastado
+		}}
+		onconsider={(e: CustomEvent<DndEvent<Coluna>>) => espelharColunas(e.detail.items)}
+		onfinalize={(e: CustomEvent<DndEvent<Coluna>>) =>
+			soltarColuna(e.detail.items, e.detail.info.id)}
+	>
+		{#each colunasVisiveis as coluna (coluna.id)}
+			<!-- min-w-0 no item da grade: sem ele o conteúdo largo (título comprido,
+			     nome de anexo) força a célula a crescer e estoura a linha inteira. -->
+			<div class="min-w-0" animate:flip={{ duration: DURACAO_MS }}>
+				<ColunaDoQuadro
+					{coluna}
+					etiquetasDoQuadro={data.quadro.etiquetas}
+					{podeEditar}
+					arrasteTravado={filtrando}
+					editandoAgora={editandoPorColuna.get(coluna.id) ?? []}
+					aoEditar={(editando) => conexao?.anunciarEdicao(editando ? coluna.id : null)}
+					aoAbrirCard={(id) => (cardAberto = id)}
+					aoMudar={recarregar}
+					aoFalhar={falhar}
+					aoArrastarCards={espelharCards}
+					aoSoltarCard={soltarCard}
+				/>
+			</div>
+		{/each}
 	</div>
 
 	{#if colunas.length === 0}
@@ -769,8 +933,8 @@
 		etiquetasDoQuadro={data.quadro.etiquetas}
 		{podeEditar}
 		{podeAdministrar}
-		{pulso}
 		aoFechar={() => (cardAberto = null)}
 		aoMudar={recarregar}
+		registrarRecarga={registrarRecargaDoModal}
 	/>
 {/if}

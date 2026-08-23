@@ -481,6 +481,8 @@ jobs:
             faltando=""
             [ -f "$HOME/stacktrack/.env" ] || faltando="$faltando .env"
             docker network inspect borda >/dev/null 2>&1 || faltando="$faltando rede-borda"
+            grep -Eq "^PROXIES_CONFIAVEIS=.+" "$HOME/stacktrack/.env" 2>/dev/null \
+              || faltando="$faltando proxies-confiaveis (rode make infra-apply)"
             if [ -n "$faltando" ]; then
               echo "::error::host não provisionado (faltando:$faltando). Rode: make infra-apply"
               exit 1
@@ -592,7 +594,13 @@ jobs:
       # `--quiet` no pull porque o progresso por camada, sem terminal para
       # reescrever a linha, vira milhares de linhas de "Downloading" no log — e
       # o erro, quando existe, se perde no meio delas.
-      - name: puxa as imagens e sobe a stack
+      # API e web param JUNTAS antes do Flyway. As migrations expansivas deixam
+      # o binário anterior iniciar, mas isso não basta para protocolos: durante
+      # a V16, por exemplo, o backend antigo gravaria eventos sem revisão que o
+      # cliente novo não poderia usar como cursor. Como a topologia suportada é
+      # de uma instância, uma janela curta de manutenção é a forma simples de
+      # impedir versões semanticamente incompatíveis de conviverem.
+      - name: puxa as imagens e troca a stack sem misturar versões
         if: steps.cfg.outputs.configurado == 'true'
         env:
           HOST: ${{ secrets.VPS_HOST }}
@@ -602,6 +610,7 @@ jobs:
           ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" "$USUARIO@$HOST" \
             "cd ~/stacktrack \
              && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml pull --quiet \
+             && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml stop web api \
              && IMAGE_TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml up -d \
              && docker image prune -f"
 

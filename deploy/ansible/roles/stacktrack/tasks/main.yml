@@ -23,6 +23,39 @@
 
 # --- segredos e configuração -------------------------------------------------
 
+# PROXIES_CONFIAVEIS precisa representar a rede que realmente entrega a
+# conexao TCP, nao uma faixa privada generica. Derivar do Docker mantem a fonte
+# da verdade no host declarado e acompanha uma rede recriada com outro subnet.
+- name: le a rede compartilhada do proxy
+  community.docker.docker_network_info:
+    name: '{{ rede_borda }}'
+  register: rede_borda_info
+
+- name: exige subnet valido na rede do proxy
+  ansible.builtin.assert:
+    that:
+      - rede_borda_info.exists
+      - rede_borda_info.network.IPAM.Config | default([]) | length > 0
+      - >-
+        rede_borda_info.network.IPAM.Config
+        | selectattr('Subnet', 'defined')
+        | map(attribute='Subnet')
+        | reject('equalto', '')
+        | list
+        | length > 0
+    fail_msg: >-
+      A rede Docker {{ rede_borda }} nao existe ou nao tem subnet. Ela e a
+      origem confiavel do X-Real-IP e precisa existir antes de gerar o .env.
+
+- name: deriva os proxies confiaveis da rede real do Caddy
+  ansible.builtin.set_fact:
+    proxies_confiaveis: >-
+      {{ rede_borda_info.network.IPAM.Config
+         | selectattr('Subnet', 'defined')
+         | map(attribute='Subnet')
+         | reject('equalto', '')
+         | join(',') }}
+
 # As imagens do GHCR nascem privadas. Sem autenticação o `pull` do primeiro
 # deploy falha — e falha DEPOIS de tudo o mais estar pronto, que é onde o erro
 # custa mais caro para diagnosticar.

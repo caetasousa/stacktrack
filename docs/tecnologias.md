@@ -1176,6 +1176,66 @@ Mudá-los no vault depois **não** muda o papel no banco — só faz o `.env` me
 e a API para de conectar no deploy seguinte. É o que o `assert` do passo 4
 recusa, com a instrução no texto do erro.
 
+#### 9. Privilégio mínimo: o comando forçado do SSH
+
+O `authorized_keys` do OpenSSH aceita opções por chave, e duas delas mudam o que
+uma credencial vazada significa:
+
+```
+restrict,command="/usr/local/bin/stacktrack-release" ssh-ed25519 AAAA... github-actions-stacktrack
+```
+
+`command=` faz o sshd executar **aquele** programa e ignorar o que o cliente
+pediu — o pedido original vai para a variável `SSH_ORIGINAL_COMMAND`, como dado.
+`restrict` desliga PTY, encaminhamento de porta, de agente e X11.
+
+O programa apontado (`roles/acesso_esteira/templates/stacktrack-release.sh.j2`)
+é quem decide o que aquilo significa, e é por isso que ele lê a linha com
+`read -ra` e nunca com `eval`: com `eval`, um `release; rm -rf /` seria
+obedecido, e o comando forçado não teria servido para nada.
+
+A outra metade é o usuário. `stacktrack-deploy` **não** entra no grupo `docker`,
+porque estar nele equivale a ser root na máquina — `docker run -v /:/host` monta
+o disco inteiro. Ele alcança o Docker por um `sudo` restrito ao wrapper:
+
+```
+stacktrack-deploy ALL=(deploy) NOPASSWD: /usr/local/bin/stacktrack-release
+```
+
+Não é um furo, porque o que o sudo executa é o próprio wrapper, que valida os
+argumentos antes de qualquer coisa. O que a chave da esteira alcança é o
+conjunto de verbos daquele arquivo, e `scripts/testa-wrapper-de-release.sh`
+executa o script renderizado contra um `docker` de mentira para provar as
+recusas.
+
+📚 [sshd — AUTHORIZED_KEYS FILE FORMAT](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT) · [sudoers](https://www.sudo.ws/docs/man/sudoers.man/)
+
+#### 10. Papéis do PostgreSQL: quem migra e quem serve
+
+O `initdb` cria um papel dono, e é fácil parar por aí — a aplicação usa esse, e
+tudo funciona. O custo aparece no dia da falha: o processo que atende a internet
+consegue `DROP TABLE`.
+
+`deploy/postgres/papeis.sql` separa os dois. O que ele usa, e que não é óbvio:
+
+- **`ALTER DEFAULT PRIVILEGES FOR ROLE <dono>`** — privilégio padrão é definido
+  por *quem cria* o objeto. Sem essa linha, a tabela da próxima migration nasce
+  invisível para a aplicação, e a descoberta é no primeiro `INSERT` depois do
+  deploy seguinte.
+- **`GRANT USAGE ON ALL SEQUENCES`** — a sequência do `BIGSERIAL` é permissão
+  separada da tabela, e é a que falta primeiro quando alguém concede só o
+  `INSERT`.
+- **`ALTER ROLE ... SET statement_timeout`** — tetos como padrão do PAPEL, não
+  só do código. Folgados de propósito, acima dos do backend: um teto de papel
+  mais apertado que o da aplicação não seria defesa em profundidade, seria um
+  segundo lugar para ajustar.
+- **`\gexec`** — o psql não interpola variável dentro de string com cifrão,
+  então um bloco `DO $$ ... $$` receberia os dois-pontos literais. O jeito de ter
+  condicional com variável é montar o comando num `SELECT` e mandar o psql
+  executar o que voltou.
+
+📚 [GRANT](https://www.postgresql.org/docs/16/sql-grant.html) · [ALTER DEFAULT PRIVILEGES](https://www.postgresql.org/docs/16/sql-alterdefaultprivileges.html) · [psql — Variables e \gexec](https://www.postgresql.org/docs/16/app-psql.html)
+
 #### Como estudar isto
 
 A ordem que funciona é mexer, não ler:

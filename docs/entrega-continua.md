@@ -16,7 +16,7 @@ push na main
      ├─► frontend           prettier · svelte-check · vitest
      ├─► e2e                stack completa · Playwright · celular · duas pessoas
      ├─► seguranca-codigo   govulncheck · npm audit
-     ├─► infra              ansible-lint · syntax-check — SEM a senha do vault
+     ├─► infra              ansible-lint · syntax-check · wrapper — SEM a senha do vault
      ├─► imagens            (matriz: api, web, migrations)
      └─► seguranca-imagens  Trivy por imagem → SARIF → portão em CRITICAL
                     │
@@ -24,8 +24,9 @@ push na main
             publicar-imagens        GHCR: :latest e :<sha>
                     │
                     ▼
-                implantar           SSH → sincroniza config → BACKUP → pull → up -d
-                    │                     → confere o cron → confere /api/health e /
+                implantar           SSH → `stacktrack-release release <sha>`
+                    │                     (o wrapper faz backup, pull, troca)
+                    │                     → confere /api/health e /
                     ▼
         https://stacktrack.duckdns.org
 ```
@@ -45,6 +46,27 @@ está tentando reduzir. Hoje o vault entra por uma task `include_vars` no
 O job confere que `.senha-vault` não existe no runner antes de validar: sem
 isso, um dia em que a senha vazasse para o ambiente faria o critério passar por
 acidente. Ver [infraestrutura.md](infraestrutura.md).
+
+### O deploy manda três verbos, e não comandos
+
+O job `implantar` não abre shell no servidor. A chave da esteira está no
+`authorized_keys` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
+o que o runner escreve chega em `SSH_ORIGINAL_COMMAND` e o wrapper decide se
+aquilo é `release <sha>`, `backup` ou `estado` — ou nada.
+
+Antes, o job montava linhas de comando no runner e as executava do outro lado.
+Quem tivesse a chave tinha a máquina, e a máquina é dividida com o agendaGo.
+
+Duas consequências que valem conhecer:
+
+- **A esteira não copia mais arquivo nenhum.** O compose, o `backup.sh` e o
+  bloco do Caddy são do Ansible. Em troca, o passo `estado` compara o sha256 dos
+  três com os do commit e **falha** quando divergem — deploy de código com
+  configuração velha é justamente o erro silencioso que a divisão de donos
+  poderia ter criado. A instrução na mensagem é `make infra-apply`.
+- **O job declara `environment: production`.** É lá que ficam os segredos do
+  VPS, e é o que impede um job de pull request de alcançá-los: quem não declara
+  o environment não enxerga os segredos dele.
 
 ### Por que o cancelamento automático não vale para a main
 

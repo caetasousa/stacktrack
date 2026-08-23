@@ -30,18 +30,56 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | uma vez por **máquina** | `root` | Docker, plugin do Compose, rede `borda`, usuário `deploy` |
-| `provisionar.yml` | sempre que quiser | `deploy`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, bloco do Caddy, stack no ar |
+| `preparar-host.yml` | quando o que é do **host** muda | `root` | Docker, rede `borda`, usuário `deploy`, acesso da esteira, hardening |
+| `provisionar.yml` | sempre que quiser | `deploy`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, bloco do Caddy, papéis do banco, stack no ar |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
-tudo mora no home do `deploy` e o acesso ao Docker vem do grupo — **o mesmo
-poder que a esteira já tem**. Só o outro exige root, e é justamente o que não
-pode ser automatizado pelo CI: `VPS_USER` é `deploy`, e um login como `deploy`
-não pode criar o `deploy`.
+tudo mora no home do `deploy` e o acesso ao Docker vem do grupo. Só o outro
+exige root — e é justamente o que o CI não consegue fazer, nem deve: a chave da
+esteira está presa a um comando forçado que executa três verbos de release.
 
-No VPS de hoje o `preparar-host.yml` não tem o que fazer: Docker, Compose, rede
-`borda` e o usuário vieram do agendaGo. Rodá-lo deve terminar em `changed=0` —
-que é a prova de que ele descreve a máquina, em vez de só saber construí-la.
+O `preparar-host.yml` deixou de ser "dia zero". Ele é quem mantém o usuário da
+esteira, o wrapper, o `sudo` restrito e o hardening do host, então volta a rodar
+quando qualquer um desses muda. Rodá-lo duas vezes seguidas deve terminar em
+`changed=0` — que é a prova de que ele descreve a máquina, em vez de só saber
+construí-la.
+
+### ⚠️ Ele aperta o caminho de conserto
+
+O hardening desliga a senha do SSH e sobe o firewall. As duas coisas cortam a
+via por onde se conserta um erro delas, então a role recusa aplicar em vez de
+trancar a porta:
+
+- **SSH** — só desliga a senha depois de conferir que `deploy` tem pelo menos
+  uma chave em `authorized_keys`. A configuração vai num drop-in em
+  `/etc/ssh/sshd_config.d/`, validada por `sshd -t` antes de existir, e o
+  handler faz `reload` (não `restart`), que não derruba a sessão em uso.
+- **firewall** — antes de habilitar, lista o que escuta em endereço público e
+  **falha** se encontrar porta fora de `ufw_portas`. É assim que "conferir o que
+  o agendaGo expõe" deixou de ser um item de checklist e virou uma falha de
+  playbook, com a lista de portas na mensagem.
+
+Ainda assim: tenha o console do provedor testado antes de rodar.
+
+### 🔑 Dois usuários, dois poderes
+
+| | `deploy` | `stacktrack-deploy` |
+|---|---|---|
+| Quem usa | o operador, e o `provisionar.yml` | a esteira |
+| Shell | sim | sim, mas a chave tem `restrict` + comando forçado |
+| Grupo `docker` | sim — equivale a root nesta máquina | **não** |
+| Alcança o Docker | direto | só pelo wrapper, por um `sudo` restrito a ele |
+| Chave | a mesma do agendaGo, do operador | exclusiva do stacktrack |
+
+O `deploy` é compartilhado com o agendaGo e continua como está — apertá-lo
+mexeria no vizinho. O que mudou é que ele deixou de ser o caminho da esteira.
+
+O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
+`release <sha>`, `backup` e `estado`, e recusa o resto. Ele lê
+`SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é dado,
+não código. `scripts/testa-wrapper-de-release.sh` executa o script renderizado
+contra um `docker` de mentira e exige recusa para shell, encadeamento,
+substituição de comando e SHA malformado — e roda no CI.
 
 ---
 
@@ -125,7 +163,8 @@ O VPS é compartilhado, e o playbook nunca escreve fora do que é dele:
 | **Caddy** | deposita em `~/caddy/sites/stacktrack.caddy`; nunca abre o `Caddyfile` do vizinho, que é dono das portas 80/443 |
 | **crontab** | `ansible.builtin.cron` com `name:` gerencia só o bloco marcado — a linha do agendaGo fica intacta, por desenho e não por sorte |
 | **rede `borda`** | garantida se faltar, **nunca** removida |
-| **Docker** | instalado só quando falta, **nunca atualizado**: `apt upgrade` do `docker-ce` reinicia o daemon e derruba os containers do vizinho junto |
+| **Docker** | instalado só quando falta e **travado com `apt-mark hold`**: `apt upgrade` do `docker-ce` reinicia o daemon e derruba os containers do vizinho junto. Atualizar exige a tag `docker-upgrade`, que destrava, atualiza e trava de novo |
+| **`unattended-upgrades`** | só o repositório de segurança, sem reboot automático, com os pacotes do Docker na lista negra |
 | **`~/backups`** | comum aos dois; a separação é o prefixo do nome do arquivo |
 
 O crontab tem **um dono só**: o Ansible. A esteira apenas confere que a entrada
@@ -218,9 +257,9 @@ seguem locais, pelo `make infra-check`.
 
 ## 🧭 O que continua fora
 
-- **Endurecimento do host** — fuso, `unattended-upgrades`, `sshd`, `ufw`. Fase
-  própria; misturá-lo com a reconstrução juntaria duas fontes de falha.
 - **Criar a máquina** — é Terraform, não Ansible.
+- **Fuso do host** — o `date` do servidor continua como o provedor entregou; o
+  que depende dele (o cron do backup) imprime os dois no `estado`.
 - **DNS / DuckDNS** — o registro é externo, ver [producao.md](producao.md) §1.
 - **Cópia de backup para fora do VPS** — pendência antiga, entra junto com a
   chave de escrita no bucket.

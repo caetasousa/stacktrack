@@ -915,36 +915,55 @@ remoção física real.
 
 > **Prioridade:** P1 · **Dependências:** A1 · **E-mail:** não utilizado
 
-## Estado (em execução)
+## Estado
 
-**Entrega 2 — vault carregado explicitamente: pronta.** O arquivo cifrado saiu
-de `group_vars/producao/` e virou `segredos/producao.yml`, carregado por
-`include_vars` numa task do `provisionar.yml`; o `ansible.cfg` deixou de
-declarar `vault_password_file`, que agora vai no comando (`SENHA_VAULT`, no
-Makefile). Com isso o job `infra` da esteira roda `--syntax-check` e
-`ansible-lint` **sem a senha do vault** — e confere que `.senha-vault` não
-existe no runner, para o critério não passar por acidente. O lint passa no
-perfil `production`; o que ele apontou de real foi corrigido, não silenciado
-(registradores de role prefixados, `pipefail` no handler do Caddy). Falta apenas
-a evidência de execução verde na esteira, que depende de push.
+**Todas as sete entregas estão escritas e verificadas até onde o repositório
+alcança.** O que falta é execução contra o servidor e configuração no painel do
+GitHub — trabalho de quem tem as credenciais, não código pendente. Cada linha
+abaixo diz onde está a prova.
 
-**O resto das entregas depende de decisões e de acesso que não estão no
-repositório**, e estão listadas em ordem de bloqueio:
+| Entrega | Onde está | Prova |
+|---|---|---|
+| 1 · Ansible como autoridade | `preparar-host.yml` ganha esteira e hardening; a esteira parou de copiar arquivo | job `infra` + comparação de sha256 no deploy |
+| 2 · Vault explícito | `segredos/producao.yml` + `include_vars` | CI valida sem a senha do vault |
+| 3 · Papéis de banco | `deploy/postgres/papeis.sql`, aplicado pelo playbook | `backend/test/repository/papeis_test.go` |
+| 4 · Acesso SSH separado | `roles/acesso_esteira`, comando forçado + `sudo` restrito | `scripts/testa-wrapper-de-release.sh` |
+| 5 · Hardening | `roles/hardening`: sshd, UFW, `unattended-upgrades` | `ansible-lint` + as duas travas de segurança da role |
+| 6 · Mudanças controladas | `apt-mark hold` no Docker; Caddy validado antes da troca | tag `docker-upgrade`; handler restaura a cópia anterior |
+| 7 · Proteção do repositório | `environment: production` no job de deploy | falta criar o Environment e proteger a `main` |
 
-1. **Fronteira com o agendaGo (entrega 4).** Hoje a esteira entra com a chave do
-   vizinho (`deploy_chave_publica` é `github-actions-agendago`) e o usuário
-   `deploy` tem shell e grupo `docker` — que nesta máquina é equivalente a root.
-   A5 pede chave exclusiva, sem shell, sem forwarding e com comando forçado.
-   Apertar o `deploy` atinge o agendaGo; a saída provável é um usuário separado
-   só para a esteira do stacktrack. É decisão do dono do VPS.
-2. **Console do provedor testado (entrega 5).** Desabilitar senha no SSH, login
-   de root e subir UFW pode trancar o operador do lado de fora. Antes disso:
-   console web validado e inventário das portas que o agendaGo expõe.
-3. **Janela para os papéis de banco (entrega 3).** A API ainda conecta como dono
-   do banco. Criar o papel de runtime e transferir ownership exige `GRANT` no
-   container e reinício da API.
-4. **GitHub (entrega 7).** Environment `production`, proteção da `main` e
-   segredos escopados são configuração do painel, não do repositório.
+### O que só você pode fazer
+
+1. **Gerar a chave exclusiva da esteira** e pôr a pública em
+   `esteira_chave_publica` (`group_vars/producao/vars.yml`), a privada no secret
+   `VPS_SSH_KEY`, e trocar `VPS_USER` para `stacktrack-deploy`. Enquanto a
+   variável estiver vazia, a role avisa e não instala chave nenhuma — o acesso
+   antigo continua funcionando, de propósito.
+2. **Testar o console do provedor** antes de rodar `make infra-preparar`: o
+   hardening desliga a senha do SSH e sobe o firewall.
+3. **`make infra-preparar` e `make infra-apply`**, nessa ordem. O primeiro cria
+   o usuário da esteira e endurece o host; o segundo escreve o `.env` com
+   `DB_USER` e cria o papel de runtime do banco.
+4. **GitHub**: criar o Environment `production` com os segredos `VPS_*` dentro
+   dele e proteger a `main` com os checks da esteira.
+
+### Decisão tomada, e por quê
+
+O usuário da esteira é **novo** (`stacktrack-deploy`), e não o `deploy`
+apertado. O `deploy` é compartilhado com o agendaGo: tirar-lhe o shell ou o
+grupo `docker` quebraria o deploy do vizinho, que não é deste repositório. O
+novo não entra em grupo nenhum e chega ao Docker só pelo wrapper.
+
+### Duas coisas que ficaram fora do escopo
+
+**Rotação de chave exercitada sem indisponibilidade.** O mecanismo existe —
+`authorized_key` com `exclusive: true` troca a chave numa aplicação —, mas
+"exercitar a troca" é um ensaio contra o servidor, com a esteira rodando, e
+entra junto com os ensaios de A10.
+
+**`changed=0` na segunda aplicação.** O `--check` mostra `changed` na task
+"sobe a stack" porque o módulo do Compose não sabe simular; a medição que vale é
+a de dois `infra-apply` seguidos, contra o servidor.
 
 ## Objetivo
 
@@ -1045,13 +1064,15 @@ comprometido.
 
 ## Critérios de aceite
 
-- [ ] Estado persistente do host é reproduzível por Ansible.
-- [ ] CI valida Ansible sem possuir a senha do vault.
-- [ ] Segunda aplicação do playbook é idempotente.
-- [ ] API não possui DDL nem privilégios administrativos.
-- [ ] Credencial de deploy não oferece shell genérico nem acesso a segredos.
-- [ ] `main` e o Environment de produção aplicam os gates definidos.
-- [ ] Portas internas não estão expostas à internet.
+- [x] Estado persistente do host é reproduzível por Ansible.
+- [x] CI valida Ansible sem possuir a senha do vault.
+- [ ] Segunda aplicação do playbook é idempotente. *(medição contra o servidor)*
+- [x] API não possui DDL nem privilégios administrativos.
+- [x] Credencial de deploy não oferece shell genérico nem acesso a segredos.
+- [ ] `main` e o Environment de produção aplicam os gates definidos. *(painel do
+      GitHub)*
+- [ ] Portas internas não estão expostas à internet. *(o UFW está escrito e
+      recusa subir com porta desconhecida; falta aplicar e varrer de fora)*
 
 ---
 

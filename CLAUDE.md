@@ -86,7 +86,16 @@ O VPS é dividido com o **agendaGo**, e a fronteira é regra, não cuidado:
   gerencia só o bloco marcado
 - nunca remover a rede `borda` nem `~/backups`, que são comuns aos dois
 - nunca atualizar o Docker por tabela: `apt upgrade` do `docker-ce` reinicia o
-  daemon e derruba os containers do agendaGo junto
+  daemon e derruba os containers do agendaGo junto — os pacotes ficam em
+  `apt-mark hold`, e atualizar exige a tag `docker-upgrade`
+- nunca fechar porta sem saber de quem ela é: a role `hardening` recusa subir o
+  firewall quando encontra algo escutando fora da lista
+
+**A esteira não escreve arquivo no servidor.** Compose, `backup.sh` e bloco do
+Caddy são instalados pelo playbook; o job de deploy só manda `release <sha>` a um
+comando forçado (`/usr/local/bin/stacktrack-release`) e falha quando o sha256 do
+que está no servidor não bate com o do commit. Acrescentar um `scp` ao CI é
+recriar a segunda fonte da verdade que essa divisão desfez.
 
 Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
 `POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:

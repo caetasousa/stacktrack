@@ -102,23 +102,58 @@ sintoma é "entra e volta para a tela de login", sem erro visível em lugar nenh
 
 ## 2️⃣ Configurar o deploy no GitHub
 
-Em **Settings → Secrets and variables → Actions**, do repositório do stacktrack:
+Primeiro, a chave — **exclusiva do stacktrack**, não a do agendaGo. Uma chave
+que abre os dois projetos faz o comprometimento de um ser o comprometimento do
+outro:
+
+```bash
+ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy
+```
+
+A **pública** vai para `esteira_chave_publica` em
+`deploy/ansible/group_vars/producao/vars.yml`, e é o `make infra-preparar` que a
+instala no servidor — com `restrict` e comando forçado. A **privada** vira o
+secret `VPS_SSH_KEY`.
+
+Depois, em **Settings → Environments**, crie o environment `production` e
+defina a proteção que quiser (aprovação manual, branches permitidas). Os
+segredos abaixo ficam nele, e não no repositório: assim um job de pull request,
+que não declara environment nenhum, não os alcança.
 
 | Tipo | Nome | Valor |
 |---|---|---|
 | Secret | `VPS_HOST` | IP do servidor |
-| Secret | `VPS_USER` | `deploy` |
-| Secret | `VPS_SSH_KEY` | chave **privada** de deploy |
+| Secret | `VPS_USER` | `stacktrack-deploy` |
+| Secret | `VPS_SSH_KEY` | chave **privada** exclusiva da esteira |
 | Secret | `VPS_KNOWN_HOSTS` | saída de `ssh-keyscan -H <ip>` |
-| Variable | `DOMINIO` | `stacktrack.duckdns.org` |
+| Variable | `DOMINIO` | `stacktrack.duckdns.org` (aba Variables, no repositório) |
 
-A chave pública correspondente vai no `~/.ssh/authorized_keys` do usuário
-`deploy`. Dá para reaproveitar a mesma chave que o agendaGo usa.
+E em **Settings → Branches**, proteja a `main` exigindo os checks da esteira
+(`backend`, `frontend`, `e2e`, `infra`, `seguranca-*`).
 
 Sem `VPS_HOST`, o job de deploy passa marcado como ignorado em vez de falhar —
 o repositório funciona antes de o servidor existir. Sem `VPS_KNOWN_HOSTS`, ele
 **falha de propósito**: a alternativa seria aceitar a identidade de quem
 responder e entregar a chave de deploy junto.
+
+### O que a chave da esteira consegue fazer
+
+Nada além de três verbos. Ela está no `authorized_keys` do usuário
+`stacktrack-deploy` com `restrict` e
+`command="/usr/local/bin/stacktrack-release"`: não abre shell, não faz `scp`,
+não encaminha porta nem agente.
+
+| Verbo | O que faz |
+|---|---|
+| `release <sha>` | pré-voo, backup, `pull`, para web e api, `up -d`, limpa imagens órfãs |
+| `backup` | um backup pontual |
+| `estado` | `compose ps`, o sha256 dos arquivos de configuração, fuso e cron |
+
+O usuário **não** está no grupo `docker` — acesso ao socket equivale a root
+nesta máquina. Ele chega ao Docker por um `sudo` restrito ao wrapper, que valida
+os argumentos antes de qualquer coisa. `scripts/testa-wrapper-de-release.sh`
+prova as recusas (shell, encadeamento, substituição de comando, SHA
+malformado) e roda no CI.
 
 ## 3️⃣ Provisionar o servidor
 
@@ -160,16 +195,31 @@ E o job `implantar` da esteira agora **confere isto antes de qualquer coisa**:
 sem o `.env` ou sem a rede `borda`, ele falha com a instrução de rodar
 `make infra-apply`, em vez de subir a stack com todas as variáveis vazias.
 
-### 🔐 Usuário de banco sem poder de DDL — ainda pendente
+### 🔐 Dois papéis no banco: quem migra e quem serve
 
-Hoje a API se conecta com o **dono** do banco, que pode criar, alterar e
-derrubar qualquer tabela. Uma falha de execução remota na API herdaria esse
-poder.
+A API **não** se conecta mais com o dono do banco. Quem migra é o dono
+(`POSTGRES_USER`, usado pelo Flyway); quem serve é `stacktrack_app`
+(`DB_USER`), com `SELECT/INSERT/UPDATE/DELETE` e as sequências — sem CREATE,
+ALTER, DROP, extensão, role ou database. Uma falha de execução remota na API não
+alcança mais o schema.
 
-O compose já lê `DB_USER`/`DB_PASSWORD` com fallback para o dono, e o
-`.env.prod.example` já tem as linhas comentadas. Falta criar o papel com os
-`GRANT` certos — o agendaGo tem um `scripts/criar-usuario-app.sh` que serve de
-modelo. Quem aplica migration continua sendo o dono, pelo Flyway.
+Quem cria e mantém o papel é [`deploy/postgres/papeis.sql`](../deploy/postgres/papeis.sql),
+aplicado pelo `make infra-apply` a cada provisionamento. É idempotente, e o
+playbook só o executa quando a conferência mostra que falta algo — é o que
+mantém o `changed=0` significando alguma coisa.
+
+Dois detalhes que custam caro quando faltam:
+
+- **`ALTER DEFAULT PRIVILEGES`** dá acesso às tabelas que ainda **não existem**.
+  Sem ele, toda migration futura criaria tabela invisível para a aplicação, e a
+  descoberta seria no primeiro `INSERT` depois do deploy seguinte.
+- **A senha do papel de runtime é gerenciada pelo vault**, ao contrário de
+  `POSTGRES_PASSWORD`, que o `initdb` gravou no volume. Trocar esta é editar o
+  vault e reaplicar; trocar aquela exige `ALTER ROLE`.
+
+`backend/test/repository/papeis_test.go` aplica o mesmo arquivo num Postgres de
+verdade, conecta **com o papel da aplicação** e exige que o DDL falhe. É a
+asserção negativa que um teste de leitura nunca faria.
 
 ## 4️⃣ Liberar as imagens no GHCR
 
@@ -235,14 +285,31 @@ acima.
 
 ## Deploy do dia a dia
 
-Automático pela esteira. Manualmente:
+Automático pela esteira, que manda uma linha e nada mais:
+
+```
+ssh stacktrack-deploy@servidor "stacktrack-release release <sha>"
+```
+
+A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,
+backup, `pull`, parar web e api, `up -d`, limpar imagens órfãs. Manualmente, do
+próprio servidor, é o mesmo comando ou os passos abertos:
 
 ```bash
-cd ~/stacktrack
+stacktrack-release release <sha>     # ou `latest`
+
+cd ~/stacktrack                      # o que ele faz por dentro
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+**A esteira não copia mais arquivo nenhum.** O compose, o `backup.sh` e o bloco
+do Caddy são instalados pelo Ansible — havia duas fontes escrevendo os mesmos
+caminhos, e ganhava a última que rodasse. Em troca, mudança nesses arquivos só
+chega ao servidor com `make infra-apply`: o job de deploy compara o sha256 dos
+três com os do commit e **falha** quando divergem, em vez de subir uma versão
+nova do código com a configuração velha.
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas
@@ -440,13 +507,21 @@ mantém as cinco capabilities mínimas para essa troca.
 
 - [ ] DNS resolvendo para o IP do VPS
 - [ ] agendaGo publicado com o Caddyfile que importa `sites/*.caddy`
-- [ ] segredos `VPS_*` e variável `DOMINIO` no repositório
+- [ ] **console do provedor testado** — o hardening desliga a senha do SSH, e o
+      console é o único caminho de volta se algo der errado
+- [ ] chave exclusiva da esteira gerada, pública em `vars.yml` e privada no
+      secret `VPS_SSH_KEY`
+- [ ] environment `production` criado, com os segredos `VPS_*` dentro dele
+- [ ] `main` protegida com os checks da esteira (incluindo `infra`)
+- [ ] `make infra-preparar` verde (usuário da esteira, wrapper, firewall, SSH)
+- [ ] variável `DOMINIO` no repositório
 - [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`)
 - [ ] imagens acessíveis ao servidor (públicas ou `docker login` feito)
 - [ ] esteira verde até o job `implantar`
 - [ ] certificado emitido (`https://` abre sem aviso)
 - [ ] cadastro → login → criar quadro → F5
 - [ ] **o agendaGo continua no ar** depois do reload do Caddy
+- [ ] papel de runtime do banco criado (`stacktrack_app`) e a API conectando com ele
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` com folga sobre a soma dos limites das duas stacks
 

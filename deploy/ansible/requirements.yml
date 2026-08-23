@@ -17,3 +17,13 @@ collections:
   # authorized_key, para declarar a chave da esteira no usuário `deploy`.
   - name: ansible.posix
     version: '>=1.5.0'
+
+  # ufw, para o firewall da role `hardening`. O módulo é fino sobre o comando
+  # `ufw`, mas é ele que torna a regra idempotente: `ufw allow 443` repetido
+  # devolve "Skipping adding existing rule" com rc 0, e um `command` marcaria
+  # `changed` para sempre.
+  #
+  # Teto pelo mesmo motivo do community.docker: a série 11+ exige ansible-core
+  # 2.18, e o Ubuntu 24.04 empacota o 2.16.
+  - name: community.general
+    version: '>=8.0.0,<11.0.0'

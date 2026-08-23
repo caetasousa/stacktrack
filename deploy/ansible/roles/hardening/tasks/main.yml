@@ -1,0 +1,212 @@
+---
+# Hardening do host: SSH sem senha, firewall e atualização automática só de
+# segurança.
+#
+# É a role com maior potencial de estrago do repositório, porque tudo o que ela
+# aperta é o caminho por onde se conserta um erro dela. Por isso cada bloco
+# começa por uma conferência que RECUSA aplicar quando a saída ficaria trancada,
+# e o servidor é dividido com o agendaGo — o firewall não pode fechar uma porta
+# que é do vizinho.
+#
+# Roda como root, em preparar-host.yml.
+
+# --- SSH ---------------------------------------------------------------------
+
+# A trava: desligar a senha sem chave instalada é trancar a porta e jogar a
+# chave fora. Só o console do provedor recuperaria, e é justamente o caminho que
+# ninguém testou antes de precisar.
+- name: confere se há chave pública instalada antes de desligar a senha
+  ansible.builtin.command: >-
+    awk 'NF && $1 !~ /^#/ {n++} END {print n+0}'
+    /home/{{ usuario_app }}/.ssh/authorized_keys
+  register: hardening_chaves_do_app
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: exige acesso por chave antes de recusar senha
+  ansible.builtin.assert:
+    that:
+      - hardening_chaves_do_app.rc == 0
+      - (hardening_chaves_do_app.stdout | default('0') | trim | int) > 0
+    fail_msg: >-
+      `{{ usuario_app }}` não tem nenhuma chave em ~/.ssh/authorized_keys.
+      Desligar a autenticação por senha agora deixaria o servidor sem nenhuma
+      forma de entrada. Instale a sua chave (make infra-preparar já instala a da
+      esteira) e rode de novo.
+
+- name: SSH sem senha e sem root
+  ansible.builtin.copy:
+    content: |
+      # Gerado pelo Ansible (roles/hardening). Não editar no servidor.
+      #
+      # Arquivo de DROP-IN, e não o sshd_config: o `Include
+      # /etc/ssh/sshd_config.d/*.conf` vem no topo do arquivo padrão de
+      # Debian/Ubuntu, e a PRIMEIRA definição de cada opção é a que vale. Editar
+      # o arquivo principal seria mexer numa configuração que também é do
+      # agendaGo, e que o apt sobrescreve num upgrade do openssh.
+
+      # Senha adivinhável não protege nada exposto à internet: o servidor recebe
+      # tentativa de força bruta em SSH desde o minuto em que ganha um IP.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+
+      # Root não entra direto nem com chave. O que exige privilégio passa por
+      # `sudo` de um usuário nomeado — que é o que deixa rastro de QUEM fez.
+      PermitRootLogin no
+
+      # Sessão que morre sozinha em vez de ficar pendurada: dois blocos de 5
+      # minutos sem resposta e o sshd fecha.
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+
+      # A esteira não usa nada disso, e o que não se usa não precisa estar
+      # ligado. O `restrict` do authorized_keys já nega por chave; aqui vale
+      # para o servidor inteiro.
+      AllowAgentForwarding no
+      X11Forwarding no
+    dest: /etc/ssh/sshd_config.d/10-stacktrack.conf
+    owner: root
+    group: root
+    mode: '0644'
+    # `sshd -t` recusa o arquivo ANTES de ele existir. Sem isto, uma diretiva
+    # inválida derruba o sshd no reload e o servidor deixa de aceitar conexão —
+    # inclusive a que consertaria o arquivo.
+    validate: /usr/sbin/sshd -t -f %s
+  notify: recarrega o sshd
+
+# --- firewall ----------------------------------------------------------------
+
+- name: ufw instalado
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# A conferência que substitui "lembre-se de ver as portas do vizinho".
+#
+# O UFW vai fechar tudo o que não estiver na lista. Se o agendaGo — ou qualquer
+# outra coisa — estiver escutando numa porta pública fora dela, quem descobre é
+# quem usa o serviço do vizinho, depois. Esta task transforma isso em falha do
+# playbook, com a lista na mensagem.
+- name: lista o que escuta em endereço público
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      # `-H` sem cabeçalho, `-l` só quem escuta, `-n` sem resolver nome.
+      # Exclui loopback: 127.0.0.1 e ::1 não são alcançáveis de fora e não
+      # dependem do firewall.
+      ss -Hlntu \
+        | awk '{print $5}' \
+        | grep -vE '^(127\.|\[::1\]|\[::ffff:127)' \
+        | sed -E 's/.*:([0-9]+)$/\1/' \
+        | sort -un \
+        | paste -sd, -
+    executable: /bin/bash
+  register: hardening_portas_abertas
+  changed_when: false
+  check_mode: false
+
+- name: recusa fechar porta que é de outro serviço do host
+  ansible.builtin.assert:
+    that: nao_previstas | length == 0
+    fail_msg: >-
+      Estas portas escutam em endereço público e NÃO estão na lista do firewall:
+      {{ nao_previstas | join(', ') }}. O VPS é dividido com o agendaGo —
+      habilitar o UFW agora derrubaria o que estiver atrás delas. Confira o que
+      são e, se forem legítimas, acrescente-as a `ufw_portas_extras` em
+      group_vars/producao/vars.yml.
+    success_msg: 'nada escuta em porta pública fora da lista'
+  vars:
+    previstas: '{{ (ufw_portas | map("string") | list) + (ufw_portas_extras | default([]) | map("string") | list) }}'
+    abertas: '{{ hardening_portas_abertas.stdout | default("") | trim | split(",") | select() | list }}'
+    nao_previstas: '{{ abertas | difference(previstas) }}'
+
+# Entrada negada por padrão é o que faz a lista de portas abaixo ser uma lista
+# de exceções, e não uma decoração.
+- name: nega toda entrada que não estiver na lista
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: permite a saída
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: portas abertas na internet
+  community.general.ufw:
+    rule: allow
+    port: '{{ item }}'
+    proto: tcp
+  loop: '{{ ufw_portas + (ufw_portas_extras | default([])) }}'
+
+# O banco e as métricas NÃO aparecem aqui, e é o ponto: nenhum serviço da stack
+# publica porta no host (ver docker-compose.prod.yml), então não há o que abrir.
+# Se um dia algum publicar, o `deny` de entrada o esconde mesmo assim — mas o
+# certo continua sendo não publicar.
+#
+# `state: enabled` é idempotente: com o firewall já ativo a task volta `ok`.
+- name: firewall ligado
+  community.general.ufw:
+    state: enabled
+
+# --- atualizações automáticas ------------------------------------------------
+
+- name: unattended-upgrades instalado
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: atualização automática só de segurança, sem reiniciar sozinho
+  ansible.builtin.copy:
+    content: |
+      // Gerado pelo Ansible (roles/hardening). Não editar no servidor.
+      //
+      // SÓ o repositório de segurança. Atualizar tudo automaticamente num host
+      // compartilhado é trocar uma vulnerabilidade conhecida por uma quebra
+      // desconhecida, num horário em que ninguém está olhando.
+      Unattended-Upgrade::Origins-Pattern {
+          "origin=Debian,codename=${distro_codename},label=Debian-Security";
+          "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+          "origin=Ubuntu,archive=${distro_codename}-security";
+      };
+
+      // O Docker fica de FORA da atualização automática. Um upgrade do
+      // docker-ce reinicia o daemon, e no reinício todos os containers do
+      // agendaGo caem junto com os do stacktrack. Atualizar a engine é decisão
+      // consciente — ver a tag `docker-upgrade` da role `docker`.
+      Unattended-Upgrade::Package-Blacklist {
+          "docker-ce";
+          "docker-ce-cli";
+          "containerd.io";
+          "docker-compose-plugin";
+      };
+
+      // Reiniciar sozinho é derrubar os dois projetos sem aviso. O reboot
+      // necessário fica registrado no arquivo abaixo, e a janela é escolhida
+      // por gente — `estado` do wrapper e o runbook mostram quando há um
+      // pendente.
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+    dest: /etc/apt/apt.conf.d/52stacktrack-unattended
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: liga o periódico do unattended-upgrades
+  ansible.builtin.copy:
+    content: |
+      // Gerado pelo Ansible (roles/hardening). Não editar no servidor.
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: '0644'

@@ -83,3 +83,19 @@ rede_borda: borda
 # CRON_TZ — a expressão vale sempre no fuso do HOST, não no seu.
 backup_hora: '3'
 backup_minuto: '20'
+
+# --- firewall ----------------------------------------------------------------
+
+# As portas que ficam abertas na internet. SSH, HTTP e HTTPS, e nada mais: o
+# banco não publica porta (ver docker-compose.prod.yml) e as métricas de A8
+# também não publicarão.
+ufw_portas:
+  - 22
+  - 80
+  - 443
+
+# Escape para porta legítima de OUTRO serviço do host. A role recusa habilitar o
+# firewall quando encontra algo escutando fora da lista — é assim que "conferir
+# o que o agendaGo expõe" deixou de ser um item de checklist e virou uma falha
+# de playbook.
+ufw_portas_extras: []

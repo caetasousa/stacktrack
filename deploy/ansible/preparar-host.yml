@@ -1,10 +1,10 @@
 ---
-# O "dia zero" da MÁQUINA: instala o Docker e cria o usuário da aplicação.
+# O que exige ROOT no servidor: Docker, usuários, acesso da esteira e hardening.
 #
 #   make infra-preparar
 #
-# Roda uma vez por servidor, e só. Depois disso é `provisionar.yml` que manda, e
-# ele não precisa de privilégio nenhum.
+# Depois dele é `provisionar.yml` que manda o dia a dia, e esse não precisa de
+# privilégio nenhum.
 #
 # Está separado porque é a única parte que exige ROOT — e um playbook que entra
 # como `deploy` não pode criar o `deploy`. É o mesmo motivo pelo qual a esteira
@@ -18,9 +18,20 @@
 #   ansible-playbook preparar-host.yml -u root --ask-pass          # senha
 #   ansible-playbook preparar-host.yml -u root --key-file ~/.ssh/x # ou chave
 #
-# No VPS de hoje ele não tem o que fazer: Docker, plugin do Compose, rede
-# `borda` e o usuário `deploy` vieram do agendaGo. Rodá-lo aqui deve terminar
-# em `changed=0` — o que é justamente a prova de que ele descreve a máquina.
+# Rodá-lo duas vezes seguidas tem de terminar em `changed=0` — é o que prova que
+# ele descreve a máquina, e não só a constrói uma vez.
+#
+# Ele deixou de ser só "dia zero": desde a A5 é também quem mantém o acesso da
+# esteira (usuário próprio, wrapper, sudo restrito) e o hardening do host (SSH
+# sem senha, firewall, atualização automática de segurança). Isso o torna um
+# playbook que se roda de novo quando essas coisas mudam — e não uma vez na
+# vida.
+#
+# ⚠️ Ele aperta o caminho por onde se conserta um erro dele. As duas travas que
+# existem para isso recusam aplicar em vez de trancar a porta: o hardening exige
+# uma chave já instalada antes de desligar a senha do SSH, e o firewall recusa
+# subir quando encontra alguma porta pública fora da lista — a do vizinho,
+# tipicamente. Ainda assim, tenha o console do provedor testado ANTES.
 
 - name: Prepara a máquina para receber o stacktrack
   hosts: producao
@@ -32,7 +43,15 @@
   remote_user: root
 
   roles:
-    # A ordem importa: o pacote da engine é quem cria o grupo `docker`, e o
-    # usuário da role seguinte precisa entrar nele.
+    # A ordem importa, e cada passo depende do anterior:
+    #
+    #   docker          o pacote da engine é quem cria o grupo `docker`
+    #   usuario_deploy  o usuário da aplicação, que entra nesse grupo
+    #   acesso_esteira  o usuário da esteira e o wrapper que ele executa COMO
+    #                   o usuário da aplicação — que já precisa existir
+    #   hardening       por último, porque ele desliga a senha do SSH e só pode
+    #                   fazer isso depois de haver chave instalada
     - docker
     - usuario_deploy
+    - acesso_esteira
+    - hardening

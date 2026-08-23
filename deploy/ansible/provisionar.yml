@@ -24,10 +24,29 @@
   hosts: producao
   gather_facts: true
 
+
   # Pré-requisitos que este playbook não pode criar sozinho, conferidos ANTES de
   # qualquer escrita. Sem isto, a ausência do Docker só apareceria no fim, na
   # task que sobe a stack, com uma mensagem sobre o binário e não sobre a causa.
   pre_tasks:
+    # O vault entra AQUI, numa task, e não em group_vars/ nem em `vars_files`.
+    #
+    # Em group_vars/producao/ o Ansible o decifra ao montar as variáveis de
+    # QUALQUER playbook que aponte para este grupo — inclusive o
+    # preparar-host.yml, que não usa segredo nenhum. E tanto group_vars quanto
+    # `vars_files` são resolvidos antes de a play rodar, o que fazia até um
+    # `--syntax-check` exigir a senha do vault. Era o que impedia o CI de validar
+    # este diretório sem receber a chave dos segredos de produção.
+    #
+    # `include_vars` é uma TASK: só abre o arquivo quando a play executa de
+    # verdade. Quem analisa o playbook não toca no cifrado; quem provisiona
+    # precisa da senha, como sempre precisou.
+    - name: carrega os segredos de produção
+      ansible.builtin.include_vars: segredos/producao.yml
+      # O módulo devolve no resultado tudo o que carregou — e o que ele carregou
+      # é a senha do banco.
+      no_log: true
+
     - name: confere se o host já foi preparado
       ansible.builtin.command: docker compose version
       register: docker_pronto

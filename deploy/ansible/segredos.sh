@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gera, UMA vez, os segredos de produção do stacktrack e os deixa cifrados em
-# group_vars/producao/vault.yml.
+# segredos/producao.yml.
 #
 #   make infra-segredos
 #
@@ -10,7 +10,7 @@
 # servidor. É o que faz o `.env` deixar de ser um arquivo que alguém escreve à
 # mão, que era o passo manual que sobrava no roteiro de produção.
 #
-# Para RECRIAR os segredos, apague o vault.yml à mão — o script se recusa a
+# Para RECRIAR os segredos, apague o arquivo cifrado à mão — o script se recusa a
 # sobrescrever. E note que recriar DEPOIS que a stack subiu não troca a senha do
 # papel no Postgres: o initdb já a gravou no volume, e mudá-la exige ALTER ROLE.
 # A role `stacktrack` tem um assert que recusa essa divergência em vez de deixar
@@ -18,11 +18,13 @@
 
 set -euo pipefail
 
-# Os caminhos do ansible.cfg são relativos a deploy/ansible/, e é de lá que o
-# ansible-vault lê a senha (vault_password_file).
+# Os caminhos do ansible.cfg são relativos a deploy/ansible/.
 cd "$(dirname "$0")"
 
-vault=group_vars/producao/vault.yml
+# FORA de group_vars/: lá o Ansible decifraria este arquivo ao montar as
+# variáveis de qualquer playbook do grupo — e até um `--syntax-check` passaria a
+# exigir a senha. Quem precisa dele é o `vars_files` de provisionar.yml.
+vault=segredos/producao.yml
 senha_vault=.senha-vault
 
 if [ -f "$vault" ]; then
@@ -37,7 +39,7 @@ if [ ! -f "$senha_vault" ]; then
 	openssl rand -base64 32 >"$senha_vault"
 	chmod 600 "$senha_vault"
 	echo "→ senha do vault criada em deploy/ansible/$senha_vault (fora do git)"
-	echo "  GUARDE UMA CÓPIA FORA DESTA MÁQUINA: sem ela o vault.yml não abre mais."
+	echo "  GUARDE UMA CÓPIA FORA DESTA MÁQUINA: sem ela o vault não abre mais."
 fi
 
 # As imagens do GHCR nascem privadas. Sem token, o servidor só as puxa se os
@@ -61,7 +63,8 @@ cat >"$temporario" <<YAML
 # Segredos de produção do stacktrack. Cifrado com ansible-vault — nunca editar
 # direto no disco:
 #
-#   cd deploy/ansible && ansible-vault edit group_vars/producao/vault.yml
+#   cd deploy/ansible
+#   ansible-vault edit --vault-password-file .senha-vault segredos/producao.yml
 #
 # POSTGRES_DB, USER e PASSWORD são gravados pelo initdb no volume do Postgres na
 # primeira subida da stack. Mudá-los aqui depois NÃO muda o papel no banco: só
@@ -72,7 +75,10 @@ vault_postgres_password: '$(openssl rand -hex 24)'
 vault_ghcr_token: '$token_ghcr'
 YAML
 
-ansible-vault encrypt --output "$vault" "$temporario"
+mkdir -p "$(dirname "$vault")"
+# A senha vai no comando: o ansible.cfg não a declara, senão todo comando neste
+# diretório passaria a exigi-la — inclusive os do CI, que não a tem.
+ansible-vault encrypt --vault-password-file "$senha_vault" --output "$vault" "$temporario"
 echo "→ segredos cifrados em deploy/ansible/$vault"
 echo
 echo "Próximo passo:  make infra-check"

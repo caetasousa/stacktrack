@@ -81,11 +81,17 @@ test-e2e:
 
 PASTA_ANSIBLE := deploy/ansible
 
+# A senha do vault entra por comando, e não pelo ansible.cfg: declarada lá, ela
+# passaria a ser exigida por QUALQUER comando ansible neste diretório — até um
+# `--syntax-check` —, e o CI, que valida o playbook sem ter direito aos segredos
+# de produção, não conseguiria rodar. Ver o comentário no ansible.cfg.
+SENHA_VAULT := --vault-password-file .senha-vault
+
 .PHONY: infra-segredos infra-preparar infra-check infra-apply
 
 # Falha cedo e com instrução, em vez de deixar o Ansible reclamar de um arquivo
 # de senha ausente já com a conexão SSH aberta.
-CONFERE_VAULT = @test -f $(PASTA_ANSIBLE)/group_vars/producao/vault.yml || { \
+CONFERE_VAULT = @test -f $(PASTA_ANSIBLE)/segredos/producao.yml || { \
 		echo "segredos ainda não criados — rode antes:  make infra-segredos"; \
 		exit 1; }
 
@@ -108,6 +114,10 @@ infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 # Dia zero da MÁQUINA: instala o Docker e cria o usuário `deploy`. Roda uma vez
 # por servidor, e é a única parte que exige root — por isso pede a credencial na
 # hora, em vez de guardá-la. No VPS de hoje não tem o que fazer.
+#
+# Sem $(SENHA_VAULT), e é de propósito: este playbook não lê segredo nenhum, e um
+# playbook que roda como ROOT é o último lugar onde vale abrir os segredos por
+# hábito.
 infra-preparar: $(PASTA_ANSIBLE)/.dependencias
 	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml -u root --ask-pass --diff
 
@@ -116,8 +126,8 @@ infra-preparar: $(PASTA_ANSIBLE)/.dependencias
 # é o que prova que o playbook descreve o host, e não só o constrói uma vez.
 infra-check: $(PASTA_ANSIBLE)/.dependencias
 	$(CONFERE_VAULT)
-	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --check --diff
+	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --check --diff
 
 infra-apply: $(PASTA_ANSIBLE)/.dependencias
 	$(CONFERE_VAULT)
-	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --diff
+	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --diff

@@ -1,6 +1,10 @@
 ---
-# Variáveis não secretas do host de produção. Os segredos ficam ao lado, em
-# vault.yml, cifrado — gerado uma vez por `make infra-segredos`.
+# Variáveis não secretas do host de produção.
+#
+# Os segredos NÃO ficam aqui, nem ao lado: eles estão em ../../segredos/,
+# cifrados, e são carregados por uma task do provisionar.yml. Neste diretório o
+# Ansible carrega tudo por precedência, e um cifrado aqui passaria a exigir a
+# senha do vault até para um `--syntax-check`. Gerar: `make infra-segredos`.
 
 # Domínio público. Precisa bater EXATAMENTE com o server_name do bloco em
 # deploy/caddy/stacktrack.caddy: é o que faz o cookie __Host- valer, porque ele

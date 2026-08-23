@@ -940,7 +940,12 @@ abaixo diz onde está a prova.
    variável estiver vazia, a role avisa e não instala chave nenhuma — o acesso
    antigo continua funcionando, de propósito.
 2. **Testar o console do provedor** antes de rodar `make infra-preparar`: o
-   hardening desliga a senha do SSH e sobe o firewall.
+   hardening desliga a senha do SSH e sobe o firewall. Ele é a única parte que
+   alcança o HOST INTEIRO, e o host é dividido com o agendaGo — por isso tem tag
+   própria e pode ficar para outro momento (`--skip-tags hardening`). Nada mais
+   da A5 sai do que é do stacktrack: o resto é um usuário do Linux, um script em
+   `/usr/local/bin` e um papel no banco que já existe. Nenhum servidor novo,
+   nenhum container novo.
 3. **`make infra-preparar` e `make infra-apply`**, nessa ordem. O primeiro cria
    o usuário da esteira e endurece o host; o segundo escreve o `.env` com
    `DB_USER` e cria o papel de runtime do banco.

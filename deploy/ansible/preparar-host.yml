@@ -54,4 +54,15 @@
     - docker
     - usuario_deploy
     - acesso_esteira
-    - hardening
+
+    # Marcado porque é a única parte que mexe no HOST INTEIRO, e o host é
+    # dividido com o agendaGo: SSH sem senha, firewall e atualização automática
+    # valem para os dois projetos, não só para este.
+    #
+    # Rodar tudo MENOS o hardening, para aplicá-lo noutro momento:
+    #   ansible-playbook preparar-host.yml -u root --ask-pass --skip-tags hardening
+    #
+    # Ou só ele, quando for a hora:
+    #   ansible-playbook preparar-host.yml -u root --ask-pass --tags hardening
+    - role: hardening
+      tags: [hardening]

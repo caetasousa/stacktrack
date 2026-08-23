@@ -61,6 +61,23 @@ trancar a porta:
 
 Ainda assim: tenha o console do provedor testado antes de rodar.
 
+E note o alcance. O hardening é a única parte do repositório que mexe no HOST
+INTEIRO — SSH, firewall e atualização automática valem para o agendaGo também,
+não só para o stacktrack. Por isso ele tem tag própria e pode ficar para depois:
+
+```bash
+cd deploy/ansible
+# tudo menos o hardening
+ansible-playbook preparar-host.yml -u root --ask-pass --skip-tags hardening
+# só ele, quando for a hora
+ansible-playbook preparar-host.yml -u root --ask-pass --tags hardening
+```
+
+O que ele NÃO faz continua valendo: não abre o `Caddyfile` do vizinho, não
+reescreve o crontab, não remove a rede `borda` nem `~/backups`. E o `apt-mark
+hold` do Docker protege os dois — é o que impede um `apt upgrade` de reiniciar o
+daemon e derrubar os containers do agendaGo junto.
+
 ### 🔑 Dois usuários, dois poderes
 
 | | `deploy` | `stacktrack-deploy` |

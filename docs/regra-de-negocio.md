@@ -12,6 +12,14 @@ Um **quadro** pertence a quem o criou e tem **colunas** em ordem; cada coluna te
 amarelo no meio, azul no fim é o uso típico, e é o que dá significado à etapa de
 relance.
 
+A cor não é uma escolha opcional que quase ninguém faz: **coluna nova nasce com
+a próxima cor livre da paleta** (rodízio em `frontend/src/lib/paleta.ts`, que
+deixa `cinza` por último por parecer "sem cor"), e o **card veste a cor da
+coluna onde está** enquanto não escolherem uma para ele. A herança é o caso
+normal — é o que faz cada etapa se ler como um bloco só — e por ser herança, e
+não cópia no momento da criação, o card muda de cor ao ser arrastado para outra
+coluna. Escolher cor no card é dizer "este é exceção na etapa".
+
 Apagar em cascata: quadro leva colunas, colunas levam cards, cards levam
 etiquetas aplicadas, checklists e anexos.
 

@@ -122,7 +122,7 @@
 	{/if}
 
 	<div class="flex items-start justify-between gap-2">
-		<b class="flex-1 text-sm font-medium text-body">{card.titulo}</b>
+		<b class="min-w-0 flex-1 text-sm font-medium wrap-anywhere text-body">{card.titulo}</b>
 		<!-- Os avatares ficam à direita do título, e não no rodapé com os selos:
 		     "de quem é isto" se lê junto com "o que é isto". -->
 		{#if card.responsaveis.length > 0}
@@ -141,7 +141,7 @@
 		{#if podeEditar}
 			<button
 				onclick={apagar}
-				class="cursor-pointer text-xs text-mute hover:text-negativo"
+				class="-mt-1 -mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-sm leading-none text-mute hover:text-negativo"
 				aria-label="Apagar card"
 			>
 				×

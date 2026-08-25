@@ -107,16 +107,18 @@
 					: ''}
 			>
 				<header
-					class="flex items-center gap-2 border-b px-4 py-3 {coluna.cor ? '' : 'border-hairline'}"
+					class="flex items-center gap-2 border-b px-3 py-3 sm:px-4 {coluna.cor
+						? ''
+						: 'border-hairline'}"
 					style={coluna.cor
 						? 'background-color: color-mix(in srgb, var(--etq-texto) 26%, var(--surface-elevated));' +
 							'border-bottom-color: color-mix(in srgb, var(--etq-texto) 30%, transparent);' +
 							'border-top: 3px solid var(--etq-texto)'
 						: ''}
 				>
-					<h2 class="flex-1 text-sm font-medium text-ink">{coluna.titulo}</h2>
+					<h2 class="min-w-0 flex-1 text-sm font-medium wrap-anywhere text-ink">{coluna.titulo}</h2>
 					<span
-						class="rounded-full border border-hairline bg-surface px-1.5 text-xs tabular-nums text-mute"
+						class="shrink-0 rounded-full border border-hairline bg-surface px-1.5 text-xs tabular-nums text-mute"
 					>
 						{coluna.cards.length}
 					</span>
@@ -142,7 +144,7 @@
 								</div>
 							{/if}
 
-							<b class="block text-sm font-medium text-body">{card.titulo}</b>
+							<b class="block text-sm font-medium wrap-anywhere text-body">{card.titulo}</b>
 
 							{#if card.prazo || card.checklist.total > 0}
 								<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">

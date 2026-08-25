@@ -143,7 +143,7 @@
 		: ''}
 >
 	<header
-		class="flex items-center gap-2 border-b px-4 py-3 {coluna.cor ? '' : 'border-hairline'}"
+		class="flex items-center gap-2 border-b px-3 py-3 sm:px-4 {coluna.cor ? '' : 'border-hairline'}"
 		style={coluna.cor
 			? 'background-color: color-mix(in srgb, var(--etq-texto) 26%, var(--surface-elevated));' +
 				'border-bottom-color: color-mix(in srgb, var(--etq-texto) 30%, transparent);' +
@@ -183,22 +183,30 @@
 				</div>
 			</form>
 		{:else}
+			<!-- min-w-0 + wrap-anywhere: sem os dois, um título de palavra longa
+			     recusa encolher, empurra a contagem e o × para fora da coluna e
+			     estoura a caixa — o que se vê primeiro no celular, onde cabem
+			     duas colunas por linha. -->
 			<button
 				{...cliqueSemArraste(abrirRenomear)}
-				class="flex-1 text-left text-sm font-medium text-ink {podeEditar ? 'cursor-pointer' : ''}"
+				class="min-w-0 flex-1 text-left text-sm font-medium wrap-anywhere text-ink {podeEditar
+					? 'cursor-pointer'
+					: ''}"
 			>
 				{coluna.titulo}
 			</button>
-			<div class="flex items-center gap-2">
+			<div class="flex shrink-0 items-center gap-1">
 				<span
 					class="rounded-full border border-hairline bg-surface px-1.5 text-xs tabular-nums text-mute"
 				>
 					{coluna.cards.length}
 				</span>
 				{#if podeEditar}
+					<!-- O alvo de toque é o quadrado de 1.5rem, e não o glifo: no
+					     celular, um × de 8px de largura só se acerta por sorte. -->
 					<button
 						{...cliqueSemArraste(apagar)}
-						class="cursor-pointer text-xs text-mute hover:text-negativo"
+						class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-sm leading-none text-mute hover:bg-surface hover:text-negativo"
 						aria-label="Apagar coluna"
 					>
 						×

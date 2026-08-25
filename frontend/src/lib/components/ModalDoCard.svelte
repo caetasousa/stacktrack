@@ -671,7 +671,9 @@
 
 				<!-- cor: propriedade do card, como etiqueta e prazo. Vale por si — a
 				     cor é do card, não do momento em que ele foi criado — e por isso
-				     grava no clique, sem passar pelo formulário de editar texto. -->
+				     grava no clique, sem passar pelo formulário de editar texto.
+				     Sem escolha aqui, o card veste a cor da coluna (ver $lib/paleta):
+				     escolher uma é dizer "este card é exceção na etapa". -->
 				<section>
 					<h3 class="text-xs font-semibold tracking-widest text-mute uppercase">Cor</h3>
 					<div class="mt-2">
@@ -680,7 +682,7 @@
 						{:else if card.cor}
 							<span class="etiqueta cor-{card.cor}">{card.cor}</span>
 						{:else}
-							<span class="text-xs text-mute">sem cor</span>
+							<span class="text-xs text-mute">segue a cor da coluna</span>
 						{/if}
 					</div>
 				</section>

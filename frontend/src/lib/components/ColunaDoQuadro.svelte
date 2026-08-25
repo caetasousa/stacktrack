@@ -238,7 +238,15 @@
 	>
 		{#each coluna.cards as card (card.id)}
 			<li animate:flip={{ duration: DURACAO_MS }}>
-				<CardDoQuadro {card} {etiquetasDoQuadro} {podeEditar} {aoAbrirCard} {aoMudar} {aoFalhar} />
+				<CardDoQuadro
+					{card}
+					corDaColuna={coluna.cor}
+					{etiquetasDoQuadro}
+					{podeEditar}
+					{aoAbrirCard}
+					{aoMudar}
+					{aoFalhar}
+				/>
 			</li>
 		{/each}
 	</ul>

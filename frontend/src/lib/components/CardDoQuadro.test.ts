@@ -38,7 +38,11 @@ function cardFalso(ajustes: Partial<Card> = {}): Card {
 	};
 }
 
-function montar(card: Card, etiquetasDoQuadro: Etiqueta[] = []): HTMLElement {
+function montar(
+	card: Card,
+	etiquetasDoQuadro: Etiqueta[] = [],
+	corDaColuna: Cor | '' = ''
+): HTMLElement {
 	const alvo = document.createElement('div');
 	document.body.appendChild(alvo);
 
@@ -46,6 +50,7 @@ function montar(card: Card, etiquetasDoQuadro: Etiqueta[] = []): HTMLElement {
 		target: alvo,
 		props: {
 			card,
+			corDaColuna,
 			etiquetasDoQuadro,
 			podeEditar: true,
 			aoAbrirCard: () => {},
@@ -75,12 +80,28 @@ describe('CardDoQuadro', () => {
 		expect(elemento.getAttribute('style')).toContain('background-color');
 	});
 
-	it('não pinta nada quando o card está sem cor', () => {
+	it('não pinta nada quando nem o card nem a coluna têm cor', () => {
 		const elemento = comCor('');
 
 		expect(elemento.className).not.toContain('cor-');
 		expect(elemento.className).toContain('bg-surface');
 		expect(elemento.getAttribute('style')).toBeFalsy();
+	});
+
+	// A herança é o caso NORMAL: quase nenhum card escolhe cor, e é ela que faz
+	// os cards de uma coluna se lerem como um bloco só.
+	it('veste a cor da coluna quando não tem a sua', () => {
+		const elemento = montar(cardFalso({ cor: '' }), [], 'azul');
+
+		expect(elemento.className).toContain('cor-azul');
+		expect(elemento.getAttribute('style')).toContain('background-color');
+	});
+
+	it('a cor do próprio card vence a da coluna', () => {
+		const elemento = montar(cardFalso({ cor: 'vermelho' }), [], 'azul');
+
+		expect(elemento.className).toContain('cor-vermelho');
+		expect(elemento.className).not.toContain('cor-azul');
 	});
 
 	// A etiqueta mostra o NOME, e não só a cor. A cor sozinha exigia decorar a

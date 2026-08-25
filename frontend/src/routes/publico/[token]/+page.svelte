@@ -9,6 +9,7 @@
 	// carregar tudo isso e depender de um `{#if}` para não oferecê-lo. Uma tela
 	// que não pode escrever é mais segura quando não tem como.
 	import { renderizarMarkdown } from '$lib/markdown';
+	import { corDoCard } from '$lib/paleta';
 	import type { CardPublico } from '$lib/api/publicacao';
 
 	let { data } = $props();
@@ -126,11 +127,14 @@
 
 				<ul class="min-h-12 flex-1 space-y-2 p-3">
 					{#each coluna.cards as card, j (chave(i, j))}
+						<!-- Mesma herança de cor da tela de dentro (ver $lib/paleta): o
+						     card veste a cor da coluna quando não tem a sua. -->
+						{@const corDoCartao = corDoCard(card.cor, coluna.cor)}
 						<li
-							class="rounded-sm border p-3 shadow-ficha {card.cor
-								? `cor-${card.cor} border-l-4`
+							class="rounded-sm border p-3 shadow-ficha {corDoCartao
+								? `cor-${corDoCartao} border-l-4`
 								: 'border-hairline bg-surface'}"
-							style={card.cor
+							style={corDoCartao
 								? 'background-color: color-mix(in srgb, var(--etq-texto) 14%, var(--surface));' +
 									'border-color: color-mix(in srgb, var(--etq-texto) 34%, transparent);' +
 									'border-left-color: var(--etq-texto)'

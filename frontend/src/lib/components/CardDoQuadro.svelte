@@ -3,7 +3,8 @@
 	// Um card na coluna. Mostra o RESUMO do que carrega — barras de etiqueta,
 	// prazo, progresso de checklist e contagem de anexos — e abre o modal no
 	// clique, que é onde tudo isso pode ser mexido.
-	import { apagarCard, type Card, type Etiqueta } from '$lib/api/boards';
+	import { apagarCard, type Card, type Cor, type Etiqueta } from '$lib/api/boards';
+	import { corDoCard } from '$lib/paleta';
 	import { ApiError } from '$lib/api/client';
 	import { cliqueSemArraste } from '$lib/arrastar';
 	import { haQuanto, quando } from '$lib/atividade';
@@ -12,6 +13,7 @@
 
 	let {
 		card,
+		corDaColuna = '',
 		etiquetasDoQuadro,
 		podeEditar,
 		aoAbrirCard,
@@ -19,12 +21,17 @@
 		aoFalhar
 	}: {
 		card: Card;
+		// A cor da coluna onde este card está. Vale como padrão para os cards
+		// dela; a cor escolhida no próprio card continua vencendo.
+		corDaColuna?: Cor | '';
 		etiquetasDoQuadro: Etiqueta[];
 		podeEditar: boolean;
 		aoAbrirCard: (cardId: string) => void;
 		aoMudar: () => Promise<void>;
 		aoFalhar: (mensagem: string) => void;
 	} = $props();
+
+	const cor = $derived(corDoCard(card.cor, corDaColuna));
 
 	// O card traz só os ids; os dados da etiqueta vêm uma vez, com o quadro.
 	const etiquetas = $derived(
@@ -90,14 +97,17 @@
 	}
 </script>
 
-<!-- A cor do card pinta o card inteiro e engrossa a borda esquerda. O fundo é
-     opaco (a cor é misturada na superfície, não sobreposta a ela) para o card
-     continuar destacado da coluna, que também pode estar colorida. -->
+<!-- A cor do card pinta o card inteiro e engrossa a borda esquerda. Ela é a do
+     próprio card quando escolheram uma, e a da coluna no resto dos casos — é a
+     herança que faz cada coluna do quadro se ler como um bloco só. O fundo é
+     opaco (a cor é misturada na superfície, não sobreposta a ela) e a mistura é
+     mais fraca que a da coluna, para o card continuar saltando por cima dela
+     mesmo quando os dois vestem a mesma cor. -->
 <div
-	class="w-full cursor-pointer rounded-sm border p-3 text-left shadow-ficha {card.cor
-		? `cor-${card.cor} border-l-4`
+	class="w-full cursor-pointer rounded-sm border p-3 text-left shadow-ficha {cor
+		? `cor-${cor} border-l-4`
 		: 'border-hairline bg-surface hover:border-hairline-strong'}"
-	style={card.cor
+	style={cor
 		? 'background-color: color-mix(in srgb, var(--etq-texto) 14%, var(--surface));' +
 			'border-color: color-mix(in srgb, var(--etq-texto) 34%, transparent);' +
 			'border-left-color: var(--etq-texto)'

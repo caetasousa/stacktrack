@@ -56,6 +56,7 @@
 		type Filtro
 	} from '$lib/filtro';
 	import ColunaDoQuadro from '$lib/components/ColunaDoQuadro.svelte';
+	import { proximaCor } from '$lib/paleta';
 	import DialogoDeCompartilhamento from '$lib/components/DialogoDeCompartilhamento.svelte';
 	import ModalDoCard from '$lib/components/ModalDoCard.svelte';
 	import SeletorDeCor from '$lib/components/SeletorDeCor.svelte';
@@ -459,6 +460,15 @@
 		}
 	}
 
+	// Coluna nova nasce colorida, e com uma cor que o quadro ainda não usa: a
+	// cor é o que separa uma etapa da outra de relance, e deixá-la como uma
+	// escolha opcional fazia o quadro inteiro nascer cinza. O seletor abre já
+	// com a sugestão marcada — quem quiser outra, ou nenhuma, troca ali mesmo.
+	function alternarNovaColuna() {
+		criandoColuna = !criandoColuna;
+		if (criandoColuna) corDaColuna = proximaCor(colunas.map((c) => c.cor));
+	}
+
 	async function adicionarColuna(evento: SubmitEvent) {
 		evento.preventDefault();
 		try {
@@ -684,7 +694,7 @@
 			{/if}
 			{#if podeEditar}
 				<button
-					onclick={() => (criandoColuna = !criandoColuna)}
+					onclick={alternarNovaColuna}
 					class="botao ml-1 w-auto px-3 py-1.5 text-xs"
 					aria-expanded={criandoColuna}
 				>

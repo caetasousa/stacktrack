@@ -12,8 +12,8 @@
 #
 # Por que isso importa: o job de deploy anterior abria um shell no servidor e
 # mandava linhas de comando montadas no runner. Quem tivesse a chave tinha a
-# máquina, e a máquina é dividida com o agendaGo. Aqui, quem tem a chave tem
-# três verbos.
+# máquina — que roda a borda nginx e os outros sites do VPS. Aqui, quem tem a
+# chave tem três verbos.
 #
 # O script serve os DOIS caminhos de invocação, de propósito:
 #
@@ -161,8 +161,7 @@ estado)
 	# servidor continuaria com a versão anterior do arquivo, e nada diria isso.
 	for arquivo in \
 		"$PASTA_STACK/docker-compose.prod.yml" \
-		"$PASTA_SCRIPTS/backup.sh" \
-		{{ pasta_caddy_sites | quote }}/stacktrack.caddy; do
+		"$PASTA_SCRIPTS/backup.sh"; do
 		if [ -f "$arquivo" ]; then
 			printf 'sha256 %s %s\n' "$(basename "$arquivo")" "$(sha256sum "$arquivo" | cut -d" " -f1)"
 		else

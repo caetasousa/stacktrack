@@ -1,5 +1,5 @@
 ---
-# O VPS de produção — uma máquina só, dividida com o agendaGo.
+# O VPS de produção — a mesma máquina que roda o nginx do `loadbalancer`.
 producao:
   hosts:
     srv1856874:
@@ -7,25 +7,24 @@ producao:
       # `curl` de verificação pós-deploy. Um IP fixo aqui seria uma segunda
       # fonte da verdade para "onde fica o servidor", que passaria a divergir do
       # DNS no dia da troca de máquina.
-      ansible_host: stacktrack.duckdns.org
+      ansible_host: stacktrack.caetasousa.tech
 
       # O usuário DONO da aplicação, NÃO root.
       #
       # Nada do que `provisionar.yml` faz precisa de privilégio: os arquivos
       # moram no home dele e o acesso ao Docker vem do grupo.
       #
-      # O que exige privilégio — Docker, os usuários, o acesso da esteira, o
-      # hardening — está em `preparar-host.yml`, que sobe por sudo. Ver
-      # docs/infraestrutura.md.
+      # O que exige privilégio — criar a conta, o wrapper, as chaves — está em
+      # `preparar-host.yml`, que sobe por sudo. O host (Docker, firewall,
+      # hardening, TLS) é do projeto `loadbalancer`. Ver docs/infraestrutura.md.
       #
-      # ⚠️ Num servidor onde esta conta ainda NÃO existe (a primeira execução
-      # depois da separação por projeto, ou uma máquina nova), o
-      # `preparar-host.yml` precisa entrar por outra:
+      # ⚠️ Num servidor onde esta conta ainda NÃO existe, o `preparar-host.yml`
+      # precisa entrar por outra conta com sudo:
       #
-      #   ansible-playbook preparar-host.yml -e ansible_user=deploy --diff
-      #   ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass
+      #   ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass
       ansible_user: stacktrack
 
-      # A chave do OPERADOR — a mesma pessoa que opera o agendaGo. É um caminho,
-      # não um segredo. A esteira tem par próprio e não passa por aqui.
+      # A chave do OPERADOR. É um caminho, não um segredo. A esteira tem par
+      # próprio e não passa por aqui. (Nome de arquivo herdado — a chave é a
+      # mesma pessoa que opera os outros projetos do VPS.)
       ansible_ssh_private_key_file: ~/.ssh/agendago_deploy

@@ -6,7 +6,7 @@
 # O wrapper `/usr/local/bin/stacktrack-release` é a fronteira: quem tem a chave
 # do CI tem exatamente o que este arquivo passa. Um `eval` distraído, um verbo a
 # mais, uma validação de SHA frouxa — qualquer um dos três devolve a máquina, e
-# a máquina é dividida com o agendaGo.
+# a máquina roda o nginx da borda e os outros projetos do VPS.
 #
 # O teste renderiza o template do Ansible com valores fixos e executa o script
 # com um PATH de mentira: `docker`, `sudo`, `crontab` e o backup.sh viram stubs
@@ -21,7 +21,7 @@ trabalho=$(mktemp -d)
 trap 'rm -rf "$trabalho"' EXIT
 
 wrapper="$trabalho/bin/stacktrack-release"
-mkdir -p "$trabalho/bin" "$trabalho/stack/scripts" "$trabalho/caddy"
+mkdir -p "$trabalho/bin" "$trabalho/stack/scripts"
 
 # --- renderiza o template ----------------------------------------------------
 #
@@ -34,10 +34,9 @@ mkdir -p "$trabalho/bin" "$trabalho/stack/scripts" "$trabalho/caddy"
 if command -v ansible >/dev/null; then
 	ansible localhost -c local -m template \
 		-a "src=$template dest=$trabalho/jinja.sh mode=0755" \
-		-e usuario_app=deploy \
-		-e pasta_stack=/home/deploy/stacktrack \
-		-e pasta_scripts=/home/deploy/stacktrack/scripts \
-		-e pasta_caddy_sites=/home/deploy/caddy/sites \
+		-e usuario_app=stacktrack \
+		-e pasta_stack=/home/stacktrack \
+		-e pasta_scripts=/home/stacktrack/scripts \
 		-e rede_borda=borda >"$trabalho/ansible.log" 2>&1 || {
 		echo "FALHA: o Jinja não conseguiu renderizar o template:"
 		sed 's/^/       /' "$trabalho/ansible.log"
@@ -62,7 +61,6 @@ sed \
 	-e "s@{{ usuario_app | quote }}@'$(id -un)'@g" \
 	-e "s@{{ pasta_stack | quote }}@'$trabalho/stack'@g" \
 	-e "s@{{ pasta_scripts | quote }}@'$trabalho/stack/scripts'@g" \
-	-e "s@{{ pasta_caddy_sites | quote }}@'$trabalho/caddy'@g" \
 	-e "s@{{ rede_borda | quote }}@'borda'@g" \
 	-e "s@{{ rede_borda }}@borda@g" \
 	"$template" >"$wrapper"
@@ -101,7 +99,7 @@ STUB
 
 cat >"$trabalho/bin/crontab" <<'STUB'
 #!/usr/bin/env bash
-echo "0 3 * * * /home/deploy/stacktrack/scripts/backup.sh"
+echo "0 3 * * * /home/stacktrack/scripts/backup.sh"
 STUB
 
 cat >"$trabalho/stack/scripts/backup.sh" <<'STUB'
@@ -114,7 +112,7 @@ chmod +x "$trabalho/bin/docker" "$trabalho/bin/sudo" "$trabalho/bin/crontab" \
 
 # O que o pré-voo exige encontrar.
 printf 'PROXIES_CONFIAVEIS=172.18.0.0/16\nDB_USER=stacktrack_app\n' >"$trabalho/stack/.env"
-touch "$trabalho/stack/docker-compose.prod.yml" "$trabalho/caddy/stacktrack.caddy"
+touch "$trabalho/stack/docker-compose.prod.yml"
 
 export PATH="$trabalho/bin:$PATH"
 export REGISTRO="$trabalho/registro"

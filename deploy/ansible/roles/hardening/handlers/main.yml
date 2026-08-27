@@ -1,8 +1,0 @@
----
-# `reloaded` e não `restarted`: o reload relê a configuração sem derrubar as
-# sessões abertas — inclusive a que o próprio Ansible está usando para aplicar
-# esta mudança.
-- name: recarrega o sshd
-  ansible.builtin.systemd_service:
-    name: ssh
-    state: reloaded

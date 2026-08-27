@@ -6,39 +6,25 @@
 # Ansible carrega tudo por precedência, e um cifrado aqui passaria a exigir a
 # senha do vault até para um `--syntax-check`. Gerar: `make infra-segredos`.
 
-# Domínio público. Precisa bater EXATAMENTE com o server_name do bloco em
-# deploy/caddy/stacktrack.caddy: é o que faz o cookie __Host- valer, porque ele
-# amarra a sessão a um host exato.
-dominio: stacktrack.duckdns.org
+# Domínio público. Precisa bater EXATAMENTE com o server_name do bloco do
+# stacktrack no nginx do projeto `loadbalancer`: é o que faz o cookie __Host-
+# valer, porque ele amarra a sessão a um host exato.
+dominio: stacktrack.caetasousa.tech
 
-# --- os três usuários, e o que cada um pode ----------------------------------
+# --- os usuários, e o que cada um pode --------------------------------------
 
 # Dono da aplicação: os arquivos da stack, os backups e o cron são dele, e é ele
-# quem fala com o Docker.
-#
-# Separado do `deploy` de propósito. Enquanto os dois projetos moravam na mesma
-# conta, `/home/deploy` misturava `agendago/`, `stacktrack/`, `caddy/` e
-# `backups/` — a fronteira entre os dois existia só na documentação. Agora ela
-# se vê num `ls`.
-#
-# Estar no grupo `docker` equivale a root nesta máquina; isso vale para ele e já
-# valia para o `deploy`. O que muda é que agora são DOIS donos separados, e não
-# um só acumulando os dois projetos.
+# quem fala com o Docker. Estar no grupo `docker` equivale a root nesta máquina
+# — é inerente a quem opera containers.
 usuario_app: stacktrack
 grupo_app: stacktrack
-
-# O dono da máquina compartilhada — a conta que o agendaGo usa e que continua
-# sendo o acesso do operador. O stacktrack só a menciona por causa da pasta do
-# Caddy, abaixo.
-usuario_vizinho: deploy
 
 # Chave PÚBLICA do OPERADOR — a sua. É ela que autoriza você (e o Ansible, que
 # entra com ela) no usuário da aplicação. Não é segredo: chave pública é feita
 # para ser publicada, por isso fica aqui e não no vault.
 #
-# É a mesma que abre o `deploy` desde o agendaGo, reaproveitada aqui de
-# propósito: uma pessoa, uma chave. O que NÃO se reaproveita é a da esteira, que
-# é de máquina e tem par próprio (`esteira_chave_publica`, abaixo).
+# O que NÃO se reaproveita é a da esteira, que é de máquina e tem par próprio
+# (`esteira_chave_publica`, abaixo).
 operador_chave_publica: >-
   ssh-ed25519
   AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
@@ -57,9 +43,7 @@ operador_chave_publica: >-
 #
 #   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
 #
-# A pública vai aqui; a privada vira o secret VPS_SSH_KEY do GitHub. Não
-# reaproveitar a do agendaGo: uma chave que abre os dois projetos faz o
-# comprometimento de um ser o comprometimento do outro.
+# A pública vai aqui; a privada vira o secret VPS_SSH_KEY do GitHub.
 #
 # Sem passphrase de propósito: quem a usa é o GitHub Actions, que não tem como
 # digitar uma. O que limita o estrago não é a senha da chave — é o comando
@@ -74,23 +58,7 @@ pasta_base: /home/{{ usuario_app }}
 # é do stacktrack, e `/home/stacktrack/stacktrack` só repetiria o nome.
 pasta_stack: '{{ pasta_base }}'
 pasta_scripts: '{{ pasta_stack }}/scripts'
-# Os backups agora são da conta do projeto. Antes eram uma pasta só para os
-# dois, distinguida pelo prefixo do nome do arquivo — que continua existindo,
-# porque é o que o backup.sh usa para achar o backup anterior.
 pasta_backups: '{{ pasta_base }}/backups'
-
-# ⚠️ A ÚNICA coisa que não mudou de casa, e não por esquecimento.
-#
-# O Caddy que atende as portas 80 e 443 é do agendaGo, e o container dele monta
-# `/home/deploy/caddy/sites` no próprio `/etc/caddy/sites`. Apontar para outro
-# lugar exigiria editar o compose do vizinho — que o CLAUDE.md proíbe, e com
-# razão: é dele, não nosso.
-#
-# Por isso o usuário da aplicação entra no grupo do vizinho e essa pasta é
-# gravável pelo grupo. É um acesso pontual, a um diretório que é compartilhado
-# por natureza. Uma troca futura do proxy — Caddy próprio, nginx, o que for —
-# desfaz esta exceção.
-pasta_caddy_sites: /home/{{ usuario_vizinho }}/caddy/sites
 
 # Imagens publicadas pela esteira no GHCR. `latest` segue a main; a esteira
 # sobrescreve com o SHA do commit no momento do deploy, sem tocar no .env.
@@ -102,33 +70,17 @@ imagem_tag: latest
 ghcr_usuario: caetasousa
 
 # Os arquivos que a role instala no servidor vêm da RAIZ deste repositório —
-# docker-compose.prod.yml, scripts/backup.sh e deploy/caddy/stacktrack.caddy.
-# Copiá-los para roles/stacktrack/files/ criaria uma segunda cópia, que
-# divergiria da primeira no dia em que alguém editasse só uma.
+# docker-compose.prod.yml e scripts/backup.sh. Copiá-los para
+# roles/stacktrack/files/ criaria uma segunda cópia, que divergiria da primeira
+# no dia em que alguém editasse só uma.
 raiz_repo: '{{ playbook_dir }}/../..'
 
-# Rede Docker compartilhada com o Caddy do agendaGo. Declarada `external` no
-# compose, o que significa que o Compose NÃO a cria: quem garante é o playbook.
+# Rede Docker compartilhada com o nginx do `loadbalancer`. Declarada `external`
+# no compose, o que significa que o Compose NÃO a cria: quem a garante é o
+# playbook do `loadbalancer`, dono da borda.
 rede_borda: borda
 
-# Deslocado do backup do agendaGo (03:00) de propósito: dois pg_dump no mesmo
-# minuto disputam CPU e disco sem necessidade. O cron do Debian não suporta
-# CRON_TZ — a expressão vale sempre no fuso do HOST, não no seu.
+# O cron do Debian não suporta CRON_TZ — a expressão vale sempre no fuso do
+# HOST, não no seu.
 backup_hora: '3'
 backup_minuto: '20'
-
-# --- firewall ----------------------------------------------------------------
-
-# As portas que ficam abertas na internet. SSH, HTTP e HTTPS, e nada mais: o
-# banco não publica porta (ver docker-compose.prod.yml) e as métricas de A8
-# também não publicarão.
-ufw_portas:
-  - 22
-  - 80
-  - 443
-
-# Escape para porta legítima de OUTRO serviço do host. A role recusa habilitar o
-# firewall quando encontra algo escutando fora da lista — é assim que "conferir
-# o que o agendaGo expõe" deixou de ser um item de checklist e virou uma falha
-# de playbook.
-ufw_portas_extras: []

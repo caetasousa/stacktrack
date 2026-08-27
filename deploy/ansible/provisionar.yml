@@ -10,15 +10,17 @@
 # para o que já está montado — e é por isso que rodá-lo duas vezes seguidas tem
 # de terminar em `changed=0`.
 #
-# Conecta como `deploy` e NÃO usa sudo em lugar nenhum: tudo mora no home dele e
-# o acesso ao Docker vem do grupo. É o mesmo privilégio que a esteira já tem, o
-# que significa que este playbook não amplia o raio de explosão de nada.
+# Conecta como `stacktrack` e NÃO usa sudo em lugar nenhum: tudo mora no home
+# dele e o acesso ao Docker vem do grupo. É o mesmo privilégio que a esteira já
+# tem, o que significa que este playbook não amplia o raio de explosão de nada.
 #
-# O que exige root — instalar o Docker, criar o usuário — está em
-# `preparar-host.yml`, que roda uma vez por máquina.
+# O que exige root — criar o usuário, o wrapper, as chaves — está em
+# `preparar-host.yml`. O host em si (Docker, rede `borda`, firewall, TLS) é do
+# projeto `loadbalancer`.
 #
-# O que ele deliberadamente NÃO faz, por dividir o VPS com o agendaGo: tocar no
-# Caddyfile do vizinho, reescrever o crontab inteiro ou remover a rede `borda`.
+# O que ele deliberadamente NÃO faz: escrever qualquer coisa de nginx (o
+# roteamento é do `loadbalancer`), reescrever o crontab inteiro ou remover a
+# rede `borda`.
 
 - name: Provisiona a stack do stacktrack
   hosts: producao
@@ -59,8 +61,10 @@
         that: docker_pronto.rc == 0
         fail_msg: >-
           O Docker ou o plugin do Compose não respondem como {{ ansible_user }}.
-          Este playbook não instala nenhum dos dois — isso exige root e está em
-          preparar-host.yml. Rode `make infra-preparar` primeiro.
+          Este playbook não instala nenhum dos dois: o Docker é do projeto
+          `loadbalancer` (dono da borda) e o usuário `{{ ansible_user }}` sai do
+          `make infra-preparar`. Provisione o host pelo `loadbalancer` e rode o
+          `make infra-preparar` antes deste.
 
   roles:
     - stacktrack

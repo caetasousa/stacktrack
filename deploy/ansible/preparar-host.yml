@@ -1,15 +1,22 @@
 ---
-# O que exige ROOT no servidor: Docker, usuários, acesso da esteira e hardening.
+# A identidade de deploy do stacktrack no host: o usuário da aplicação, o
+# `sudoers` restrito, a chave do operador, a chave da esteira e o wrapper
+# `stacktrack-release`.
 #
 #   make infra-preparar
+#
+# O HOST em si — Docker, rede `borda`, firewall, hardening de SSH, TLS — é do
+# projeto `loadbalancer` (repo à parte), dono da borda. Este playbook pressupõe
+# esse host já provisionado: precisa do grupo `docker` e de `PermitRootLogin no`
+# já valendo. Rode o `site.yml` do `loadbalancer` antes.
 #
 # Depois dele é `provisionar.yml` que manda o dia a dia, e esse não precisa de
 # privilégio nenhum.
 #
 # Está separado porque é a única parte que exige ROOT — e um playbook que entra
-# como `deploy` não pode criar o `deploy`. É o mesmo motivo pelo qual a esteira
-# nunca vai conseguir provisionar um servidor do zero: ela faz login com
-# `VPS_USER=deploy`, que num host novo ainda não existe.
+# como `stacktrack` não pode criar o `stacktrack`. É o mesmo motivo pelo qual a
+# esteira nunca vai conseguir provisionar do zero: ela faz login com
+# `VPS_USER=stacktrack`, que num host novo ainda não existe.
 #
 # O privilégio vem de `sudo`, e a senha é pedida na hora — nem o inventário nem
 # o vault a guardam:
@@ -18,70 +25,29 @@
 #   # equivale a:
 #   cd deploy/ansible && ansible-playbook preparar-host.yml --ask-become-pass --diff
 #
-# Entrar como `deploy` e subir por sudo, em vez de logar como root, não é
-# preferência: `PermitRootLogin no` é uma das coisas que a role `hardening`
-# aplica. Um playbook que só soubesse entrar como root deixaria de rodar depois
-# da primeira vez que rodasse — e o que endurece o host precisa continuar
-# alcançável para poder consertá-lo.
+# Numa MÁQUINA em que o `stacktrack` ainda não consiga elevar, entre por outra
+# conta com sudo — e a forma importa:
 #
-# Numa MÁQUINA NOVA, ou numa em que o `deploy` ainda não consiga elevar, o
-# caminho é root — e a forma importa:
+#   ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass
 #
-#   ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass   # exige sshpass
-#   ansible-playbook preparar-host.yml -e ansible_user=root --key-file ~/.ssh/x
-#
-# `-e ansible_user=root`, e NÃO `-u root`. O `-u` troca só o usuário da conexão;
-# a variável `ansible_user` continua valendo `deploy`, vinda do inventário, e o
-# `become` abaixo continuaria ligado — o Ansible faria `sudo` de root para root
-# e pediria uma senha que conta de serviço não tem. O `-e` tem a precedência
-# mais alta e muda as duas coisas de uma vez.
+# `-e ansible_user=...`, e NÃO `-u ...`: o `-u` troca só o usuário da conexão; a
+# variável `ansible_user` continua valendo `stacktrack`, vinda do inventário, e
+# o `become` continuaria pedindo a senha da conta errada. O `-e` tem a
+# precedência mais alta e muda as duas coisas de uma vez.
 #
 # Rodá-lo duas vezes seguidas tem de terminar em `changed=0` — é o que prova que
 # ele descreve a máquina, e não só a constrói uma vez.
-#
-# Ele deixou de ser só "dia zero": desde a A5 é também quem mantém o acesso da
-# esteira (o wrapper e a chave restrita) e o hardening do host (SSH
-# sem senha, firewall, atualização automática de segurança). Isso o torna um
-# playbook que se roda de novo quando essas coisas mudam — e não uma vez na
-# vida.
-#
-# ⚠️ Ele aperta o caminho por onde se conserta um erro dele. As duas travas que
-# existem para isso recusam aplicar em vez de trancar a porta: o hardening exige
-# uma chave já instalada antes de desligar a senha do SSH, e o firewall recusa
-# subir quando encontra alguma porta pública fora da lista — a do vizinho,
-# tipicamente. Ainda assim, tenha o console do provedor testado ANTES.
 
-- name: Prepara a máquina para receber o stacktrack
+- name: Prepara a identidade de deploy do stacktrack no host
   hosts: producao
   gather_facts: true
 
-  # Conecta como o usuário do inventário (`deploy`) e sobe por sudo.
+  # Conecta como o usuário do inventário (`stacktrack`) e sobe por sudo.
   #
   # Condicional, e não `true` fixo: entrando JÁ como root, o Ansible ainda assim
   # executaria `sudo` de root para root e pediria uma senha — que numa conta de
-  # serviço não existe. É o caminho da máquina nova, ou de uma em que o `deploy`
-  # ainda não consiga elevar. Ver o cabeçalho: aquele caminho exige
-  # `-e ansible_user=root`, porque `-u root` não muda esta variável.
+  # serviço não existe.
   become: '{{ (ansible_user | default("")) != "root" }}'
 
   roles:
-    # A ordem importa, e cada passo depende do anterior:
-    #
-    #   docker          o pacote da engine é quem cria o grupo `docker`
-    #   usuario_app     o usuário DONO da aplicação, que entra nesse grupo
-    #   hardening       por último, porque ele desliga a senha do SSH e só pode
-    #                   fazer isso depois de haver chave instalada
-    - docker
     - usuario_app
-
-    # Marcado porque é a única parte que mexe no HOST INTEIRO, e o host é
-    # dividido com o agendaGo: SSH sem senha, firewall e atualização automática
-    # valem para os dois projetos, não só para este.
-    #
-    # Rodar tudo MENOS o hardening, para aplicá-lo noutro momento:
-    #   ansible-playbook preparar-host.yml -u root --ask-pass --skip-tags hardening
-    #
-    # Ou só ele, quando for a hora:
-    #   ansible-playbook preparar-host.yml -u root --ask-pass --tags hardening
-    - role: hardening
-      tags: [hardening]

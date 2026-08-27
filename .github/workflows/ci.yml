@@ -470,15 +470,15 @@ jobs:
   #
   # Ele não abre shell no servidor. A chave da esteira está presa a um comando
   # forçado (`/usr/local/bin/stacktrack-release`, instalado pelo Ansible), e o
-  # que este job manda é um de três verbos: `release <sha>`, `backup`, `estado`.
-  # Qualquer outra coisa é recusada do lado de lá.
+  # que este job manda é um de quatro verbos: `sync`, `release <sha>`, `backup`,
+  # `estado`. Qualquer outra coisa é recusada do lado de lá.
   #
-  # O que ele DEIXOU de fazer, e por quê: copiar o compose e o backup.sh. Esses
-  # arquivos são do Ansible agora — havia duas fontes escrevendo os mesmos
-  # caminhos, e a que ganhava era a última que rodou. O passo `estado` compara
-  # as impressões digitais do servidor com as do repositório e FALHA quando
-  # divergem, apontando o `make infra-apply`. O roteamento do domínio é do
-  # projeto `loadbalancer` e a esteira não toca nele.
+  # `sync` recebe SÓ o `docker-compose.prod.yml` pelo stdin e o valida contra uma
+  # allowlist (imagem do projeto ou Postgres; sem `privileged`, sem namespace do
+  # host, sem bind mount, sem capability fora das cinco do Postgres) antes de
+  # instalar. O `.env`, o `backup.sh` e os papéis do banco continuam vindo só do
+  # Ansible/vault — este job não os alcança. O `backup.sh` do servidor é
+  # conferido por sha256, porque é o script que o `release` EXECUTA.
   #
   # Segredos (Settings → Secrets and variables → Actions, ou o Environment
   # `production`):
@@ -500,8 +500,8 @@ jobs:
     environment: production
     timeout-minutes: 15
     steps:
-      # O checkout existe por UM motivo: calcular o sha256 dos arquivos de
-      # configuração para comparar com os do servidor. Nenhum arquivo sobe.
+      # O checkout traz o `docker-compose.prod.yml` (que o `sync` entrega) e o
+      # `scripts/backup.sh` (cujo sha256 é conferido). Nada mais sobe.
       - uses: actions/checkout@v5
 
       # Sem os segredos o job passa sem fazer nada, em vez de falhar em
@@ -538,12 +538,9 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # Pré-voo, e a defesa contra o furo que a mudança de dono dos arquivos
-      # abriu: o servidor recebe o compose e o backup.sh pelo PLAYBOOK, não mais
-      # por este job. Sem esta comparação, alterar um limite de memória e dar
-      # push produziria um deploy verde que não mudou limite nenhum — e nada
-      # diria isso.
-      - name: confere se a configuração do servidor é a deste commit
+      # Entrega o compose deste commit. O verbo `sync` valida contra a allowlist
+      # do lado de lá e instala; se a validação recusar, o job para aqui.
+      - name: entrega o docker-compose.prod.yml
         if: steps.cfg.outputs.configurado == 'true'
         env:
           HOST: ${{ secrets.VPS_HOST }}
@@ -552,22 +549,27 @@ jobs:
         run: |
           set -euo pipefail
           ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" \
-            "$USUARIO@$HOST" stacktrack-release estado | tee /tmp/estado.txt
+            "$USUARIO@$HOST" stacktrack-release sync < docker-compose.prod.yml
 
-          divergiu=0
-          conferir() {
-            local arquivo="$1" nome="$2"
-            local local_hash servidor_hash
-            local_hash=$(sha256sum "$arquivo" | cut -d' ' -f1)
-            servidor_hash=$(awk -v n="$nome" '$1=="sha256" && $2==n {print $3}' /tmp/estado.txt)
-            if [ "$local_hash" != "$servidor_hash" ]; then
-              echo "::error::$nome no servidor não é o deste commit ($servidor_hash != $local_hash). Rode: make infra-apply"
-              divergiu=1
-            fi
-          }
-          conferir docker-compose.prod.yml docker-compose.prod.yml
-          conferir scripts/backup.sh backup.sh
-          exit "$divergiu"
+      # O `backup.sh` é do Ansible — o `release` o EXECUTA, então a esteira não o
+      # escreve, só confere. Divergiu: alguém mudou o script e não rodou
+      # `make infra-apply`, e o deploy rodaria uma versão que não é a do commit.
+      - name: confere se o backup.sh do servidor é o deste commit
+        if: steps.cfg.outputs.configurado == 'true'
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+          PORTA: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          servidor=$(ssh -4 -o ConnectTimeout=15 -i ~/.ssh/id_deploy -p "$PORTA" \
+            "$USUARIO@$HOST" stacktrack-release estado \
+            | awk '$1=="sha256" && $2=="backup.sh" {print $3}')
+          local=$(sha256sum scripts/backup.sh | cut -d' ' -f1)
+          if [ "$servidor" != "$local" ]; then
+            echo "::error::backup.sh no servidor ($servidor) não é o deste commit ($local). Rode: make infra-apply"
+            exit 1
+          fi
 
       # O deploy inteiro numa linha, porque do outro lado ele É uma linha: o
       # wrapper faz backup, pull, para web e api juntas, sobe a stack e limpa as

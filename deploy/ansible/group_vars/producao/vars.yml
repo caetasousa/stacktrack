@@ -35,7 +35,7 @@ operador_chave_publica: >-
 # A esteira NÃO tem conta própria: ela entra na conta da aplicação, com uma
 # chave presa a um comando forçado. O comando forçado é propriedade da CHAVE,
 # não do usuário — a mesma conta aceita a sua chave com shell normal e a dela
-# limitada a três verbos.
+# limitada a quatro verbos (sync/release/backup/estado).
 
 # Chave PÚBLICA exclusiva do stacktrack, cujo par privado é o secret
 # VPS_SSH_KEY. Vazia enquanto o par não for gerado — e enquanto estiver vazia, a

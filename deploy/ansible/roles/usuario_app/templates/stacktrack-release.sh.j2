@@ -12,8 +12,9 @@
 #
 # Por que isso importa: o job de deploy anterior abria um shell no servidor e
 # mandava linhas de comando montadas no runner. Quem tivesse a chave tinha a
-# máquina — que roda a borda nginx e os outros sites do VPS. Aqui, quem tem a
-# chave tem três verbos.
+# máquina — que roda a borda Traefik e os outros sites do VPS. Aqui, quem tem a
+# chave tem quatro verbos, e o único que escreve arquivo (`sync`) só aceita o
+# `docker-compose.prod.yml` e o passa por uma allowlist antes de instalar.
 #
 # O script serve os DOIS caminhos de invocação, de propósito:
 #
@@ -32,7 +33,7 @@ COMPOSE="docker compose -f docker-compose.prod.yml"
 
 recusa() {
 	echo "stacktrack-release: $1" >&2
-	echo "verbos aceitos: release <sha|latest> · backup · estado" >&2
+	echo "verbos aceitos: release <sha|latest> · sync · backup · estado" >&2
 	exit 2
 }
 
@@ -142,6 +143,65 @@ release)
 	echo "release $alvo no ar"
 	;;
 
+sync)
+	# A esteira entrega SÓ o docker-compose.prod.yml, pelo stdin. É o único
+	# arquivo que ela escreve, e não tem segredo — o .env, o backup.sh e os
+	# papéis do banco continuam vindo só do Ansible.
+	#
+	# O compose É código: pode montar o disco do host, subir container
+	# privilegiado, trocar a imagem. Por isso passa por uma allowlist contra a
+	# FORMA CANÔNICA (`docker compose config`, que resolve variáveis e defaults)
+	# antes de ser instalado. Uma chave da esteira roubada não escapa dela.
+	[ -z "$alvo" ] || recusa "sync não recebe argumento"
+	[ -f "$PASTA_STACK/.env" ] || { echo "sync: host sem .env — rode make infra-apply" >&2; exit 1; }
+	command -v python3 >/dev/null || recusa "sync: python3 ausente no servidor"
+
+	novo=$(mktemp)
+	canon=$(mktemp)
+	trap 'rm -f "$novo" "$canon"' EXIT
+	cat >"$novo"
+	[ -s "$novo" ] || recusa "sync: nada no stdin"
+
+	docker compose --env-file "$PASTA_STACK/.env" -f "$novo" config --format json >"$canon" 2>/dev/null \
+		|| recusa "sync: compose não valida contra o .env do servidor"
+
+	python3 - "$canon" {{ ghcr_usuario | quote }} <<'PY' || recusa "sync: bloqueado pela allowlist (ver acima)"
+import json, sys
+canon, owner = sys.argv[1], sys.argv[2]
+d = json.load(open(canon))
+caps_ok = {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}
+ruins = []
+for nome, s in (d.get("services") or {}).items():
+    img = s.get("image", "")
+    if not (img.startswith("ghcr.io/%s/" % owner) or img.startswith("postgres:")):
+        ruins.append("%s: imagem fora da allowlist (%s)" % (nome, img))
+    if s.get("privileged"):
+        ruins.append("%s: privileged" % nome)
+    for k in ("pid", "ipc", "network_mode", "userns_mode"):
+        if str(s.get(k, "")).endswith("host"):
+            ruins.append("%s: %s=host" % (nome, k))
+    if s.get("devices"):
+        ruins.append("%s: devices" % nome)
+    for cap in s.get("cap_add") or []:
+        if str(cap).upper() not in caps_ok:
+            ruins.append("%s: capability %s" % (nome, cap))
+    for so in s.get("security_opt") or []:
+        if "unconfined" in str(so):
+            ruins.append("%s: security_opt %s" % (nome, so))
+    for v in s.get("volumes") or []:
+        if isinstance(v, dict) and v.get("type") == "bind":
+            ruins.append("%s: bind mount %s" % (nome, v.get("source")))
+        if isinstance(v, str) and v[:1] in "/.~$":
+            ruins.append("%s: bind mount %s" % (nome, v))
+if ruins:
+    sys.stderr.write("sync: " + "; ".join(ruins) + "\n")
+    sys.exit(1)
+PY
+
+	install -m 0644 "$novo" "$PASTA_STACK/docker-compose.prod.yml"
+	echo "compose sincronizado"
+	;;
+
 backup)
 	[ -z "$alvo" ] || recusa "backup não recebe argumento"
 	preVoo
@@ -152,13 +212,12 @@ estado)
 	[ -z "$alvo" ] || recusa "estado não recebe argumento"
 	$COMPOSE ps
 
-	# As impressões digitais do que o ANSIBLE instalou. A esteira compara com o
-	# que está no repositório e falha quando divergem.
+	# As impressões digitais dos arquivos da stack.
 	#
-	# Existe porque o deploy deixou de copiar estes arquivos: quem os instala é
-	# o playbook. Sem esta conferência, mudar um limite de memória no compose e
-	# dar push produziria um deploy verde que não mudou limite nenhum — o
-	# servidor continuaria com a versão anterior do arquivo, e nada diria isso.
+	# O `docker-compose.prod.yml` a esteira entrega pelo `sync` a cada deploy, então
+	# o hash dele aqui é só informativo. O `backup.sh` é do Ansible, e a esteira
+	# compara: mudou o backup.sh sem `make infra-apply` e o deploy falha, em vez de
+	# rodar código de backup que não é o do commit.
 	for arquivo in \
 		"$PASTA_STACK/docker-compose.prod.yml" \
 		"$PASTA_SCRIPTS/backup.sh"; do

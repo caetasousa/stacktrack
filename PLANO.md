@@ -12,7 +12,7 @@
 O stacktrack já tem uma fundação técnica acima da média para um projeto desse
 porte. Há separação de domínio e infraestrutura, autenticação com sessão,
 autorização por recurso, colaboração em tempo real, histórico de eventos,
-anexos, testes de integração, imagens de produção, CI, Caddy, backup e
+anexos, testes de integração, imagens de produção, CI, borda nginx, backup e
 provisionamento com Ansible.
 
 Os melhores pontos da base atual são:
@@ -42,7 +42,7 @@ Os melhores pontos da base atual são:
 | Organização | etiquetas, prazos, checklists, responsáveis e filtros |
 | Conteúdo | comentários Markdown, anexos, histórico e auditoria |
 | Compartilhamento | membros do quadro e link público de acompanhamento |
-| Engenharia | testes Go/TypeScript/E2E, Testcontainers, Compose, CI, imagens, Caddy e Ansible |
+| Engenharia | testes Go/TypeScript/E2E, Testcontainers, Compose, CI, imagens, borda nginx e Ansible |
 
 O projeto, porém, **ainda não deve ser tratado como pronto para dados valiosos
 em produção**. Os riscos que mudam essa conclusão não são falta de
@@ -76,7 +76,7 @@ gate de go-live de A11.
 |---|---|
 | Topologia | Uma instância da API em um único VPS compartilhado; sem alta disponibilidade |
 | Banco | PostgreSQL no ambiente atual, com papéis separados para aplicação e migrations |
-| Proxy/TLS | Caddy |
+| Proxy/TLS | borda nginx do projeto `loadbalancer` (nginx + certbot) |
 | Armazenamento ativo | Disco local do VPS, com arquivos imutáveis |
 | Backup externo | Restic em armazenamento S3 compatível, fora do VPS |
 | Concorrência validada | 25 conexões simultâneas, sendo até 10 editores ativos |
@@ -227,10 +227,12 @@ Em produção a porta é `CoberturaNegada`: o outbox acumula e nada é removido.
 `idle_in_transaction_session_timeout` no startup da conexão — inclusive as que
 rodam fora de unidade de trabalho e de snapshot.
 
-**Ensaio do access log do Caddy, automatizado**. Sobe o proxy com o filtro do
-arquivo de produção, pede caminhos válidos e inválidos com um token real e lê o
-log produzido. `caddy validate` prova que a configuração é aceita; só o ensaio
-prova o que o proxy escreve.
+**Ensaio do access log do proxy** *(removido em ago/2026)*. Quando a borda era o
+Caddy, `test/repository/caddy_log_test.go` subia o proxy com o filtro do arquivo
+de produção e conferia que nenhum token ia para o log. A borda passou a ser o
+nginx do projeto `loadbalancer`, cuja política de log é dele; o log da
+aplicação continua sanitizado e testado. Ver
+[docs/producao.md](docs/producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
 ### Os dois passos agendados
 
@@ -384,12 +386,11 @@ O contrato transitório de criação permanece reconhecível pelo frontend, por�
 - [x] Não há acesso sem sessão correspondente e token válido.
 - [x] Repetir aceitação não duplica membro nem evento.
 - [x] Cookies aleatórios são limitados antes de consultar o banco.
-- [x] Nenhum token, cookie ou e-mail completo aparece em logs. A aplicação tem
-      regressão automatizada, e o ensaio do access log do Caddy **em execução**
-      virou teste: `test/repository/caddy_log_test.go` sobe o proxy com o filtro
-      do arquivo de produção, pede caminhos válidos e inválidos com um token
-      real e lê o log que ele produziu. Foi conferido do jeito que importa —
-      enfraquecendo o filtro para uma lista de rotas e vendo o teste falhar.
+- [x] Nenhum token, cookie ou e-mail completo aparece nos logs **da aplicação**,
+      com regressão automatizada. O ensaio do access log do *proxy*
+      (`test/repository/caddy_log_test.go`, quando a borda era o Caddy) foi
+      removido em ago/2026 junto com o bloco Caddy — a borda virou o nginx do
+      projeto `loadbalancer`, e a política de log do proxy é dele.
 - [x] Respostas privadas enviam `Cache-Control: no-store`.
 - [x] A etapa passa sem SMTP, Mailpit ou qualquer serviço de e-mail.
 

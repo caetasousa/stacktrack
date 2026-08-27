@@ -4,18 +4,13 @@
 #
 #   20 3 * * * /home/stacktrack/scripts/backup.sh >> /home/stacktrack/backups/backup.log 2>&1
 #
-# O horário é deslocado do backup do agendaGo (03:00) de propósito: os dois
-# projetos dividem a máquina, e dois pg_dump simultâneos disputam CPU e disco
-# no mesmo minuto sem nenhuma necessidade.
+# Todo nome de arquivo é prefixado por `stacktrack-`, e todos os globs abaixo
+# são escopados por esse prefixo: se um dia outra coisa gravar em `~/backups`,
+# a rotação daqui não a enxerga nem a apaga.
 #
-# Segue as convenções do agendaGo — mesmo diretório de backups, mesmo formato
-# de nome, mesmo manifesto. O que separa os dois projetos é o PREFIXO do nome
-# do arquivo, e todos os globs abaixo são escopados por ele: este script nunca
-# enxerga nem apaga um arquivo do vizinho.
-#
-# A diferença é que aqui há um segundo artefato: os anexos dos cards são
-# arquivos num volume, e o pg_dump não os inclui. Restaurar só o banco
-# devolveria cards apontando para anexos que não existem mais.
+# São dois artefatos: os anexos dos cards são arquivos num volume, e o pg_dump
+# não os inclui. Restaurar só o banco devolveria cards apontando para anexos que
+# não existem mais.
 
 set -euo pipefail
 
@@ -172,8 +167,8 @@ else
 fi
 
 # --- rotação ----------------------------------------------------------------
-# Todos os globs levam o prefixo do projeto: o diretório é compartilhado com o
-# agendaGo, e uma rotação sem prefixo apagaria os backups dele.
+# Todos os globs levam o prefixo do projeto: uma rotação sem prefixo apagaria
+# qualquer outra coisa que um dia acabe em `~/backups`.
 removidos=$(find "$PASTA_BACKUP" -maxdepth 1 \
 	\( -name 'stacktrack-*.sql.gz' -o -name 'stacktrack-*.sql.gz.sha256' -o -name 'stacktrack-*.sql.gz.json' \
 	-o -name 'stacktrack-anexos-*.tar.gz' -o -name 'stacktrack-anexos-*.tar.gz.sha256' \) \

@@ -661,9 +661,9 @@ Aqui a chave é o IP — que o cliente não escolhe, ver abaixo.
 **IP confiável.** `middleware.IPReal` só obedece `X-Real-IP` quando o peer
 direto da conexão TCP está na lista `PROXIES_CONFIAVEIS`; de qualquer outro
 lugar, os cabeçalhos são **apagados** antes de seguir. A versão anterior confiava
-sempre, com o raciocínio "só o Caddy fala com a API" — correto enquanto essa
-topologia valer, e verificado em lugar nenhum. Escolher o próprio IP é escolher
-o próprio balde de rate limit.
+sempre, com o raciocínio "só o nginx da borda fala com a API" — correto enquanto
+essa topologia valer, e verificado em lugar nenhum. Escolher o próprio IP é
+escolher o próprio balde de rate limit.
 
 **Conexões de tempo real.** Teto por conta (5), teto global do processo (100) e
 teto de handshakes por IP (10/min). Os três porque são três abusos: o global
@@ -918,15 +918,22 @@ teste.
 📚 [Testcontainers for Go](https://golang.testcontainers.org/)
 📝 [Módulo de Postgres, com exemplo completo](https://golang.testcontainers.org/modules/postgres/) — inclusive as estratégias de espera
 
-### Caddy
+### nginx (projeto `loadbalancer`)
 
-Proxy reverso com HTTPS automático. **Não é uma stack nossa**: o stacktrack
-entra no Caddy que já servia o agendaGo no mesmo VPS, depositando um bloco de
-site em `/home/deploy/caddy/sites`. Ver
-[producao.md](producao.md), seção "Arquitetura no ar".
+Proxy reverso e terminação de TLS. **Não é uma stack nossa**: a borda do VPS é o
+projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) — um nginx
+em container que recebe 80/443, termina o TLS (certbot) e roteia por
+`server_name`. O stacktrack só traz os próprios containers para a rede `borda`;
+o bloco `:443` de `stacktrack.caetasousa.tech` (com o split `/api` → API) vive
+lá, no molde de `nginx/conf.d/app.conf.exemplo`. O contrato desse bloco está em
+[producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
-📚 [Caddy — reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
-📝 [Caddy — tutorial de proxy reverso](https://caddyserver.com/docs/quick-starts/reverse-proxy) — do zero ao HTTPS automático em cinco minutos
+Por que outro repo: a borda é compartilhada por vários apps do mesmo VPS, e um
+proxy por app disputaria as portas 80/443. Um nginx só, dono do host, com um
+fragmento `conf.d/<app>.conf` por aplicação.
+
+📚 [nginx — `ngx_http_proxy_module`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
+📝 [nginx — WebSocket proxying](https://nginx.org/en/docs/http/websocket.html) — o `Upgrade`/`Connection` que o quadro precisa
 
 ---
 
@@ -1037,80 +1044,71 @@ O que aconteceu de verdade na reconstrução, em ordem:
 
 1. **`pre_tasks`** — `docker compose version` responde? Se não, o playbook para
    ali com a instrução de rodar `make infra-preparar`. Falhar cedo, com a causa.
-2. **diretórios** — `~/stacktrack`, `scripts/`, `~/backups`, `~/caddy/sites`.
-   O módulo `file` cria os pais recursivamente, como `mkdir -p`.
+2. **diretórios** — `~/stacktrack`, `scripts/`, `~/backups`. O módulo `file`
+   cria os pais recursivamente, como `mkdir -p`.
 3. **GHCR** — `slurp` do `~/.docker/config.json` para ver se já há login. As três
    imagens estão públicas, o token no vault está vazio, e a task foi **pulada**.
 4. **o `assert` do `initdb`** — lê o `.env` que existir e compara com o vault.
    Num servidor vazio não há `.env`, então ele é pulado pelo
    `when: env_atual.content is defined`. A mesma role serve aos dois cenários.
 5. **`.env`** — `template` renderiza `env.j2` com as variáveis e o vault. Nasceu
-   `-rw------- deploy deploy`, que é o `mode: '0600'` declarado.
-6. **compose, `backup.sh`, bloco do Caddy** — `copy` a partir dos arquivos da
-   raiz do repositório. Nada é duplicado dentro da role.
-7. **cron** — e aqui está o resultado que prova o desenho:
+   `-rw------- stacktrack stacktrack`, que é o `mode: '0600'` declarado.
+6. **compose e `backup.sh`** — `copy` a partir dos arquivos da raiz do
+   repositório. Nada é duplicado dentro da role.
+7. **cron** — o `ansible.builtin.cron` procura o marcador `#Ansible: <name>` e
+   gerencia só aquele bloco, sem reescrever o arquivo:
 
 ```
-0 1 * * * $HOME/agendago/scripts/backup.sh >> $HOME/backups/backup.log 2>&1
 #Ansible: backup do stacktrack
 20 3 * * * /home/stacktrack/scripts/backup.sh >> ...
 ```
 
-A linha do agendaGo **intacta**. O `ansible.builtin.cron` não reescreve o
-arquivo: ele procura o marcador `#Ansible: <name>` e gerencia só aquele bloco.
 Compare com o que o CI fazia — `crontab -l | grep -v … | crontab -` —, que
 reconstruía o arquivo inteiro e tinha um comentário no próprio workflow
 admitindo que um cancelamento no meio truncaria o agendamento.
 
 8. **`docker compose up -d`** — Postgres → Flyway (aplica as migrations e sai) →
-   API → web. Três containers `healthy`, e os quatro do agendaGo em `Up 2 weeks`:
-   o reload do Caddy não reinicia nada.
+   API → web, tudo na rede `borda`. Três containers `healthy`; o nginx da borda
+   os alcança por nome sem reiniciar nada.
 
 #### 5. Quando um módulo custa caro demais
 
-`community.docker` tem `docker_network` e `docker_login`, e os dois exigem o
-**SDK do Docker para Python instalado no servidor**. Numa máquina compartilhada,
-uma dependência a mais para ganhar duas tasks é mau negócio — então esses dois
-saem por `command`, com a idempotência escrita à mão:
+A rede `borda` é criada pelo playbook do `loadbalancer`, não por este. A role
+só a **lê**, para derivar `PROXIES_CONFIAVEIS` da IPAM real — e ler um recurso
+por `command` é o mesmo vocabulário de sempre:
 
 ```yaml
-- name: verifica se a rede compartilhada do Caddy existe
-  ansible.builtin.command: docker network inspect {{ rede_borda }}
-  register: rede_existente
-  changed_when: false      # ler nunca é mudar
-  failed_when: false       # "não existe" é resposta, não erro
-  check_mode: false        # precisa rodar mesmo em --check
-
-- name: cria a rede compartilhada do Caddy
-  ansible.builtin.command: docker network create {{ rede_borda }}
-  when: rede_existente.rc != 0
+- name: le a rede compartilhada do proxy
+  community.docker.docker_network_info:
+    name: '{{ rede_borda }}'
+  register: stacktrack_rede_borda_info
 ```
 
-Os quatro atributos são o vocabulário que transforma um comando cru em task
-honesta. Sem `changed_when: false`, a consulta apareceria como alteração e
-destruiria o `changed=0`. Sem `check_mode: false`, ela seria pulada em `--check`
-e a task seguinte decidiria com uma variável indefinida.
+Quando um `command` cru é inevitável (o `psql` dos papéis, o `docker ps` que
+descobre a tag no ar), os quatro atributos são o que o torna honesto:
+`changed_when: false` (ler nunca é mudar), `failed_when: false` ("não existe" é
+resposta, não erro), `check_mode: false` (precisa rodar mesmo em `--check`).
 
 `docker_compose_v2` é a exceção que ficou: ele chama a CLI do `docker compose`,
 que já está no servidor, e não precisa de SDK nenhum.
 
-#### 6. Handlers: agir só quando algo mudou
+#### 6. Medir a coisa certa: o `changed_when` da stack
 
-O Caddy pertence ao agendaGo e atende outro serviço em produção. Recarregá-lo a
-cada `infra-apply` seria mexer num processo alheio sem motivo.
+O `flyway` roda as migrations e **sai** — é serviço de execução única. Todo
+`docker compose up` encontra o container parado e o sobe de novo, então o
+módulo reportaria `changed` para sempre, e o critério de `changed=0` seria
+inalcançável por construção.
 
 ```yaml
-- name: bloco de roteamento no Caddy do agendaGo
-  ansible.builtin.copy:
-    src: '{{ raiz_repo }}/deploy/caddy/stacktrack.caddy'
-    dest: '{{ pasta_caddy_sites }}/stacktrack.caddy'
-  notify: recarrega o Caddy
+changed_when: >-
+  stacktrack_stack.actions | default([]) | map(attribute='id')
+  | reject('search', '-flyway-') | list | length > 0
 ```
 
-O `notify` **não** executa o handler. Ele o enfileira — e só se a task reportou
-`changed`. Os handlers rodam uma vez, no fim do play, mesmo que dez tasks os
-tenham notificado. É o `cmp -s` do CI, mas como propriedade da ferramenta em vez
-de condicional escrita à mão.
+A correção não é silenciar a task: é medir a coisa certa. O módulo devolve um
+item por container que mexeu; descontando o de execução única, sobrando qualquer
+outro a stack mudou de verdade. Migration que quebra continua falhando o
+`compose up` antes de `changed_when` ser avaliado — isto não esconde falha.
 
 #### 7. Os limites do `--check`
 
@@ -1244,7 +1242,7 @@ A ordem que funciona é mexer, não ler:
 1. `make infra-check` — leia o `PLAY RECAP`. Todo `ok` é uma coisa que o
    servidor já tem; todo `changed` é uma diferença entre o código e a realidade.
 2. Mude `backup_minuto` no `group_vars` e rode `make infra-check`. Veja o diff do
-   crontab aparecer, e a linha do agendaGo continuar fora dele.
+   crontab aparecer, e só o bloco marcado `#Ansible:` mudar.
 3. Desfaça, e confirme que volta a `changed=0`.
 4. `cd deploy/ansible && ansible-vault view --vault-password-file .senha-vault segredos/producao.yml`
    — veja o segredo que a esteira nunca precisou conhecer.
@@ -1305,8 +1303,8 @@ docker compose restart api   # o container baixa e recompila
 
 Na dúvida, `docker compose logs api` mostra a falha.
 
-### Porta ocupada pelo agendaGo
+### Porta já alocada
 
-As portas de desenvolvimento são as mesmas dos dois projetos. Rodando ambos, o
-segundo `docker compose up` falha com "port is already allocated" — derrube o
-outro antes.
+Rodando outra stack local nas mesmas portas (5173, 8080, 5432, 8025), o segundo
+`docker compose up` falha com "port is already allocated" — derrube a outra
+antes.

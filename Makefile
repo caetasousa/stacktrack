@@ -69,12 +69,13 @@ test-e2e:
 
 # --- Infraestrutura (Ansible) ------------------------------------------------
 #
-# O servidor de produção descrito como código: usuário, Docker, diretórios,
-# .env, compose, backup, cron e o bloco do Caddy. A ordem de uso é
+# A APLICAÇÃO descrita como código: usuário de deploy, diretórios, .env,
+# compose, backup, cron, papéis do banco. O HOST (Docker, firewall, TLS, a borda
+# nginx) é do projeto loadbalancer. A ordem de uso é
 #
 #   make infra-segredos   uma vez, cria e cifra a senha do banco e o token
-#   make infra-preparar   o que exige privilégio: Docker, usuários, esteira,
-#                         hardening (pede a senha do sudo)
+#   make infra-preparar   o que exige privilégio: o usuário de deploy, o
+#                         sudoers restrito, as chaves e o wrapper de release
 #   make infra-check      mostra o que MUDARIA, sem tocar em nada
 #   make infra-apply      aplica
 #
@@ -88,11 +89,8 @@ PASTA_ANSIBLE := deploy/ansible
 # de produção, não conseguiria rodar. Ver o comentário no ansible.cfg.
 SENHA_VAULT := --vault-password-file .senha-vault
 
-# Repassa opções para o ansible-playbook do `infra-preparar`. O uso previsto é
-# adiar o hardening, que é a única parte que alcança o host inteiro:
-#
-#   make infra-preparar ARGS="--skip-tags hardening"
-#   make infra-preparar ARGS="--tags hardening"
+# Repassa opções para o ansible-playbook do `infra-preparar` (ex.: `--limit`,
+# `-e ansible_user=...` numa máquina onde a conta ainda não eleva).
 ARGS ?=
 
 .PHONY: infra-segredos infra-preparar infra-check infra-apply infra-validar
@@ -119,13 +117,10 @@ $(PASTA_ANSIBLE)/.dependencias: $(PASTA_ANSIBLE)/requirements.yml
 infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 	@$(PASTA_ANSIBLE)/segredos.sh
 
-# O que exige privilégio no host: Docker, os dois usuários, o wrapper da esteira
-# e o hardening. Entra como `deploy` e sobe por sudo — a senha é pedida na hora,
-# em vez de guardada.
-#
-# `--skip-tags hardening` para deixar SSH, firewall e atualização automática
-# para outro momento: são a única parte que alcança o host inteiro, que é
-# dividido com o agendaGo.
+# O que exige privilégio: criar o usuário de deploy, o sudoers restrito, as
+# chaves e o wrapper da esteira. Entra como `stacktrack` e sobe por sudo — a
+# senha é pedida na hora, em vez de guardada. Pressupõe o host já provisionado
+# pelo projeto loadbalancer (grupo `docker`, `PermitRootLogin no`).
 #
 # Sem $(SENHA_VAULT), e é de propósito: este playbook não lê segredo nenhum, e um
 # playbook que roda com privilégio é o último lugar onde vale abrir os segredos

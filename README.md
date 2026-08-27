@@ -3,7 +3,7 @@
 **Quadro Kanban colaborativo em tempo real.** Várias pessoas movem cards no
 mesmo quadro e todas veem na hora, sem recarregar a página.
 
-🔗 **[stacktrack.duckdns.org](https://stacktrack.duckdns.org)**
+🔗 **[stacktrack.caetasousa.tech](https://stacktrack.caetasousa.tech)**
 
 [![CI](https://github.com/caetasousa/stacktrack/actions/workflows/ci.yml/badge.svg)](https://github.com/caetasousa/stacktrack/actions/workflows/ci.yml)
 
@@ -39,8 +39,8 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) |
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
-| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · Caddy + Let's Encrypt |
-| Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — servidor provisionado por playbook, segredos em `ansible-vault` |
+| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · borda nginx + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
+| Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — a aplicação provisionada por playbook, segredos em `ansible-vault` |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de
 cada escolha está em [docs/tecnologias.md](docs/tecnologias.md).
@@ -70,7 +70,7 @@ pode repetir à vontade.
 | Mailpit (reservado para envio futuro) | http://localhost:8025 |
 | Postgres | `localhost:5432` |
 
-As portas são as mesmas do agendaGo — rodando os dois ao mesmo tempo, o segundo
+Rodando outra stack local que use as mesmas portas ao mesmo tempo, o segundo
 `docker compose up` falha com "port is already allocated". Armadilhas do
 ambiente de desenvolvimento (o `EACCES` do `node_modules`, o `air` servindo
 binário velho) estão em

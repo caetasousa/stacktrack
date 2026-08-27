@@ -28,7 +28,7 @@ push na main
                     │                     (o wrapper faz backup, pull, troca)
                     │                     → confere /api/health e /
                     ▼
-        https://stacktrack.duckdns.org
+        https://stacktrack.caetasousa.tech
 ```
 
 ### O job `infra`, e por que ele não tem a senha do vault
@@ -55,15 +55,16 @@ o que o runner escreve chega em `SSH_ORIGINAL_COMMAND` e o wrapper decide se
 aquilo é `release <sha>`, `backup` ou `estado` — ou nada.
 
 Antes, o job montava linhas de comando no runner e as executava do outro lado.
-Quem tivesse a chave tinha a máquina, e a máquina é dividida com o agendaGo.
+Quem tivesse a chave tinha a máquina — que roda a borda nginx e os outros sites
+do VPS.
 
 Duas consequências que valem conhecer:
 
-- **A esteira não copia mais arquivo nenhum.** O compose, o `backup.sh` e o
-  bloco do Caddy são do Ansible. Em troca, o passo `estado` compara o sha256 dos
-  três com os do commit e **falha** quando divergem — deploy de código com
-  configuração velha é justamente o erro silencioso que a divisão de donos
-  poderia ter criado. A instrução na mensagem é `make infra-apply`.
+- **A esteira não copia arquivo nenhum.** O compose e o `backup.sh` são do
+  Ansible; o roteamento é do `loadbalancer`. Em troca, o passo `estado` compara
+  o sha256 dos dois com os do commit e **falha** quando divergem — deploy de
+  código com configuração velha é justamente o erro silencioso que a divisão de
+  donos poderia ter criado. A instrução na mensagem é `make infra-apply`.
 - **O job declara `environment: production`.** É lá que ficam os segredos do
   VPS, e é o que impede um job de pull request de alcançá-los: quem não declara
   o environment não enxerga os segredos dele.
@@ -84,10 +85,10 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 ### Por que o VPS só faz `pull`, nunca `build`
 
-Compilar Go e rodar `npm ci` no servidor consome a RAM que a aplicação — e o
-agendaGo, que divide a máquina — está usando. Além disso, build no servidor
-significa que o artefato em produção **nunca foi testado**: ele é uma segunda
-compilação, feita noutra máquina, em outro momento.
+Compilar Go e rodar `npm ci` no servidor consome a RAM que a aplicação — e a
+borda nginx e os outros sites do VPS — está usando. Além disso, build no
+servidor significa que o artefato em produção **nunca foi testado**: ele é uma
+segunda compilação, feita noutra máquina, em outro momento.
 
 ### Por que a tag é o SHA do commit
 
@@ -110,8 +111,8 @@ varrer exatamente o mesmo código de antes. É seguro porque nenhum markdown é
 entrada de build.
 
 Consequência: push só de documentação também não implanta — e está certo, já que
-o deploy sincroniza compose, bloco do Caddy e scripts, nenhum deles markdown.
-Para reimplantar sem commit novo, existe o `workflow_dispatch`.
+o deploy só manda `release <sha>` ao wrapper. Para reimplantar sem commit novo,
+existe o `workflow_dispatch`.
 
 ---
 
@@ -291,9 +292,9 @@ funciona para quem clonar sem configurar nada.
 **O deploy sem segredos não falha, só não faz nada.** `VPS_HOST` vazio marca o
 job como ignorado. O repositório precisa funcionar antes de o VPS existir.
 
-**O `caddy reload` só acontece se o bloco mudou.** O Caddy pertence ao agendaGo:
-recarregá-lo a cada deploy do stacktrack seria mexer, sem necessidade, num
-processo que atende outro serviço em produção.
+**A esteira não toca no proxy.** O bloco `:443` de `stacktrack.caetasousa.tech`
+é do projeto `loadbalancer`. O deploy daqui só sobe os containers na rede
+`borda` — o nginx já os alcança por nome.
 
 ---
 

@@ -1,8 +1,10 @@
 # 🚀 Produção
 
-O stacktrack roda num VPS que **já hospedava o agendaGo**. Não há proxy novo,
-não há IP novo: o Caddy que já estava lá passa a atender os dois domínios, e as
-duas aplicações convivem sem se enxergar.
+O stacktrack roda num VPS cuja **borda é o projeto
+[`loadbalancer`](https://github.com/caetasousa/loadbalancer)** (repo à parte):
+um nginx em container recebe 80/443, termina o TLS (certbot) e roteia por
+domínio. O stacktrack traz os próprios containers para a rede `borda` e é
+alcançado por nome.
 
 Este documento é o roteiro do servidor. A esteira que leva o commit até aqui
 está em [entrega-continua.md](entrega-continua.md).
@@ -12,41 +14,67 @@ está em [entrega-continua.md](entrega-continua.md).
 ## 🏗️ Arquitetura no ar
 
 ```
-                     ┌──────────────── VPS ────────────────┐
-  :80/:443 ─────────►│ Caddy  (na stack do agendaGo)       │
-                     │   agenda.dominio        ─┐          │
-                     │   stacktrack.duckdns.org ┼─┐        │
-                     └──────────────────────────┼─┼────────┘
-                        rede do agendaGo        │ │  rede `borda`
-                     ┌──────────────────┐       │ │  ┌────────────────────────┐
-                     │ agendago api/web │◄──────┘ └─►│ stacktrack-api   :8080 │
-                     │ agendago postgres│            │ stacktrack-web   :3000 │
-                     └──────────────────┘            │ stacktrack postgres    │
-                                                     └────────────────────────┘
+                     ┌──────────────────── VPS ────────────────────┐
+  :80/:443 ─────────►│ nginx  (projeto loadbalancer)  + certbot    │
+                     │   stacktrack.caetasousa.tech ─┐             │
+                     └──────────────────────────────┼─────────────┘
+                                    rede `borda`    │
+                                 ┌──────────────────┼──────────────────┐
+                                 │  ┌───────────────▼────────────────┐  │
+                                 │  │ stacktrack-web   :3000  (/)    │  │
+                                 │  │ stacktrack-api   :8080  (/api) │  │
+                                 │  │ stacktrack postgres           │  │
+                                 │  └───────────────────────────────┘  │
+                                 └─────────────────────────────────────┘
 ```
 
-Dentro de cada domínio, front e API compartilham a origem: o `handle_path` do
-Caddy manda `/api/*` para a API **removendo o prefixo**, e todo o resto para o
-frontend.
+Front e API compartilham a origem: o bloco `:443` do `loadbalancer` manda
+`/api/*` para a API **removendo o prefixo**, e todo o resto para o frontend.
 
 Nenhum serviço do stacktrack publica porta no host. Quem fala com o mundo é o
-Caddy; o Postgres não é alcançável nem pelo vizinho.
+nginx da borda; o Postgres não é alcançável de fora do compose.
 
-Do lado do agendaGo isso já está pronto: o Caddyfile dele importa
-`/etc/caddy/sites/*.caddy`, o container participa da rede `borda`, e o CI dele
-cria essa rede de forma idempotente a cada deploy. O stacktrack só precisa
-depositar o próprio bloco em `/home/deploy/caddy/sites` — o que a esteira faz,
-recarregando o proxy **apenas quando o arquivo muda**.
+A rede `borda` é criada pelo playbook do `loadbalancer`. O stacktrack só precisa
+declará-la `external` no compose e subir nela — o nginx alcança
+`stacktrack-web` e `stacktrack-api` por nome.
+
+### O que o `loadbalancer` roteia para o stacktrack
+
+O bloco `:443` de `stacktrack.caetasousa.tech` vive no `loadbalancer`
+(`nginx/conf.d/stacktrack.conf`, no molde do `app.conf.exemplo`), **não neste
+repositório**. Ele precisa fazer, como o Caddy fazia:
+
+| Rota | Destino | Por quê |
+|---|---|---|
+| `/api/` (barra final remove o prefixo) | `http://stacktrack-api:8080/` | origem única — o frontend chama `/api` relativo (`PUBLIC_API_URL=/api` assado no build), o cookie é `__Host-` e a CSP é `connect-src 'self'` |
+| `/api/ws` | idem, com `Upgrade`/`Connection` e `proxy_read_timeout 3600s` | o WebSocket do quadro é uma requisição que dura horas |
+| `/` | `http://stacktrack-web:3000` | com `X-Forwarded-Proto`/`X-Forwarded-Host` — o `adapter-node` exige |
+
+Mais `client_max_body_size 11m` (10 MiB de anexo + folga multipart; menor
+devolve 413 antes de a API responder), os cabeçalhos de segurança (HSTS,
+`X-Content-Type-Options`, `X-Frame-Options DENY`, `Referrer-Policy no-referrer`,
+`Permissions-Policy`, `Cross-Origin-Opener-Policy`) e `X-Real-IP $remote_addr`
+no `/api/` (é o que faz o `IPReal` e os tetos por IP valerem).
+
+**Se o `loadbalancer` mandar tudo para `stacktrack-web:3000`**, o `/api` cai no
+SvelteKit, o login não completa e o WebSocket não conecta.
+
+**Regressão consciente:** o bloco Caddy redigia do *access log do proxy* os
+tokens de convite e de link público (corridas de 24+ caracteres base64url) e
+removia o `Referer`. O `log_format` do `loadbalancer` registra `$request`
+inteiro. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando; o
+do proxy virou política da borda. O ensaio automatizado disso
+(`test/repository/caddy_log_test.go`) foi removido junto com o bloco Caddy.
 
 ### Por que subdomínio, e não um caminho
 
-`stacktrack.duckdns.org`, e não `dominio-do-agendago/stacktrack`.
+`stacktrack.caetasousa.tech`, e não `caetasousa.tech/stacktrack`.
 
 O cookie de sessão tem `Path=/`, e o navegador o envia em **toda** requisição
-daquele host. Servindo os dois no mesmo domínio, o agendaGo passaria a receber o
-token de sessão de quem entra no stacktrack. Reduzir o `Path` não resolve: o
-prefixo `__Host-` **exige** `Path=/`, e abrir mão dele custaria a garantia de
-que o cookie pertence àquele host exato.
+daquele host. Servindo o stacktrack sob um caminho de outro domínio, o vizinho
+passaria a receber o token de sessão de quem entra aqui. Reduzir o `Path` não
+resolve: o prefixo `__Host-` **exige** `Path=/`, e abrir mão dele custaria a
+garantia de que o cookie pertence àquele host exato.
 
 ### Por que uma origem só, dentro do domínio
 
@@ -65,12 +93,12 @@ O servidor guarda **três arquivos** e nada além:
 
 | Arquivo | Vem de | Contém |
 |---|---|---|
-| `~/stacktrack/docker-compose.prod.yml` | repositório, via CI | a topologia |
+| `~/stacktrack/docker-compose.prod.yml` | repositório, via Ansible | a topologia |
 | `~/stacktrack/.env` | **só existe no host**, escrito pelo Ansible | segredos |
-| `~/stacktrack/scripts/backup.sh` | repositório, via CI | operação |
+| `~/stacktrack/scripts/backup.sh` | repositório, via Ansible | operação |
 
-Mais o bloco de roteamento em `~/caddy/sites/stacktrack.caddy`, que pertence ao
-Caddy.
+O roteamento não está aqui: o bloco `:443` é do `loadbalancer`
+(ver a seção anterior).
 
 As migrations não são exceção a isso: os `.sql` viajam **dentro** da imagem
 `stacktrack-migrations` (ver `backend/Dockerfile.migrations`). Sem ela, o job de
@@ -79,42 +107,39 @@ manter um clone do repositório no VPS — e a mantê-lo em sincronia com a imag
 que está rodando.
 
 ```
-/home/deploy/                 o vizinho, e o que é compartilhado
-├── agendago/                 Caddyfile (dono das portas 80/443), compose, .env
-├── caddy/sites/              um arquivo .caddy por vizinho — o nosso entra aqui
-└── backups/                  os do agendaGo
-
 /home/stacktrack/             a aplicação
 ├── .env                      escrito pelo Ansible a partir do vault
 ├── docker-compose.prod.yml
 ├── scripts/backup.sh
 └── backups/
-```
 
-Cada projeto na sua conta, com uma exceção: o bloco do Caddy continua em
-`/home/deploy/caddy/sites`, porque é esse caminho que o container do proxy do
-agendaGo monta. O usuário `stacktrack` entra no grupo `deploy` só para poder
-escrever esse arquivo.
+/opt/loadbalancer/            a borda (projeto à parte)
+└── nginx/conf.d/stacktrack.conf   o bloco :443 do stacktrack
+```
 
 ---
 
 # 🧭 Roteiro do primeiro deploy
 
-## 1️⃣ DNS
+## 1️⃣ DNS e certificado
 
-Um registro apontando `stacktrack.duckdns.org` para o IP do VPS — o mesmo IP do
-agendaGo. O Caddy separa por `server_name`.
+Um registro `A` apontando `stacktrack.caetasousa.tech` para `2.25.101.3` (o IP
+do VPS). O nginx do `loadbalancer` separa por `server_name`.
 
-**O DNS precisa resolver ANTES de subir a stack.** O Caddy só consegue o
-certificado depois disso, e sem certificado o login não completa:
-`APP_ENV=production` liga o `Secure` no cookie, o navegador o descarta, e o
-sintoma é "entra e volta para a tela de login", sem erro visível em lugar nenhum.
+**O DNS precisa resolver ANTES do certificado.** A emissão do primeiro
+certificado de cada domínio é um passo manual do `loadbalancer`
+(`ansible-playbook deploy.yml -e 'acme_domains=["stacktrack.caetasousa.tech"]'`);
+sem certificado o `nginx -t` recusa o bloco `:443`, e sem HTTPS o login não
+completa — `APP_ENV=production` liga o `Secure` no cookie, o navegador o
+descarta, e o sintoma é "entra e volta para a tela de login", sem erro visível.
+
+A renovação é automática (container `certbot` + cron da borda).
 
 ## 2️⃣ Configurar o deploy no GitHub
 
-Primeiro, a chave — **exclusiva do stacktrack**, não a do agendaGo. Uma chave
-que abre os dois projetos faz o comprometimento de um ser o comprometimento do
-outro:
+Primeiro, a chave — **exclusiva do stacktrack**, não a de outro projeto do VPS.
+Uma chave que abre dois projetos faz o comprometimento de um ser o
+comprometimento do outro:
 
 ```bash
 ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy
@@ -136,7 +161,7 @@ que não declara environment nenhum, não os alcança.
 | Secret | `VPS_USER` | `stacktrack` |
 | Secret | `VPS_SSH_KEY` | chave **privada** exclusiva da esteira |
 | Secret | `VPS_KNOWN_HOSTS` | saída de `ssh-keyscan -H <ip>` |
-| Variable | `DOMINIO` | `stacktrack.duckdns.org` (aba Variables, no repositório) |
+| Variable | `DOMINIO` | `stacktrack.caetasousa.tech` (aba Variables, no repositório) |
 
 E em **Settings → Branches**, proteja a `main` exigindo os checks da esteira
 (`backend`, `frontend`, `e2e`, `infra`, `seguranca-*`).
@@ -169,7 +194,7 @@ e roda no CI.
 ## 3️⃣ Provisionar o servidor
 
 **Este passo deixou de ser manual.** O `.env`, os diretórios, o compose, o
-`backup.sh`, o cron e o bloco do Caddy saem todos de um playbook Ansible:
+`backup.sh`, o cron e os papéis do banco saem todos de um playbook Ansible:
 
 ```bash
 make infra-segredos    # UMA vez: gera e cifra a senha do banco
@@ -177,12 +202,12 @@ make infra-check       # mostra o que mudaria, sem tocar em nada
 make infra-apply       # aplica
 ```
 
-Antes desses, o que exige privilégio no host: `make infra-preparar` — Docker,
-os dois usuários, o wrapper da esteira e o hardening. Ele entra como `deploy` e
-sobe por `sudo`, pedindo a senha na hora; o hardening pode ficar para depois com
-`ARGS="--skip-tags hardening"`, já que é a única parte que alcança o host
-inteiro, dividido com o agendaGo. O procedimento completo, os segredos e como
-recomeçar do zero estão em [infraestrutura.md](infraestrutura.md).
+Antes disso o host precisa existir — Docker, rede `borda`, firewall, hardening e
+TLS são do projeto `loadbalancer` (rode o `site.yml` dele). E `make
+infra-preparar`, que cria o usuário `stacktrack`, o `sudoers` restrito, as
+chaves e o wrapper `stacktrack-release` (pede a senha do sudo). O procedimento
+completo, os segredos e como recomeçar do zero estão em
+[infraestrutura.md](infraestrutura.md).
 
 O que continua valendo, e que o playbook não dispensa você de saber:
 
@@ -255,10 +280,11 @@ vez — antes disso os pacotes não existem.
 git push
 ```
 
-A esteira testa, varre, publica as três imagens e implanta: sincroniza o
-compose e o `backup.sh`, instala o bloco do Caddy e o recarrega, tira um backup,
-garante a rede, sobe a stack fixando a tag no SHA do commit, confere o cron e
-confere se `/api/health` e `/` respondem.
+A esteira testa, varre, publica as três imagens e implanta: manda
+`release <sha>` ao wrapper, que tira um backup, faz `pull`, para web e api, sobe
+a stack fixando a tag no SHA do commit, e confere se `/api/health` e `/`
+respondem. O compose e o `backup.sh` são do playbook — o passo `estado` do
+deploy falha se o que está no servidor divergir do commit.
 
 **A ordem entre 4️⃣ e 5️⃣ tem um nó**: o `docker login` precisa das imagens
 publicadas, e as imagens só existem depois do primeiro push. Se os pacotes
@@ -280,11 +306,12 @@ cd ~/stacktrack
 docker compose -f docker-compose.prod.yml ps      # api só fica healthy se enxergar o banco
 docker compose -f docker-compose.prod.yml logs flyway   # quantas migrations aplicou
 
-# o certificado é do domínio certo e não expirou
-curl -sI https://stacktrack.duckdns.org | head -1
+# o certificado é do domínio certo e não expirou, e /api vai para a API
+curl -sI https://stacktrack.caetasousa.tech | head -1
+curl -fsS https://stacktrack.caetasousa.tech/api/health
 
-# o agendaGo continua no ar (o Caddy dele foi recarregado)
-curl -sI https://<dominio-do-agendago> | head -1
+# os outros sites da borda continuam no ar (o nginx só recarregou)
+curl -sI https://<outro-dominio-da-borda> | head -1
 ```
 
 E o teste que vale mais que todos: **criar uma conta, entrar, montar um quadro e
@@ -317,12 +344,11 @@ docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-**A esteira não copia mais arquivo nenhum.** O compose, o `backup.sh` e o bloco
-do Caddy são instalados pelo Ansible — havia duas fontes escrevendo os mesmos
-caminhos, e ganhava a última que rodasse. Em troca, mudança nesses arquivos só
-chega ao servidor com `make infra-apply`: o job de deploy compara o sha256 dos
-três com os do commit e **falha** quando divergem, em vez de subir uma versão
-nova do código com a configuração velha.
+**A esteira não copia arquivo nenhum.** O compose e o `backup.sh` são instalados
+pelo Ansible; o roteamento é do `loadbalancer`. Em troca, mudança no compose ou
+no `backup.sh` só chega ao servidor com `make infra-apply`: o job de deploy
+compara o sha256 dos dois com os do commit e **falha** quando divergem, em vez
+de subir uma versão nova do código com a configuração velha.
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas
@@ -354,11 +380,9 @@ no mesmo deploy que estreia a coluna transforma o rollback num erro no primeiro
 
 ## Backup
 
-`scripts/backup.sh` roda por cron às 03:20 — deslocado do agendaGo (03:00)
-porque dois `pg_dump` no mesmo minuto disputam CPU e disco sem necessidade. A
-O agendamento é feito pelo Ansible (`make infra-apply`), com
-`ansible.builtin.cron`, que gerencia só o bloco marcado e preserva a linha do
-vizinho. A esteira apenas CONFERE que ele existe, e falha se não existir —
+`scripts/backup.sh` roda por cron às 03:20. O agendamento é feito pelo Ansible
+(`make infra-apply`), com `ansible.builtin.cron`, que gerencia só o bloco
+marcado. A esteira apenas CONFERE que ele existe, e falha se não existir —
 escrever dos dois lados fazia os dois brigarem pelo mesmo arquivo.
 
 Ele grava dois artefatos em `~/backups`:
@@ -438,7 +462,8 @@ docker run --rm --network borda alpine:3.21 wget -qO- http://stacktrack-api:8080
 ```
 
 Os logs rotacionam em 10 MB × 3 arquivos por serviço. Sem isso, um log de acesso
-enche o disco do VPS e derruba tudo junto — **inclusive o agendaGo**.
+enche o disco do VPS e derruba tudo junto — **inclusive a borda nginx e os
+outros sites dela**.
 
 ---
 
@@ -503,8 +528,8 @@ Os `mem_limit` desta stack somam ~1,15 GB:
 | api | 384m | Argon2id usa ~19 MiB por hash simultâneo |
 | web | 256m | servidor Node do adapter-node |
 
-E o agendaGo tem os seus, mais o Caddy. `free -h` antes de subir. O sintoma de
-estourar é a API morrendo por OOM em rajada de login.
+A borda nginx e os outros sites do VPS têm os seus. `free -h` antes de subir. O
+sintoma de estourar é a API morrendo por OOM em rajada de login.
 
 ## Contenção dos containers
 
@@ -518,25 +543,27 @@ mantém as cinco capabilities mínimas para essa troca.
 
 ## ✅ Checklist de go-live
 
-- [ ] DNS resolvendo para o IP do VPS
-- [ ] agendaGo publicado com o Caddyfile que importa `sites/*.caddy`
-- [ ] **console do provedor testado** — o hardening desliga a senha do SSH, e o
-      console é o único caminho de volta se algo der errado
+- [ ] `A stacktrack.caetasousa.tech` resolvendo para `2.25.101.3`
+- [ ] host provisionado pelo projeto `loadbalancer` (Docker, rede `borda`,
+      firewall, borda nginx no ar)
+- [ ] certificado de `stacktrack.caetasousa.tech` emitido pelo `loadbalancer`
+      (`deploy.yml -e 'acme_domains=[...]'`)
 - [ ] chave exclusiva da esteira gerada, pública em `vars.yml` e privada no
       secret `VPS_SSH_KEY`
 - [ ] environment `production` criado, com os segredos `VPS_*` dentro dele
 - [ ] `main` protegida com os checks da esteira (incluindo `infra`)
-- [ ] `make infra-preparar` verde (usuário da esteira, wrapper, firewall, SSH)
+- [ ] `make infra-preparar` verde (usuário de deploy, wrapper, chaves)
 - [ ] variável `DOMINIO` no repositório
 - [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`)
 - [ ] imagens acessíveis ao servidor (públicas ou `docker login` feito)
 - [ ] esteira verde até o job `implantar`
-- [ ] certificado emitido (`https://` abre sem aviso)
+- [ ] bloco `stacktrack.conf` no `loadbalancer` roteando `/api` → `stacktrack-api`
+      e `/` → `stacktrack-web` (`https://` abre sem aviso e `/api/health` responde)
 - [ ] cadastro → login → criar quadro → F5
-- [ ] **o agendaGo continua no ar** depois do reload do Caddy
+- [ ] **os outros sites da borda continuam no ar** depois do reload do nginx
 - [ ] papel de runtime do banco criado (`stacktrack_app`) e a API conectando com ele
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
-- [ ] `free -h` com folga sobre a soma dos limites das duas stacks
+- [ ] `free -h` com folga sobre a soma dos limites das stacks do VPS
 
 ### Antes do próximo deploy: o contract da ordenação
 
@@ -569,6 +596,11 @@ Os comandos e o SQL da conferência estão em
 
 **TLS não é o último passo.** Sem HTTPS válido, o cookie `Secure` é descartado e
 o login falha em silêncio.
+
+**O `/api` tem que ir para a API.** O bloco `:443` do `loadbalancer` precisa
+rotear `/api/*` para `stacktrack-api:8080` (prefixo removido) e o resto para
+`stacktrack-web:3000`. Um bloco que mande tudo para o front deixa `/` no ar mas
+quebra login e WebSocket. Ver "O que o `loadbalancer` roteia para o stacktrack".
 
 **Rollback não desfaz migration.** Flyway é forward-only. Toda migration que
 aperta (`SET NOT NULL`, `DROP COLUMN`, `RENAME`, `UNIQUE` novo) exige dois

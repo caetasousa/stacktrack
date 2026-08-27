@@ -73,29 +73,29 @@ coluna nova obrigatória, coluna removida e coluna apertada.
 
 **Nada é configurado à mão no VPS. Se não está no playbook, não existe.**
 
-O servidor é descrito em `deploy/ansible/` — usuário, Docker, diretórios,
-`.env`, compose, cron do backup e o bloco do Caddy. Um comando dado por SSH que
-não tenha uma task equivalente é deriva: ele funciona hoje e desaparece no
-próximo servidor. Ao resolver algo no host, a correção vai para a role, e o
-`make infra-apply` é quem aplica.
+A **borda** do VPS é o projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer)
+(repo à parte): um nginx em container recebe 80/443, termina o TLS (certbot) e
+roteia por domínio. Esse repo é **dono do host** — Docker, rede `borda`,
+firewall, hardening de SSH, e o bloco `:443` de `stacktrack.caetasousa.tech`
+(com o split `/api` → API). O stacktrack **não guarda nada de nginx**: os
+containers sobem na rede `borda` e o proxy os alcança por nome.
 
-O VPS é dividido com o **agendaGo**, e a fronteira é regra, não cuidado:
+O que `deploy/ansible/` descreve é só **a aplicação** — o usuário de deploy,
+diretórios, `.env`, compose, cron do backup, papéis do banco. Um comando dado
+por SSH que não tenha uma task equivalente é deriva: ele funciona hoje e
+desaparece no próximo servidor. Ao resolver algo, a correção vai para a role, e
+o `make infra-apply` é quem aplica.
 
-- nunca editar o `Caddyfile` do vizinho — só depositar em `~/caddy/sites/`
+- nunca escrever configuração de nginx daqui — o roteamento é do `loadbalancer`
 - nunca reescrever o crontab inteiro — `ansible.builtin.cron` com `name:`
   gerencia só o bloco marcado
-- nunca remover a rede `borda` nem `~/backups`, que são comuns aos dois
-- nunca atualizar o Docker por tabela: `apt upgrade` do `docker-ce` reinicia o
-  daemon e derruba os containers do agendaGo junto — os pacotes ficam em
-  `apt-mark hold`, e atualizar exige a tag `docker-upgrade`
-- nunca fechar porta sem saber de quem ela é: a role `hardening` recusa subir o
-  firewall quando encontra algo escutando fora da lista
+- nunca remover a rede `borda`, que é compartilhada com o `loadbalancer`
 
-**A esteira não escreve arquivo no servidor.** Compose, `backup.sh` e bloco do
-Caddy são instalados pelo playbook; o job de deploy só manda `release <sha>` a um
-comando forçado (`/usr/local/bin/stacktrack-release`) e falha quando o sha256 do
-que está no servidor não bate com o do commit. Acrescentar um `scp` ao CI é
-recriar a segunda fonte da verdade que essa divisão desfez.
+**A esteira não escreve arquivo no servidor.** Compose e `backup.sh` são
+instalados pelo playbook; o job de deploy só manda `release <sha>` a um comando
+forçado (`/usr/local/bin/stacktrack-release`) e falha quando o sha256 do que
+está no servidor não bate com o do commit. Acrescentar um `scp` ao CI é recriar
+a segunda fonte da verdade que essa divisão desfez.
 
 Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
 `POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:

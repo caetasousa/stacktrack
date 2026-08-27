@@ -31,7 +31,8 @@ A base tecnológica reaproveitou decisões que já eram conhecidas:
 - arquitetura hexagonal;
 - SvelteKit, Svelte 5 e TypeScript;
 - Docker Compose em desenvolvimento e produção;
-- Caddy como proxy e terminador TLS;
+- Caddy como proxy e terminador TLS (depois substituído pela borda nginx do
+  projeto `loadbalancer` — ver [producao.md](producao.md));
 - GitHub Actions e, posteriormente, Ansible.
 
 O produto cresceu até permitir que várias pessoas trabalhassem no mesmo quadro,
@@ -124,7 +125,7 @@ manual das rotas.
 
 - Frontend e API compartilham a mesma origem pública.
 - O cookie de produção usa o prefixo `__Host-`.
-- O Caddy já existente no VPS continua sendo o único proxy externo.
+- A borda do VPS é o único proxy externo (hoje o nginx do projeto `loadbalancer`).
 - O host recebe imagens prontas; nunca compila o projeto.
 - PostgreSQL e anexos permanecem em volumes locais enquanto o perfil suportado
   for uma única instância.
@@ -211,10 +212,15 @@ O primeiro ganho do Ansible foi tornar `.env`, diretórios, cron, backup e bloco
 do Caddy reproduzíveis. O critério que permaneceu foi executar novamente e
 obter `changed=0`.
 
-O material detalhado sobre o modelo sem agente, vault, handlers, check mode e a
-fronteira com o agendaGo já está em
+O material detalhado sobre o modelo sem agente, vault, check mode e a fronteira
+com a borda nginx já está em
 [tecnologias.md](tecnologias.md#ansible--a-infraestrutura-por-dentro). A operação
 fica em [infraestrutura.md](infraestrutura.md).
+
+> **Nota (agosto de 2026):** a borda deixou de ser o Caddy compartilhado com o
+> agendaGo e passou a ser o projeto `loadbalancer` (nginx + certbot, dono do
+> host). O `deploy/ansible/` do stacktrack descreve só a aplicação. Detalhes em
+> [producao.md](producao.md).
 
 ---
 

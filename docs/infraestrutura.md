@@ -1,12 +1,18 @@
 # 🧱 Infraestrutura como código
 
-O servidor descrito em Ansible, em `deploy/ansible/`. O que antes era um roteiro
-de comandos para copiar à mão em `producao.md` agora é um playbook que se pode
-rodar quantas vezes quiser.
+A **aplicação** descrita em Ansible, em `deploy/ansible/`. O que antes era um
+roteiro de comandos para copiar à mão em `producao.md` agora é um playbook que
+se pode rodar quantas vezes quiser.
+
+O **host** — Docker, rede `borda`, firewall, hardening de SSH e a borda nginx
+que termina o TLS — é do projeto
+[`loadbalancer`](https://github.com/caetasousa/loadbalancer), repo à parte. Este
+repositório pressupõe esse host provisionado e descreve só o que roda em cima:
+o usuário de deploy, o `.env`, o compose, o backup, o cron e os papéis do banco.
 
 A esteira que leva o commit até o ar continua sendo o GitHub Actions
-([entrega-continua.md](entrega-continua.md)); o Ansible cuida do **servidor**,
-não da versão que roda nele.
+([entrega-continua.md](entrega-continua.md)); o Ansible cuida da máquina, não da
+versão que roda nela.
 
 Este documento é **operacional** — como rodar, o que fazer quando dá errado. Se
 o que você quer é entender *como o Ansible funciona* (o modelo sem agente, o que
@@ -30,108 +36,56 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | quando o que é do **host** muda | `stacktrack` + `sudo` | Docker, rede `borda`, os usuários, acesso da esteira, hardening |
-| `provisionar.yml` | sempre que quiser | `deploy`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, bloco do Caddy, papéis do banco, stack no ar |
+| `preparar-host.yml` | quando a **identidade de deploy** muda | `stacktrack` + `sudo` | o usuário `stacktrack`, o `sudoers` restrito, a chave do operador, a chave da esteira, o wrapper `stacktrack-release` |
+| `provisionar.yml` | sempre que quiser | `stacktrack`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, papéis do banco, stack na `borda` |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
-tudo mora no home do `deploy` e o acesso ao Docker vem do grupo. Só o outro
+tudo mora no home do `stacktrack` e o acesso ao Docker vem do grupo. Só o outro
 exige privilégio — e é justamente o que o CI não consegue fazer, nem deve: a
 chave da esteira está presa a um comando forçado que executa três verbos de
 release.
 
-O `preparar-host.yml` entra como `deploy` e sobe por `sudo`, em vez de logar
-como root. Não é preferência: `PermitRootLogin no` é uma das coisas que ele
-aplica, e um playbook que só soubesse entrar como root deixaria de rodar depois
-da primeira vez que rodasse. Numa máquina NOVA, ou numa em que `deploy` ainda
-não consiga elevar, o caminho é `-u root` — ali o `become` é um no-op:
+O `preparar-host.yml` entra como `stacktrack` e sobe por `sudo`, em vez de logar
+como root: o `loadbalancer` aplica `PermitRootLogin no`, e um playbook que só
+soubesse entrar como root deixaria de rodar. Numa máquina em que `stacktrack`
+ainda não consiga elevar, entre por outra conta com sudo:
 
 ```bash
-sudo apt install sshpass          # o --ask-pass depende dele
 cd deploy/ansible
-ansible-playbook preparar-host.yml -e ansible_user=root --ask-pass --diff --skip-tags hardening
+ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass --diff
 ```
 
-`-e ansible_user=root`, e não `-u root`: o `-u` troca só o usuário da conexão e
-deixa a variável valendo `deploy`, o que mantém o `become` ligado — o Ansible
-faria `sudo` de root para root e pediria uma senha que a conta de serviço não
-tem. O `-e` tem a precedência mais alta e resolve os dois de uma vez.
+`-e ansible_user=...`, e não `-u ...`: o `-u` troca só o usuário da conexão e
+deixa a variável valendo `stacktrack`, o que mantém o `become` pedindo a senha
+da conta errada. O `-e` tem a precedência mais alta e resolve os dois de uma vez.
 
-**Por que o sudo do `deploy` é sem senha.** A conta nasce com a senha bloqueada
-(`passwd -S` responde `L`), que é o certo para conta de serviço — senha de conta
-de serviço é senha que alguém guarda num arquivo. Sem senha, `sudo` com senha
-nunca funciona, e o playbook ficaria preso ao root para sempre.
+**Por que o sudo do `stacktrack` é sem senha.** A conta nasce com a senha
+bloqueada (`passwd -S` responde `L`), que é o certo para conta de serviço —
+senha de conta de serviço é senha que alguém guarda num arquivo. Sem senha,
+`sudo` com senha nunca funciona, e o playbook ficaria preso ao root para sempre.
 
-E não é privilégio novo: `deploy` está no grupo `docker`, o que nesta máquina já
-equivale a root (`docker run -v /:/host` monta o disco inteiro). O sudoers só
-torna explícito o que o grupo concede. O usuário da **esteira** é outro assunto:
-o sudo dele é restrito a um arquivo, e é ali que o privilégio mínimo importa.
+E não é privilégio novo: `stacktrack` está no grupo `docker`, o que nesta
+máquina já equivale a root (`docker run -v /:/host` monta o disco inteiro). O
+sudoers só torna explícito o que o grupo concede. O usuário da **esteira** é
+outro assunto: o acesso dele é restrito a um arquivo, e é ali que o privilégio
+mínimo importa.
 
-O `preparar-host.yml` deixou de ser "dia zero". Ele é quem mantém o usuário da
-esteira, o wrapper, o `sudo` restrito e o hardening do host, então volta a rodar
-quando qualquer um desses muda. Rodá-lo duas vezes seguidas deve terminar em
-`changed=0` — que é a prova de que ele descreve a máquina, em vez de só saber
-construí-la.
+Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — que
+é a prova de que ele descreve a máquina, em vez de só saber construí-la.
 
-### ⚠️ Ele aperta o caminho de conserto
-
-O hardening desliga a senha do SSH e sobe o firewall. As duas coisas cortam a
-via por onde se conserta um erro delas, então a role recusa aplicar em vez de
-trancar a porta:
-
-- **SSH** — só desliga a senha depois de conferir que `deploy` tem pelo menos
-  uma chave em `authorized_keys`. A configuração vai num drop-in em
-  `/etc/ssh/sshd_config.d/`, validada por `sshd -t` antes de existir, e o
-  handler faz `reload` (não `restart`), que não derruba a sessão em uso.
-- **firewall** — antes de habilitar, lista o que escuta em endereço público e
-  **falha** se encontrar porta fora de `ufw_portas`. É assim que "conferir o que
-  o agendaGo expõe" deixou de ser um item de checklist e virou uma falha de
-  playbook, com a lista de portas na mensagem.
-
-Ainda assim: tenha o console do provedor testado antes de rodar.
-
-E note o alcance. O hardening é a única parte do repositório que mexe no HOST
-INTEIRO — SSH, firewall e atualização automática valem para o agendaGo também,
-não só para o stacktrack. Por isso ele tem tag própria e pode ficar para depois:
-
-```bash
-# tudo menos o hardening
-make infra-preparar ARGS="--skip-tags hardening"
-# só ele, quando for a hora
-make infra-preparar ARGS="--tags hardening"
-```
-
-O que ele NÃO faz continua valendo: não abre o `Caddyfile` do vizinho, não
-reescreve o crontab, não remove a rede `borda` nem `~/backups`. E o `apt-mark
-hold` do Docker protege os dois — é o que impede um `apt upgrade` de reiniciar o
-daemon e derrubar os containers do agendaGo junto.
-
-### 🏠 Uma casa por projeto
-
-O VPS é dividido, e até a A5 os dois projetos moravam na mesma conta:
-`/home/deploy` tinha `agendago/`, `stacktrack/`, `caddy/` e `backups/`
-misturados. A fronteira existia na documentação e em nenhum `ls`.
-
-Agora:
+### 🏠 A casa do stacktrack
 
 ```
-/home/deploy/       agendago/ · caddy/        ← o vizinho e o compartilhado
 /home/stacktrack/   .env · docker-compose.prod.yml · scripts/ · backups/
+/opt/loadbalancer/  a borda (projeto à parte) — nginx/conf.d/stacktrack.conf
 ```
 
-**A exceção, e por que ela existe.** O bloco de site continua sendo escrito em
-`/home/deploy/caddy/sites/stacktrack.caddy`, porque é esse caminho que o
-container do Caddy do agendaGo monta em `/etc/caddy/sites`. Mudá-lo exigiria
-editar o compose do vizinho, o que o `CLAUDE.md` proíbe. O acesso sai do grupo:
-o usuário `stacktrack` entra no grupo `deploy` e o diretório é `0775`. Uma troca
-futura do proxy desfaz essa amarra.
+O bloco `:443` de `stacktrack.caetasousa.tech` não é escrito daqui: ele vive no
+`loadbalancer` (`nginx/conf.d/stacktrack.conf`), que roteia `/api` para a API e
+o resto para o front. O contrato desse bloco está em
+[producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
-### 🔑 Duas contas, e uma chave que não vale o que a conta vale
-
-| | `deploy` | `stacktrack` |
-|---|---|---|
-| De quem é | do agendaGo | do stacktrack |
-| Dono de | `agendago/`, `caddy/` | a stack, os scripts, os backups |
-| Grupo `docker` | sim | sim |
+### 🔑 Uma conta, e uma chave que não vale o que a conta vale
 
 A esteira **não tem conta própria**: ela entra no `stacktrack`, e o que a limita
 é a chave, não o usuário.
@@ -146,11 +100,12 @@ authorized_keys do stacktrack
 o pedido vai para `SSH_ORIGINAL_COMMAND`, como dado. `restrict` desliga PTY,
 encaminhamento de porta, de agente e X11.
 
-**O que se abriu mão, para não haver duas contas.** Se um dia essa linha perder
-as opções, a chave da esteira passa a dar shell numa conta do grupo `docker` —
-que nesta máquina é root. Uma conta separada faria o mesmo erro terminar num
-shell sem poder nenhum: falharia fechado, e esta escolha falha aberta. A
-mitigação é o `authorized_keys` ser escrito pelo playbook, e não à mão.
+**O que se abriu mão, para não haver conta separada.** Se um dia essa linha
+perder as opções, a chave da esteira passa a dar shell numa conta do grupo
+`docker` — que nesta máquina é root. Uma conta separada faria o mesmo erro
+terminar num shell sem poder nenhum: falharia fechado, e esta escolha falha
+aberta. A mitigação é o `authorized_keys` ser escrito pelo playbook, e não à
+mão.
 
 O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
 `release <sha>`, `backup` e `estado`, e recusa o resto. Ele lê
@@ -232,18 +187,17 @@ atualizado, nessa ordem.
 
 ---
 
-## 🤝 A fronteira com o agendaGo
+## 🤝 A fronteira com o `loadbalancer`
 
-O VPS é compartilhado, e o playbook nunca escreve fora do que é dele:
+O VPS é compartilhado com a borda nginx e com os outros sites dela. O playbook
+do stacktrack nunca escreve fora do que é dele:
 
 | | Como |
 |---|---|
-| **Caddy** | deposita em `~/caddy/sites/stacktrack.caddy`; nunca abre o `Caddyfile` do vizinho, que é dono das portas 80/443 |
-| **crontab** | `ansible.builtin.cron` com `name:` gerencia só o bloco marcado — a linha do agendaGo fica intacta, por desenho e não por sorte |
-| **rede `borda`** | garantida se faltar, **nunca** removida |
-| **Docker** | instalado só quando falta e **travado com `apt-mark hold`**: `apt upgrade` do `docker-ce` reinicia o daemon e derruba os containers do vizinho junto. Atualizar exige a tag `docker-upgrade`, que destrava, atualiza e trava de novo |
-| **`unattended-upgrades`** | só o repositório de segurança, sem reboot automático, com os pacotes do Docker na lista negra |
-| **`~/backups`** | comum aos dois; a separação é o prefixo do nome do arquivo |
+| **nginx / roteamento** | o bloco `:443` é do `loadbalancer` (`nginx/conf.d/stacktrack.conf`); este repo não escreve config de nginx |
+| **crontab** | `ansible.builtin.cron` com `name:` gerencia só o bloco marcado — as outras linhas ficam intactas, por desenho e não por sorte |
+| **rede `borda`** | criada pelo `loadbalancer`; o compose só a declara `external`, **nunca** a remove |
+| **Docker / firewall / hardening** | do `loadbalancer` — este repo pressupõe tudo isso pronto |
 
 O crontab tem **um dono só**: o Ansible. A esteira apenas confere que a entrada
 existe e falha se não existir. Enquanto os dois escreviam, brigavam: o
@@ -251,49 +205,6 @@ existe e falha se não existir. Enquanto os dois escreviam, brigavam: o
 remover o comentário `#Ansible:`, o marcador ficava órfão, e o `infra-check`
 seguinte acusava `changed` — reescrevia, e o deploy seguinte reescrevia de
 volta. Um `changed=0` que nunca estabiliza não prova nada.
-
-A variável `BACKUP_CRON` do GitHub deixou de ser lida; o horário agora sai de
-`backup_hora` e `backup_minuto` em `group_vars/producao/vars.yml`.
-
----
-
-## 🚚 Migrar o stacktrack para a casa dele
-
-Procedimento de UMA vez, para o servidor que ainda tem tudo em `/home/deploy`.
-O que torna isto barato é o `name: stacktrack` declarado no
-`docker-compose.prod.yml`: o nome do projeto **não** vem do diretório, então
-mover a pasta não órfã container nem volume.
-
-```bash
-# 1. Cria o usuário novo. Entra pela conta ANTIGA, que ainda é a do inventário
-#    velho — a nova ainda não existe.
-cd deploy/ansible
-ansible-playbook preparar-host.yml -e ansible_user=deploy --diff
-
-# 2. Escreve a stack na casa nova e sobe. Os containers são readotados pelo
-#    nome do projeto; os volumes (stacktrack_postgres_data, stacktrack_anexos)
-#    seguem os mesmos.
-cd ../.. && make infra-apply
-
-# 3. Leva os backups antigos junto (os do agendaGo ficam).
-#    `-i`: a chave do operador não é a padrão do ssh, e sem ela o servidor recusa.
-ssh -i ~/.ssh/agendago_deploy deploy@<host> "sudo mv /home/deploy/backups/stacktrack-* /home/stacktrack/backups/ && sudo chown stacktrack:stacktrack /home/stacktrack/backups/*"
-
-# 4. Confere ANTES de apagar qualquer coisa.
-curl -fsS https://<dominio>/api/health && echo OK
-ssh -i ~/.ssh/stacktrack_deploy stacktrack@<host> 'stacktrack-release estado'
-
-# 5. Só então: remove a pasta antiga e a conta antiga da esteira.
-ssh -i ~/.ssh/agendago_deploy deploy@<host> \
-  'sudo rm -rf /home/deploy/stacktrack && sudo userdel -r stacktrack-esteira \
-   && sudo rm -f /etc/sudoers.d/stacktrack-esteira'
-```
-
-O cron antigo, no crontab do `deploy`, é removido pelo próprio playbook — o
-passo 2 já cuida disso. Sem essa remoção o backup rodaria duas vezes por noite,
-e a cópia velha falharia em silêncio contra um caminho que não existe mais.
-
-E, no GitHub: `VPS_USER` passa a ser `stacktrack`.
 
 ---
 
@@ -308,21 +219,18 @@ sobrevivem. A stack nova subiria com uma senha que não bate com a do `initdb`.
 cd /home/stacktrack
 docker compose -f docker-compose.prod.yml down -v   # o -v é o que apaga os volumes
 sudo rm -rf /home/stacktrack
-rm -f  /home/deploy/caddy/sites/stacktrack.caddy    # a exceção, no home do vizinho
 crontab -u stacktrack -l | grep -v stacktrack | crontab -u stacktrack -
-docker exec $(docker ps --filter label=com.docker.compose.service=caddy -q | head -1) \
-  caddy reload --config /etc/caddy/Caddyfile
 ```
 
 ⚠️ **Isto apaga contas, quadros, comentários e anexos.** Tire um backup antes
 (`~/stacktrack/scripts/backup.sh`) e leve o arquivo para fora do VPS — a cópia
 remota ainda não existe, ver [producao.md](producao.md).
 
-Três comandos que parecem faxina e derrubam o vizinho:
+Três comandos que parecem faxina e derrubam a borda e os vizinhos:
 
-- `docker network rm borda` — o Caddy do agendaGo perde a rota
-- `docker system prune -a` — apaga as imagens dele junto
-- `rm -rf ~/backups` — é pasta comum aos dois projetos
+- `docker network rm borda` — o nginx da borda perde a rota para todos os apps
+- `docker system prune -a` — apaga as imagens deles junto
+- `rm -rf ~/backups` — pode conter cópias de outros serviços do VPS
 
 Não há alvo de `make` para isto de propósito: um `make infra-destruir` seria um
 footgun morando no repositório para sempre.
@@ -338,8 +246,8 @@ O critério de aceite é a **reconstrução**, e ele não cabe num teste automat
 3. `make infra-apply` **de novo** → `changed=0`
 4. Criar conta, montar um quadro e dar F5 (exercita o cookie `__Host-`, que
    nenhum `curl` alcança)
-5. `curl -sI https://<dominio-do-agendago>` — o vizinho continua no ar
-6. `crontab -u deploy -l` — as **duas** linhas de backup
+5. `curl -sI https://<outro-site-da-borda>` — os vizinhos continuam no ar
+6. `crontab -u stacktrack -l` — a linha do backup do stacktrack
 
 ### O CI valida o playbook — sem a senha do vault
 
@@ -375,10 +283,15 @@ seguem locais, pelo `make infra-check`.
 
 ## 🧭 O que continua fora
 
+- **O host** — Docker, rede `borda`, firewall, hardening, borda nginx e TLS são
+  do projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer).
+- **O bloco `:443`** — vive no `loadbalancer`; o contrato dele está em
+  [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 - **Criar a máquina** — é Terraform, não Ansible.
 - **Fuso do host** — o `date` do servidor continua como o provedor entregou; o
   que depende dele (o cron do backup) imprime os dois no `estado`.
-- **DNS / DuckDNS** — o registro é externo, ver [producao.md](producao.md) §1.
+- **DNS** — o registro `A` de `stacktrack.caetasousa.tech` é externo, ver
+  [producao.md](producao.md) §1.
 - **Cópia de backup para fora do VPS** — pendência antiga, entra junto com a
   chave de escrita no bucket.
 

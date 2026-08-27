@@ -987,22 +987,23 @@ Três consequências que valem entender:
   `.env` já renderizado, não a chave que o decifra.
 - **Sua máquina precisa alcançar o servidor.** Não há daemon esperando conexão;
   é você que empurra. Por isso se chama modelo *push*.
-- **O que a esteira faz é o mesmo.** O runner do GitHub também abre SSH e manda
-  comandos. A diferença é que ela manda shell, e o Ansible manda módulos que
-  sabem dizer se mudaram alguma coisa.
+- **O que a esteira faz é parecido.** O runner do GitHub também abre SSH — mas
+  preso a um comando forçado que só entende quatro verbos. O Ansible manda
+  módulos que sabem dizer se mudaram alguma coisa.
 
 #### 2. Quem conecta como quem, e por quê
 
-| Playbook | Conecta como | Precisa de root? | Quando roda |
+| Playbook | Conecta como | Precisa de sudo? | Quando roda |
 | --- | --- | --- | --- |
-| `preparar-host.yml` | `root` | sim | uma vez por **máquina** |
-| `provisionar.yml` | `deploy` | **não** | sempre que quiser |
+| `preparar-host.yml` | `stacktrack` (ou outra conta com sudo, num host novo) | sim | quando a identidade de deploy muda |
+| `provisionar.yml` | `stacktrack` | **não** | sempre que quiser |
 
 A separação não é organização, é necessidade. `preparar-host.yml` **cria** o
-usuário da aplicação — e um playbook que entra *como* ele não pode criá-lo.
+usuário `stacktrack` — num host onde ele ainda não existe, o playbook entra por
+outra conta com sudo (a `edge` do projeto `loadbalancer`, tipicamente).
 
 É a mesma razão pela qual a esteira nunca vai provisionar um servidor do zero:
-ela faz login com `VPS_USER=deploy`, um usuário que num host novo ainda não
+ela faz login com `VPS_USER=stacktrack`, um usuário que num host novo ainda não
 existe. Não é limitação do Ansible; é ovo e galinha.
 
 Do outro lado, `provisionar.yml` não usa `become` em lugar nenhum. Tudo mora em
@@ -1193,7 +1194,7 @@ restrict,command="/usr/local/bin/stacktrack-release" ssh-ed25519 AAAA... github-
 pediu — o pedido original vai para a variável `SSH_ORIGINAL_COMMAND`, como dado.
 `restrict` desliga PTY, encaminhamento de porta, de agente e X11.
 
-O programa apontado (`roles/acesso_esteira/templates/stacktrack-release.sh.j2`)
+O programa apontado (`roles/usuario_app/templates/stacktrack-release.sh.j2`)
 é quem decide o que aquilo significa, e é por isso que ele lê a linha com
 `read -ra` e nunca com `eval`: com `eval`, um `release; rm -rf /` seria
 obedecido, e o comando forçado não teria servido para nada.
@@ -1209,9 +1210,13 @@ shell com poder de root. Uma conta separada, fora do grupo `docker`, faria o
 mesmo erro terminar em nada — falharia fechado. A mitigação escolhida foi o
 `authorized_keys` ser escrito pelo playbook e nunca à mão.
 
-O que a chave alcança é o conjunto de verbos do wrapper, e
-`scripts/testa-wrapper-de-release.sh` executa o script renderizado contra um
-`docker` de mentira para provar as recusas.
+O que a chave alcança é o conjunto de verbos do wrapper — `sync`, `release`,
+`backup`, `estado`. O `sync` é o único que escreve arquivo (o
+`docker-compose.prod.yml`, pelo stdin) e o passa por uma allowlist antes de
+instalar: imagem do projeto ou Postgres, e nada de `privileged`, namespace do
+host, bind mount ou capability nova. `scripts/testa-wrapper-de-release.sh`
+executa o script renderizado contra um `docker` de mentira e prova as recusas —
+inclusive as da allowlist do `sync`.
 
 📚 [sshd — AUTHORIZED_KEYS FILE FORMAT](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT) · [sudoers](https://www.sudo.ws/docs/man/sudoers.man/)
 

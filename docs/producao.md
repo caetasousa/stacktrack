@@ -185,18 +185,19 @@ responder e entregar a chave de deploy junto.
 
 ### O que a chave da esteira consegue fazer
 
-Nada além de três verbos. Ela está no `authorized_keys` do usuário
+Nada além de quatro verbos. Ela está no `authorized_keys` do usuário
 `stacktrack` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
 não abre shell, não faz `scp`, não encaminha porta nem agente.
 
 A restrição é **da chave**, não da conta: a mesma conta aceita a chave do
-operador sem limite algum e a da esteira limitada a três verbos.
+operador sem limite algum e a da esteira limitada a quatro verbos.
 
 | Verbo | O que faz |
 |---|---|
+| `sync` | recebe o `docker-compose.prod.yml` pelo stdin, valida contra a allowlist (imagem do projeto ou Postgres; sem `privileged`, namespace do host, bind mount ou capability nova) e instala. É o **único** que escreve arquivo |
 | `release <sha>` | pré-voo, backup, `pull`, para web e api, `up -d`, limpa imagens órfãs |
 | `backup` | um backup pontual |
-| `estado` | `compose ps`, o sha256 dos arquivos de configuração, fuso e cron |
+| `estado` | `compose ps`, o sha256 do compose e do `backup.sh`, fuso e cron |
 
 O que limita a esteira é o comando forçado, e só ele: a conta em que a chave
 mora tem Docker, porque é a conta que roda a aplicação. `scripts/testa-wrapper-de-release.sh`
@@ -292,11 +293,10 @@ vez — antes disso os pacotes não existem.
 git push
 ```
 
-A esteira testa, varre, publica as três imagens e implanta: manda
-`release <sha>` ao wrapper, que tira um backup, faz `pull`, para web e api, sobe
-a stack fixando a tag no SHA do commit, e confere se `/api/health` e `/`
-respondem. O compose e o `backup.sh` são do playbook — o passo `estado` do
-deploy falha se o que está no servidor divergir do commit.
+A esteira testa, varre, publica as três imagens e implanta: `sync` do
+`docker-compose.prod.yml`, confere o sha256 do `backup.sh`, e `release <sha>` —
+o wrapper tira um backup, faz `pull`, para web e api, sobe a stack fixando a tag
+no SHA do commit, e confere se `/api/health` e `/` respondem.
 
 **A ordem entre 4️⃣ e 5️⃣ tem um nó**: o `docker login` precisa das imagens
 publicadas, e as imagens só existem depois do primeiro push. Se os pacotes
@@ -356,11 +356,12 @@ docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-**A esteira não copia arquivo nenhum.** O compose e o `backup.sh` são instalados
-pelo Ansible; o roteamento é do `loadbalancer`. Em troca, mudança no compose ou
-no `backup.sh` só chega ao servidor com `make infra-apply`: o job de deploy
-compara o sha256 dos dois com os do commit e **falha** quando divergem, em vez
-de subir uma versão nova do código com a configuração velha.
+**A esteira entrega o `docker-compose.prod.yml` deste commit** (verbo `sync`,
+que valida contra a allowlist antes de instalar) e sobe a stack — mudança no
+compose chega com o `git push`, sem passo manual. O `backup.sh` é outra
+história: o `release` o **executa**, então a esteira não o escreve, só confere
+o sha256 — mudá-lo exige `make infra-apply`, senão o deploy falha apontando
+isso. O `.env` e os papéis do banco continuam só do Ansible/vault.
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas

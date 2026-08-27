@@ -43,8 +43,8 @@ precisa saber qual é.
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
 tudo mora no home do `stacktrack` e o acesso ao Docker vem do grupo. Só o outro
 exige privilégio — e é justamente o que o CI não consegue fazer, nem deve: a
-chave da esteira está presa a um comando forçado que executa três verbos de
-release.
+chave da esteira está presa a um comando forçado que executa quatro verbos
+(`sync`, `release`, `backup`, `estado`).
 
 O `preparar-host.yml` entra como `stacktrack` e sobe por `sudo`, em vez de logar
 como root: o `loadbalancer` aplica `PermitRootLogin no`, e um playbook que só
@@ -94,7 +94,7 @@ A esteira **não tem conta própria**: ela entra no `stacktrack`, e o que a limi
 ```
 authorized_keys do stacktrack
 ├── chave do operador                                    → shell normal
-└── restrict,command="/usr/local/bin/stacktrack-release" → três verbos
+└── restrict,command="/usr/local/bin/stacktrack-release" → quatro verbos
 ```
 
 `command=` faz o sshd executar aquele programa e ignorar o que o cliente pediu;
@@ -108,8 +108,11 @@ terminar num shell sem poder nenhum: falharia fechado, e esta escolha falha
 aberta. A mitigação é o `authorized_keys` ser escrito pelo playbook, e não à
 mão.
 
-O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
-`release <sha>`, `backup` e `estado`, e recusa o resto. Ele lê
+O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende `sync`,
+`release <sha>`, `backup` e `estado`, e recusa o resto. `sync` é o único que
+escreve arquivo — recebe o `docker-compose.prod.yml` pelo stdin e o passa por
+uma allowlist (imagem do projeto ou Postgres; sem `privileged`, namespace do
+host, bind mount ou capability nova) antes de instalar. Ele lê
 `SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é dado,
 não código. `scripts/testa-wrapper-de-release.sh` executa o script renderizado
 contra um `docker` de mentira e exige recusa para shell, encadeamento,

@@ -47,12 +47,12 @@ O job confere que `.senha-vault` não existe no runner antes de validar: sem
 isso, um dia em que a senha vazasse para o ambiente faria o critério passar por
 acidente. Ver [infraestrutura.md](infraestrutura.md).
 
-### O deploy manda três verbos, e não comandos
+### O deploy manda quatro verbos, e não comandos
 
 O job `implantar` não abre shell no servidor. A chave da esteira está no
 `authorized_keys` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
 o que o runner escreve chega em `SSH_ORIGINAL_COMMAND` e o wrapper decide se
-aquilo é `release <sha>`, `backup` ou `estado` — ou nada.
+aquilo é `sync`, `release <sha>`, `backup` ou `estado` — ou nada.
 
 Antes, o job montava linhas de comando no runner e as executava do outro lado.
 Quem tivesse a chave tinha a máquina — que roda a borda Traefik e os outros sites
@@ -60,11 +60,13 @@ do VPS.
 
 Duas consequências que valem conhecer:
 
-- **A esteira não copia arquivo nenhum.** O compose e o `backup.sh` são do
-  Ansible; o roteamento é do `loadbalancer`. Em troca, o passo `estado` compara
-  o sha256 dos dois com os do commit e **falha** quando divergem — deploy de
-  código com configuração velha é justamente o erro silencioso que a divisão de
-  donos poderia ter criado. A instrução na mensagem é `make infra-apply`.
+- **A esteira escreve um arquivo, e só um: o `docker-compose.prod.yml`**, pelo
+  verbo `sync`, que o valida contra uma allowlist (imagem do projeto ou
+  Postgres; sem `privileged`, sem namespace do host, sem bind mount, sem
+  capability nova) antes de instalar. O `.env` e os papéis do banco são do
+  Ansible/vault, e o `backup.sh` — que o `release` **executa** — também: a
+  esteira só confere o sha256 dele e **falha** se divergir do commit, com a
+  instrução `make infra-apply`.
 - **O job declara `environment: production`.** É lá que ficam os segredos do
   VPS, e é o que impede um job de pull request de alcançá-los: quem não declara
   o environment não enxerga os segredos dele.
@@ -111,8 +113,8 @@ varrer exatamente o mesmo código de antes. É seguro porque nenhum markdown é
 entrada de build.
 
 Consequência: push só de documentação também não implanta — e está certo, já que
-o deploy só manda `release <sha>` ao wrapper. Para reimplantar sem commit novo,
-existe o `workflow_dispatch`.
+o deploy só faz `sync` + `release <sha>` (o compose e o código não mudaram).
+Para reimplantar sem commit novo, existe o `workflow_dispatch`.
 
 ---
 

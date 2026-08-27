@@ -92,11 +92,15 @@ o `make infra-apply` é quem aplica.
   gerencia só o bloco marcado
 - nunca remover a rede `borda`, que é compartilhada com o `loadbalancer`
 
-**A esteira não escreve arquivo no servidor.** Compose e `backup.sh` são
-instalados pelo playbook; o job de deploy só manda `release <sha>` a um comando
-forçado (`/usr/local/bin/stacktrack-release`) e falha quando o sha256 do que
-está no servidor não bate com o do commit. Acrescentar um `scp` ao CI é recriar
-a segunda fonte da verdade que essa divisão desfez.
+**A esteira escreve um arquivo no servidor: o `docker-compose.prod.yml`**, e
+só ele, pelo verbo `sync` do comando forçado (`/usr/local/bin/stacktrack-release`).
+O `sync` valida o compose contra uma allowlist (imagem do projeto ou Postgres;
+sem `privileged`, sem namespace do host, sem bind mount, sem capability fora das
+cinco do Postgres) antes de instalar — uma chave da esteira roubada não escapa
+dela. O `.env`, o `backup.sh` (que o `release` executa) e os papéis do banco
+continuam vindo **só do Ansible/vault**; o `backup.sh` do servidor é conferido
+por sha256 e o deploy falha se divergir do commit. Nunca dar `scp` livre nem a
+senha do vault ao CI.
 
 Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
 `POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:

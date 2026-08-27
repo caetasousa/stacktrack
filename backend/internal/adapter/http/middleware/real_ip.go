@@ -16,14 +16,14 @@ var cabecalhosDeIPDeCliente = []string{"X-Real-IP", "X-Forwarded-For"}
 // confiança.
 //
 // A versão anterior confiava em X-Real-IP incondicionalmente. O raciocínio era
-// "em produção só o Caddy fala com a API, e ele sobrescreve o cabeçalho", e ele
-// está certo enquanto essa topologia valer — mas é uma premissa que não estava
-// verificada em lugar nenhum: bastava a porta da API ficar alcançável (um
-// `ports:` a mais no compose, uma regra de firewall errada, o binário rodando
-// direto em desenvolvimento) para qualquer cliente escolher o próprio IP. E
-// escolher o próprio IP é escolher o próprio balde de rate limit: um cabeçalho
-// novo a cada requisição zera o contador para sempre, que é justamente o
-// ataque que os tetos existem para impedir.
+// "em produção só o nginx da borda fala com a API, e ele sobrescreve o
+// cabeçalho", e ele está certo enquanto essa topologia valer — mas é uma
+// premissa que não estava verificada em lugar nenhum: bastava a porta da API
+// ficar alcançável (um `ports:` a mais no compose, uma regra de firewall
+// errada, o binário rodando direto em desenvolvimento) para qualquer cliente
+// escolher o próprio IP. E escolher o próprio IP é escolher o próprio balde de
+// rate limit: um cabeçalho novo a cada requisição zera o contador para sempre,
+// que é justamente o ataque que os tetos existem para impedir.
 //
 // Agora a confiança é explícita e verificada a cada requisição, contra o peer
 // direto da conexão TCP — o único endereço que o cliente não consegue forjar.

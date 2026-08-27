@@ -149,8 +149,8 @@ func validarCookie(anotar func(string, ...any)) {
 
 // validarProxies exige a lista de proxies confiáveis. Sem ela, IPReal não
 // confia em cabeçalho nenhum e TODO cliente aparece com o IP do container do
-// Caddy: os tetos por IP passam a contar o mundo inteiro num balde só, e a
-// primeira rajada tranca todo mundo para fora.
+// nginx da borda: os tetos por IP passam a contar o mundo inteiro num balde só,
+// e a primeira rajada tranca todo mundo para fora.
 func validarProxies(anotar func(string, ...any)) {
 	faixas, err := ProxiesConfiaveis()
 	if err != nil {

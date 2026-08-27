@@ -21,7 +21,7 @@ COPY . .
 # A URL da API é resolvida em tempo de BUILD (import.meta.env do Vite) e vai
 # embutida no bundle que o navegador baixa — por isso é ARG, e não variável de
 # runtime. O padrão é relativo para a imagem não ficar amarrada a um domínio:
-# como o Caddy serve frontend e API na mesma origem, o navegador resolve `/api`
+# como o nginx da borda serve frontend e API na mesma origem, o navegador resolve `/api`
 # para o domínio corrente. Funciona porque toda página que chama a API declara
 # `ssr = false`, ou seja, o fetch nunca roda no servidor Node — onde um caminho
 # relativo não teria base.

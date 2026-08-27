@@ -1,12 +1,12 @@
 # Stack de PRODUÇÃO. A borda do VPS é o projeto `loadbalancer` (repo à parte):
-# um nginx em container ocupa as portas 80 e 443, termina o TLS e roteia por
-# domínio. O stacktrack entra ao lado dele, alcançado pela rede Docker
-# compartilhada `borda`. Nenhum serviço daqui publica porta no host.
+# um Traefik em container ocupa as portas 80 e 443, termina o TLS (ACME, cert no
+# primeiro acesso) e roteia por domínio lendo as LABELS dos containers via
+# Docker. O stacktrack entra ao lado dele, alcançado pela rede compartilhada
+# `borda`. Nenhum serviço daqui publica porta no host.
 #
-# O nginx da borda serve front e API na MESMA origem — /api/* vai para a API com
-# o prefixo removido, todo o resto para o frontend. Origem única é o que faz o
-# cookie __Host- valer e mantém a CSP em `connect-src 'self'`. O bloco de site
-# que faz esse split vive no `loadbalancer`, não aqui.
+# O split front/API está nas labels dos serviços `web` e `api` abaixo: /api/*
+# vai para a API com o prefixo removido, todo o resto para o frontend. Origem
+# única é o que faz o cookie __Host- valer e mantém a CSP em `connect-src 'self'`.
 #
 # Este arquivo NÃO constrói nada: as imagens vêm prontas do GHCR, publicadas
 # pelo CI. Por isso o host de produção precisa de dois arquivos apenas — este e
@@ -19,7 +19,7 @@
 name: stacktrack
 
 # Rotação de log: sem isto o log do Docker cresce sem limite e enche o disco do
-# host — derrubando junto a borda nginx e os outros sites do VPS.
+# host — derrubando junto a borda Traefik e os outros sites do VPS.
 x-logging: &logging
   driver: json-file
   options:
@@ -119,10 +119,10 @@ services:
       APP_ENV: production
       FRONTEND_ORIGIN: https://${DOMINIO}
       ANEXOS_DIR: /var/lib/stacktrack/anexos
-      # De onde a API aceita o cabeçalho X-Real-IP. Só o nginx da borda fala com
-      # ela, e ele chega pela rede `borda`. Informe de preferência o IP exato do
-      # container do nginx, ou a sub-rede exata de `borda`; confiar em toda a
-      # faixa privada permitiria que qualquer container vizinho forjasse IP.
+      # De onde a API aceita o cabeçalho X-Real-IP. Só o Traefik da borda fala
+      # com ela, e ele chega pela rede `borda`. Informe de preferência o IP
+      # exato do container do Traefik, ou a sub-rede exata de `borda`; confiar em
+      # toda a faixa privada permitiria que qualquer container vizinho forjasse IP.
       #
       # É a variável que decide se o IP do cliente é confiável, e portanto se
       # os tetos por IP valem alguma coisa: vinda de qualquer outro lugar, a
@@ -130,18 +130,30 @@ services:
       # a API recusa subir em produção (config.Validar) — de propósito, porque
       # o modo "não confia em ninguém" jogaria todos os clientes no balde do
       # IP do proxy e a primeira rajada trancaria todo mundo para fora.
-      PROXIES_CONFIAVEIS: ${PROXIES_CONFIAVEIS:?defina o IP ou CIDR exato do nginx da borda}
+      PROXIES_CONFIAVEIS: ${PROXIES_CONFIAVEIS:?defina o IP ou CIDR exato do Traefik da borda}
     volumes:
       - anexos:/var/lib/stacktrack/anexos
     # Participa das duas redes: a interna (para falar com o Postgres) e a borda
-    # (para o nginx do loadbalancer alcançá-lo). O apelido é explícito porque na
-    # borda convivem serviços de projetos diferentes, e mais de um se chama
-    # "api".
+    # (por onde o Traefik do loadbalancer a alcança).
     networks:
-      default:
-      borda:
-        aliases:
-          - stacktrack-api
+      - default
+      - borda
+    # Roteamento pela borda Traefik (projeto loadbalancer). O Traefik lê estas
+    # labels pelo Docker — nenhum arquivo é depositado nele, nenhum reload.
+    # /api/* na MESMA origem que o front, com o prefixo removido antes de chegar
+    # aqui (é o que faz o cookie __Host- valer e a CSP em `connect-src 'self'`).
+    # `priority` alta para o router vencer o do front. O `${DOMINIO}` é
+    # interpolado pelo Compose a partir do .env.
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: borda
+      traefik.http.routers.stacktrack-api.rule: Host(`${DOMINIO}`) && PathPrefix(`/api`)
+      traefik.http.routers.stacktrack-api.priority: '100'
+      traefik.http.routers.stacktrack-api.entrypoints: websecure
+      traefik.http.routers.stacktrack-api.tls.certresolver: le
+      traefik.http.routers.stacktrack-api.middlewares: stacktrack-apistrip
+      traefik.http.middlewares.stacktrack-apistrip.stripprefix.prefixes: /api
+      traefik.http.services.stacktrack-api.loadbalancer.server.port: '8080'
     depends_on:
       flyway:
         condition: service_completed_successfully
@@ -163,21 +175,38 @@ services:
     mem_limit: 256m
     environment:
       # adapter-node atrás de proxy: conhece a origem pública e confia nos
-      # cabeçalhos X-Forwarded-* do nginx da borda. Sem isto ele só enxerga o IP
-      # do container e recusa requisições por origem inválida.
+      # cabeçalhos X-Forwarded-* do Traefik da borda. Sem isto ele só enxerga o
+      # IP do container e recusa requisições por origem inválida.
       ORIGIN: https://${DOMINIO}
       PROTOCOL_HEADER: x-forwarded-proto
       HOST_HEADER: x-forwarded-host
     networks:
-      default:
-      borda:
-        aliases:
-          - stacktrack-web
+      - default
+      - borda
+    # Roteamento pela borda Traefik: tudo que não casar com /api cai aqui. O
+    # middleware `stacktrack-headers` põe os cabeçalhos de segurança na resposta
+    # (a CSP NÃO — quem a emite é o SvelteKit, que sabe o hash dos próprios
+    # scripts). TLS automático: o Traefik emite o certificado no primeiro acesso.
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: borda
+      traefik.http.routers.stacktrack-web.rule: Host(`${DOMINIO}`)
+      traefik.http.routers.stacktrack-web.entrypoints: websecure
+      traefik.http.routers.stacktrack-web.tls.certresolver: le
+      traefik.http.routers.stacktrack-web.middlewares: stacktrack-headers
+      traefik.http.services.stacktrack-web.loadbalancer.server.port: '3000'
+      traefik.http.middlewares.stacktrack-headers.headers.stsSeconds: '31536000'
+      traefik.http.middlewares.stacktrack-headers.headers.stsIncludeSubdomains: 'true'
+      traefik.http.middlewares.stacktrack-headers.headers.contentTypeNosniff: 'true'
+      traefik.http.middlewares.stacktrack-headers.headers.frameDeny: 'true'
+      traefik.http.middlewares.stacktrack-headers.headers.referrerPolicy: no-referrer
+      traefik.http.middlewares.stacktrack-headers.headers.customResponseHeaders.Permissions-Policy: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
+      traefik.http.middlewares.stacktrack-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy: same-origin
     depends_on:
       - api
 
 networks:
-  # Compartilhada com o nginx do loadbalancer. Criada uma vez no host, fora do
+  # Compartilhada com o Traefik do loadbalancer. Criada uma vez no host, fora do
   # ciclo de vida de qualquer stack — quem garante é o playbook do loadbalancer:
   #   docker network create borda
   borda:

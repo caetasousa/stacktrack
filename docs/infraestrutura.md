@@ -4,11 +4,12 @@ A **aplicação** descrita em Ansible, em `deploy/ansible/`. O que antes era um
 roteiro de comandos para copiar à mão em `producao.md` agora é um playbook que
 se pode rodar quantas vezes quiser.
 
-O **host** — Docker, rede `borda`, firewall, hardening de SSH e a borda nginx
-que termina o TLS — é do projeto
+O **host** — Docker, rede `borda`, firewall, hardening de SSH e o Traefik da
+borda que termina o TLS — é do projeto
 [`loadbalancer`](https://github.com/caetasousa/loadbalancer), repo à parte. Este
 repositório pressupõe esse host provisionado e descreve só o que roda em cima:
-o usuário de deploy, o `.env`, o compose, o backup, o cron e os papéis do banco.
+o usuário de deploy, o `.env`, o compose (com as labels do Traefik), o backup,
+o cron e os papéis do banco.
 
 A esteira que leva o commit até o ar continua sendo o GitHub Actions
 ([entrega-continua.md](entrega-continua.md)); o Ansible cuida da máquina, não da
@@ -77,12 +78,12 @@ Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — q
 
 ```
 /home/stacktrack/   .env · docker-compose.prod.yml · scripts/ · backups/
-/opt/loadbalancer/  a borda (projeto à parte) — nginx/conf.d/stacktrack.conf
+/opt/loadbalancer/  a borda (projeto à parte) — Traefik + socket-proxy
 ```
 
-O bloco `:443` de `stacktrack.caetasousa.tech` não é escrito daqui: ele vive no
-`loadbalancer` (`nginx/conf.d/stacktrack.conf`), que roteia `/api` para a API e
-o resto para o front. O contrato desse bloco está em
+O roteamento de `stacktrack.caetasousa.tech` (split `/api` → API, resto → front,
+cabeçalhos, TLS) está nas **labels do Traefik no `docker-compose.prod.yml`** — o
+Traefik as lê pelo Docker, nada é depositado na borda. O contrato está em
 [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
 ### 🔑 Uma conta, e uma chave que não vale o que a conta vale
@@ -189,12 +190,12 @@ atualizado, nessa ordem.
 
 ## 🤝 A fronteira com o `loadbalancer`
 
-O VPS é compartilhado com a borda nginx e com os outros sites dela. O playbook
+O VPS é compartilhado com a borda Traefik e com os outros sites dela. O playbook
 do stacktrack nunca escreve fora do que é dele:
 
 | | Como |
 |---|---|
-| **nginx / roteamento** | o bloco `:443` é do `loadbalancer` (`nginx/conf.d/stacktrack.conf`); este repo não escreve config de nginx |
+| **roteamento** | nas labels do Traefik em `docker-compose.prod.yml`; nenhum arquivo de config depositado na borda, nenhum reload disparado |
 | **crontab** | `ansible.builtin.cron` com `name:` gerencia só o bloco marcado — as outras linhas ficam intactas, por desenho e não por sorte |
 | **rede `borda`** | criada pelo `loadbalancer`; o compose só a declara `external`, **nunca** a remove |
 | **Docker / firewall / hardening** | do `loadbalancer` — este repo pressupõe tudo isso pronto |
@@ -228,7 +229,7 @@ remota ainda não existe, ver [producao.md](producao.md).
 
 Três comandos que parecem faxina e derrubam a borda e os vizinhos:
 
-- `docker network rm borda` — o nginx da borda perde a rota para todos os apps
+- `docker network rm borda` — o Traefik da borda perde a rota para todos os apps
 - `docker system prune -a` — apaga as imagens deles junto
 - `rm -rf ~/backups` — pode conter cópias de outros serviços do VPS
 
@@ -283,9 +284,9 @@ seguem locais, pelo `make infra-check`.
 
 ## 🧭 O que continua fora
 
-- **O host** — Docker, rede `borda`, firewall, hardening, borda nginx e TLS são
-  do projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer).
-- **O bloco `:443`** — vive no `loadbalancer`; o contrato dele está em
+- **O host e a borda** — Docker, rede `borda`, firewall, hardening, o Traefik e
+  o TLS são do projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer).
+- **O roteamento** está nas labels do `docker-compose.prod.yml`; o contrato está em
   [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 - **Criar a máquina** — é Terraform, não Ansible.
 - **Fuso do host** — o `date` do servidor continua como o provedor entregou; o

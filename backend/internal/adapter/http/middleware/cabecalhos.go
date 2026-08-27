@@ -7,7 +7,7 @@ import "net/http"
 // Vale para tudo que depende de sessão, para o convite e para o quadro
 // publicado: são respostas com conteúdo de uma pessoa só, e "de uma pessoa só"
 // é exatamente o que um cache compartilhado não sabe distinguir. Sem isto,
-// basta um proxy corporativo entre o cliente e o nginx da borda para o quadro de alguém
+// basta um proxy corporativo entre o cliente e o Traefik da borda para o quadro de alguém
 // ser servido a outra pessoa da mesma rede — e o bug aparece como "vi o quadro
 // errado", muito depois de a causa ter sumido.
 //

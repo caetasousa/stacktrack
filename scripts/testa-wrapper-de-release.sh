@@ -6,7 +6,7 @@
 # O wrapper `/usr/local/bin/stacktrack-release` é a fronteira: quem tem a chave
 # do CI tem exatamente o que este arquivo passa. Um `eval` distraído, um verbo a
 # mais, uma validação de SHA frouxa — qualquer um dos três devolve a máquina, e
-# a máquina roda o nginx da borda e os outros projetos do VPS.
+# a máquina roda o Traefik da borda e os outros projetos do VPS.
 #
 # O teste renderiza o template do Ansible com valores fixos e executa o script
 # com um PATH de mentira: `docker`, `sudo`, `crontab` e o backup.sh viram stubs

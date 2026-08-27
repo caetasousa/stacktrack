@@ -31,7 +31,7 @@ A base tecnológica reaproveitou decisões que já eram conhecidas:
 - arquitetura hexagonal;
 - SvelteKit, Svelte 5 e TypeScript;
 - Docker Compose em desenvolvimento e produção;
-- Caddy como proxy e terminador TLS (depois substituído pela borda nginx do
+- Caddy como proxy e terminador TLS (depois substituído pela borda Traefik do
   projeto `loadbalancer` — ver [producao.md](producao.md));
 - GitHub Actions e, posteriormente, Ansible.
 
@@ -125,7 +125,7 @@ manual das rotas.
 
 - Frontend e API compartilham a mesma origem pública.
 - O cookie de produção usa o prefixo `__Host-`.
-- A borda do VPS é o único proxy externo (hoje o nginx do projeto `loadbalancer`).
+- A borda do VPS é o único proxy externo (hoje o Traefik do projeto `loadbalancer`).
 - O host recebe imagens prontas; nunca compila o projeto.
 - PostgreSQL e anexos permanecem em volumes locais enquanto o perfil suportado
   for uma única instância.
@@ -213,12 +213,12 @@ do Caddy reproduzíveis. O critério que permaneceu foi executar novamente e
 obter `changed=0`.
 
 O material detalhado sobre o modelo sem agente, vault, check mode e a fronteira
-com a borda nginx já está em
+com a borda Traefik já está em
 [tecnologias.md](tecnologias.md#ansible--a-infraestrutura-por-dentro). A operação
 fica em [infraestrutura.md](infraestrutura.md).
 
 > **Nota (agosto de 2026):** a borda deixou de ser o Caddy compartilhado com o
-> agendaGo e passou a ser o projeto `loadbalancer` (nginx + certbot, dono do
+> agendaGo e passou a ser o projeto `loadbalancer` (Traefik + ACME, dono do
 > host). O `deploy/ansible/` do stacktrack descreve só a aplicação. Detalhes em
 > [producao.md](producao.md).
 

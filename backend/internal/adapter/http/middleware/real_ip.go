@@ -16,7 +16,7 @@ var cabecalhosDeIPDeCliente = []string{"X-Real-IP", "X-Forwarded-For"}
 // confiança.
 //
 // A versão anterior confiava em X-Real-IP incondicionalmente. O raciocínio era
-// "em produção só o nginx da borda fala com a API, e ele sobrescreve o
+// "em produção só o Traefik da borda fala com a API, e ele sobrescreve o
 // cabeçalho", e ele está certo enquanto essa topologia valer — mas é uma
 // premissa que não estava verificada em lugar nenhum: bastava a porta da API
 // ficar alcançável (um `ports:` a mais no compose, uma regra de firewall

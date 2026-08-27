@@ -74,11 +74,12 @@ coluna nova obrigatória, coluna removida e coluna apertada.
 **Nada é configurado à mão no VPS. Se não está no playbook, não existe.**
 
 A **borda** do VPS é o projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer)
-(repo à parte): um nginx em container recebe 80/443, termina o TLS (certbot) e
-roteia por domínio. Esse repo é **dono do host** — Docker, rede `borda`,
-firewall, hardening de SSH, e o bloco `:443` de `stacktrack.caetasousa.tech`
-(com o split `/api` → API). O stacktrack **não guarda nada de nginx**: os
-containers sobem na rede `borda` e o proxy os alcança por nome.
+(repo à parte): um **Traefik** em container recebe 80/443, termina o TLS (ACME,
+cert no primeiro acesso) e roteia por domínio **lendo labels dos containers via
+Docker**. Esse repo é **dono do host** — Docker, rede `borda`, firewall,
+hardening de SSH. O stacktrack sobe os containers na `borda` e declara o
+roteamento em **labels do Traefik no `docker-compose.prod.yml`** (serviços `web`
+e `api`, com o split `/api` → API). Não há arquivo de config depositado na borda.
 
 O que `deploy/ansible/` descreve é só **a aplicação** — o usuário de deploy,
 diretórios, `.env`, compose, cron do backup, papéis do banco. Um comando dado
@@ -86,7 +87,7 @@ por SSH que não tenha uma task equivalente é deriva: ele funciona hoje e
 desaparece no próximo servidor. Ao resolver algo, a correção vai para a role, e
 o `make infra-apply` é quem aplica.
 
-- nunca escrever configuração de nginx daqui — o roteamento é do `loadbalancer`
+- o roteamento vive nas labels do compose — nada de config de proxy fora dele
 - nunca reescrever o crontab inteiro — `ansible.builtin.cron` com `name:`
   gerencia só o bloco marcado
 - nunca remover a rede `borda`, que é compartilhada com o `loadbalancer`

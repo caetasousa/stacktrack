@@ -39,7 +39,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) |
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
-| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · borda nginx + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
+| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · borda Traefik + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
 | Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — a aplicação provisionada por playbook, segredos em `ansible-vault` |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de

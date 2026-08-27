@@ -661,7 +661,7 @@ Aqui a chave é o IP — que o cliente não escolhe, ver abaixo.
 **IP confiável.** `middleware.IPReal` só obedece `X-Real-IP` quando o peer
 direto da conexão TCP está na lista `PROXIES_CONFIAVEIS`; de qualquer outro
 lugar, os cabeçalhos são **apagados** antes de seguir. A versão anterior confiava
-sempre, com o raciocínio "só o nginx da borda fala com a API" — correto enquanto
+sempre, com o raciocínio "só o Traefik da borda fala com a API" — correto enquanto
 essa topologia valer, e verificado em lugar nenhum. Escolher o próprio IP é
 escolher o próprio balde de rate limit.
 
@@ -918,22 +918,28 @@ teste.
 📚 [Testcontainers for Go](https://golang.testcontainers.org/)
 📝 [Módulo de Postgres, com exemplo completo](https://golang.testcontainers.org/modules/postgres/) — inclusive as estratégias de espera
 
-### nginx (projeto `loadbalancer`)
+### Traefik (projeto `loadbalancer`)
 
 Proxy reverso e terminação de TLS. **Não é uma stack nossa**: a borda do VPS é o
-projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) — um nginx
-em container que recebe 80/443, termina o TLS (certbot) e roteia por
-`server_name`. O stacktrack só traz os próprios containers para a rede `borda`;
-o bloco `:443` de `stacktrack.caetasousa.tech` (com o split `/api` → API) vive
-lá, no molde de `nginx/conf.d/app.conf.exemplo`. O contrato desse bloco está em
+projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) — um Traefik
+v3 em container que recebe 80/443, termina o TLS (ACME HTTP-01, cert emitido no
+primeiro acesso — sem passo de emissão nem de renovação) e roteia lendo **labels
+dos containers** pelo provider Docker (via um `socket-proxy`, nunca o socket
+direto).
+
+O stacktrack traz os containers para a rede `borda` e declara o roteamento nas
+labels dos serviços `web` e `api` do `docker-compose.prod.yml`: um router com
+regra `Host(...) && PathPrefix(/api)`, `priority` alta e middleware `stripprefix`
+manda o `/api` para a API; o router `Host(...)` sem prefixo manda o resto para o
+front. O contrato está em
 [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
 Por que outro repo: a borda é compartilhada por vários apps do mesmo VPS, e um
-proxy por app disputaria as portas 80/443. Um nginx só, dono do host, com um
-fragmento `conf.d/<app>.conf` por aplicação.
+proxy por app disputaria as portas 80/443. Um Traefik só, dono do host; cada app
+se descreve nas próprias labels e nada é copiado para a borda.
 
-📚 [nginx — `ngx_http_proxy_module`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
-📝 [nginx — WebSocket proxying](https://nginx.org/en/docs/http/websocket.html) — o `Upgrade`/`Connection` que o quadro precisa
+📚 [Traefik — provider Docker](https://doc.traefik.io/traefik/providers/docker/) · [roteadores](https://doc.traefik.io/traefik/routing/routers/)
+📝 [Traefik — middleware StripPrefix](https://doc.traefik.io/traefik/middlewares/http/stripprefix/) — o que remove o `/api` antes de a requisição chegar na API
 
 ---
 
@@ -1068,7 +1074,7 @@ reconstruía o arquivo inteiro e tinha um comentário no próprio workflow
 admitindo que um cancelamento no meio truncaria o agendamento.
 
 8. **`docker compose up -d`** — Postgres → Flyway (aplica as migrations e sai) →
-   API → web, tudo na rede `borda`. Três containers `healthy`; o nginx da borda
+   API → web, tudo na rede `borda`. Três containers `healthy`; o Traefik da borda
    os alcança por nome sem reiniciar nada.
 
 #### 5. Quando um módulo custa caro demais

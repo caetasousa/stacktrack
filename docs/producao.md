@@ -2,9 +2,10 @@
 
 O stacktrack roda num VPS cuja **borda é o projeto
 [`loadbalancer`](https://github.com/caetasousa/loadbalancer)** (repo à parte):
-um nginx em container recebe 80/443, termina o TLS (certbot) e roteia por
-domínio. O stacktrack traz os próprios containers para a rede `borda` e é
-alcançado por nome.
+um Traefik em container recebe 80/443, termina o TLS (ACME, cert no primeiro
+acesso) e roteia por domínio **lendo labels dos containers via Docker**. O
+stacktrack traz os próprios containers para a rede `borda` e declara o
+roteamento em labels no `docker-compose.prod.yml`.
 
 Este documento é o roteiro do servidor. A esteira que leva o commit até aqui
 está em [entrega-continua.md](entrega-continua.md).
@@ -15,8 +16,8 @@ está em [entrega-continua.md](entrega-continua.md).
 
 ```
                      ┌──────────────────── VPS ────────────────────┐
-  :80/:443 ─────────►│ nginx  (projeto loadbalancer)  + certbot    │
-                     │   stacktrack.caetasousa.tech ─┐             │
+  :80/:443 ─────────►│ Traefik  (projeto loadbalancer)             │
+                     │   stacktrack.caetasousa.tech ─┐  (lê labels)│
                      └──────────────────────────────┼─────────────┘
                                     rede `borda`    │
                                  ┌──────────────────┼──────────────────┐
@@ -28,43 +29,54 @@ está em [entrega-continua.md](entrega-continua.md).
                                  └─────────────────────────────────────┘
 ```
 
-Front e API compartilham a origem: o bloco `:443` do `loadbalancer` manda
-`/api/*` para a API **removendo o prefixo**, e todo o resto para o frontend.
+Front e API compartilham a origem: um router do Traefik manda `/api/*` para a
+API **removendo o prefixo**, e todo o resto para o frontend.
 
 Nenhum serviço do stacktrack publica porta no host. Quem fala com o mundo é o
-nginx da borda; o Postgres não é alcançável de fora do compose.
+Traefik da borda; o Postgres não é alcançável de fora do compose.
 
 A rede `borda` é criada pelo playbook do `loadbalancer`. O stacktrack só precisa
-declará-la `external` no compose e subir nela — o nginx alcança
-`stacktrack-web` e `stacktrack-api` por nome.
+declará-la `external` no compose, subir nela e pôr as labels — o Traefik
+descobre os containers lendo o Docker (via socket-proxy) e roteia sozinho.
 
 ### O que o `loadbalancer` roteia para o stacktrack
 
-O bloco `:443` de `stacktrack.caetasousa.tech` vive no `loadbalancer`
-(`nginx/conf.d/stacktrack.conf`, no molde do `app.conf.exemplo`), **não neste
-repositório**. Ele precisa fazer, como o Caddy fazia:
+O roteamento está **nas labels dos serviços `web` e `api` do
+`docker-compose.prod.yml`** — não num arquivo no `loadbalancer`, e não neste
+repo em nenhum outro lugar. Duas rotas, como o Caddy fazia:
 
-| Rota | Destino | Por quê |
-|---|---|---|
-| `/api/` (barra final remove o prefixo) | `http://stacktrack-api:8080/` | origem única — o frontend chama `/api` relativo (`PUBLIC_API_URL=/api` assado no build), o cookie é `__Host-` e a CSP é `connect-src 'self'` |
-| `/api/ws` | idem, com `Upgrade`/`Connection` e `proxy_read_timeout 3600s` | o WebSocket do quadro é uma requisição que dura horas |
-| `/` | `http://stacktrack-web:3000` | com `X-Forwarded-Proto`/`X-Forwarded-Host` — o `adapter-node` exige |
+```
+api:   Host(`${DOMINIO}`) && PathPrefix(`/api`)   priority 100
+       -> stacktrack-api:8080, middleware stripprefix /api
+web:   Host(`${DOMINIO}`)
+       -> stacktrack-web:3000, middleware stacktrack-headers
+```
 
-Mais `client_max_body_size 11m` (10 MiB de anexo + folga multipart; menor
-devolve 413 antes de a API responder), os cabeçalhos de segurança (HSTS,
-`X-Content-Type-Options`, `X-Frame-Options DENY`, `Referrer-Policy no-referrer`,
-`Permissions-Policy`, `Cross-Origin-Opener-Policy`) e `X-Real-IP $remote_addr`
-no `/api/` (é o que faz o `IPReal` e os tetos por IP valerem).
+O router da API tem `priority` alta para vencer o do front; o `stripprefix`
+remove o `/api` antes de a requisição chegar (`/api/boards` -> `/boards`). É a
+origem única que faz o cookie `__Host-` valer e a CSP em `connect-src 'self'` —
+o frontend chama `/api` relativo (`PUBLIC_API_URL=/api` assado no build). O
+`/api/ws` entra por esse mesmo router e o Traefik faz o upgrade de WebSocket
+sozinho (o `idleTimeout` de 1h está na config estática da borda).
 
-**Se o `loadbalancer` mandar tudo para `stacktrack-web:3000`**, o `/api` cai no
+O `${DOMINIO}` é interpolado pelo Compose a partir do `.env`. O middleware
+`stacktrack-headers` põe HSTS, `X-Content-Type-Options`, `X-Frame-Options DENY`,
+`Referrer-Policy`, `Permissions-Policy` e `Cross-Origin-Opener-Policy` na
+resposta (a CSP **não** — quem a emite é o SvelteKit). O Traefik já injeta
+`X-Forwarded-*` e `X-Real-Ip` do peer da conexão, então `PROXIES_CONFIAVEIS`
+(derivado da sub-rede da `borda`) continua sendo o que faz o `IPReal` valer.
+
+Não há limite de corpo de requisição a configurar: o Traefik não impõe um por
+padrão, e a API devolve 413 sozinha acima de 10 MiB.
+
+**Se o router `stacktrack-api` sumir ou perder a prioridade**, o `/api` cai no
 SvelteKit, o login não completa e o WebSocket não conecta.
 
 **Regressão consciente:** o bloco Caddy redigia do *access log do proxy* os
-tokens de convite e de link público (corridas de 24+ caracteres base64url) e
-removia o `Referer`. O `log_format` do `loadbalancer` registra `$request`
-inteiro. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando; o
-do proxy virou política da borda. O ensaio automatizado disso
-(`test/repository/caddy_log_test.go`) foi removido junto com o bloco Caddy.
+tokens de convite e de link público. O access log do Traefik é política da
+borda. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando; o
+ensaio automatizado disso (`test/repository/caddy_log_test.go`) foi removido
+junto com o bloco Caddy.
 
 ### Por que subdomínio, e não um caminho
 
@@ -97,8 +109,8 @@ O servidor guarda **três arquivos** e nada além:
 | `~/stacktrack/.env` | **só existe no host**, escrito pelo Ansible | segredos |
 | `~/stacktrack/scripts/backup.sh` | repositório, via Ansible | operação |
 
-O roteamento não está aqui: o bloco `:443` é do `loadbalancer`
-(ver a seção anterior).
+O roteamento não é um quarto arquivo: são as labels do Traefik dentro do
+`docker-compose.prod.yml` (ver a seção anterior).
 
 As migrations não são exceção a isso: os `.sql` viajam **dentro** da imagem
 `stacktrack-migrations` (ver `backend/Dockerfile.migrations`). Sem ela, o job de
@@ -109,31 +121,31 @@ que está rodando.
 ```
 /home/stacktrack/             a aplicação
 ├── .env                      escrito pelo Ansible a partir do vault
-├── docker-compose.prod.yml
+├── docker-compose.prod.yml   inclui as labels do Traefik
 ├── scripts/backup.sh
 └── backups/
 
-/opt/loadbalancer/            a borda (projeto à parte)
-└── nginx/conf.d/stacktrack.conf   o bloco :443 do stacktrack
+/opt/loadbalancer/            a borda (projeto à parte) — Traefik + socket-proxy
 ```
 
 ---
 
 # 🧭 Roteiro do primeiro deploy
 
-## 1️⃣ DNS e certificado
+## 1️⃣ DNS
 
 Um registro `A` apontando `stacktrack.caetasousa.tech` para `2.25.101.3` (o IP
-do VPS). O nginx do `loadbalancer` separa por `server_name`.
+do VPS). O Traefik da borda separa por `Host(...)`.
 
-**O DNS precisa resolver ANTES do certificado.** A emissão do primeiro
-certificado de cada domínio é um passo manual do `loadbalancer`
-(`ansible-playbook deploy.yml -e 'acme_domains=["stacktrack.caetasousa.tech"]'`);
-sem certificado o `nginx -t` recusa o bloco `:443`, e sem HTTPS o login não
-completa — `APP_ENV=production` liga o `Secure` no cookie, o navegador o
-descarta, e o sintoma é "entra e volta para a tela de login", sem erro visível.
+**O DNS precisa resolver ANTES de subir a stack.** O Traefik emite o
+certificado (ACME HTTP-01) **no primeiro acesso** ao domínio — não há passo
+manual de emissão nem de renovação. Mas sem o DNS resolvendo, o desafio ACME
+falha; e sem HTTPS válido o login não completa — `APP_ENV=production` liga o
+`Secure` no cookie, o navegador o descarta, e o sintoma é "entra e volta para a
+tela de login", sem erro visível.
 
-A renovação é automática (container `certbot` + cron da borda).
+Se quiser testar sem gastar cota do Let's Encrypt, o `loadbalancer` tem o toggle
+de staging (`-e traefik_acme_staging=true` no `deploy.yml` dele).
 
 ## 2️⃣ Configurar o deploy no GitHub
 
@@ -310,7 +322,7 @@ docker compose -f docker-compose.prod.yml logs flyway   # quantas migrations apl
 curl -sI https://stacktrack.caetasousa.tech | head -1
 curl -fsS https://stacktrack.caetasousa.tech/api/health
 
-# os outros sites da borda continuam no ar (o nginx só recarregou)
+# os outros sites da borda continuam no ar (o Traefik só descobriu um container)
 curl -sI https://<outro-dominio-da-borda> | head -1
 ```
 
@@ -462,7 +474,7 @@ docker run --rm --network borda alpine:3.21 wget -qO- http://stacktrack-api:8080
 ```
 
 Os logs rotacionam em 10 MB × 3 arquivos por serviço. Sem isso, um log de acesso
-enche o disco do VPS e derruba tudo junto — **inclusive a borda nginx e os
+enche o disco do VPS e derruba tudo junto — **inclusive a borda Traefik e os
 outros sites dela**.
 
 ---
@@ -528,7 +540,7 @@ Os `mem_limit` desta stack somam ~1,15 GB:
 | api | 384m | Argon2id usa ~19 MiB por hash simultâneo |
 | web | 256m | servidor Node do adapter-node |
 
-A borda nginx e os outros sites do VPS têm os seus. `free -h` antes de subir. O
+A borda Traefik e os outros sites do VPS têm os seus. `free -h` antes de subir. O
 sintoma de estourar é a API morrendo por OOM em rajada de login.
 
 ## Contenção dos containers
@@ -545,22 +557,22 @@ mantém as cinco capabilities mínimas para essa troca.
 
 - [ ] `A stacktrack.caetasousa.tech` resolvendo para `2.25.101.3`
 - [ ] host provisionado pelo projeto `loadbalancer` (Docker, rede `borda`,
-      firewall, borda nginx no ar)
-- [ ] certificado de `stacktrack.caetasousa.tech` emitido pelo `loadbalancer`
-      (`deploy.yml -e 'acme_domains=[...]'`)
+      firewall, Traefik no ar)
 - [ ] chave exclusiva da esteira gerada, pública em `vars.yml` e privada no
       secret `VPS_SSH_KEY`
 - [ ] environment `production` criado, com os segredos `VPS_*` dentro dele
 - [ ] `main` protegida com os checks da esteira (incluindo `infra`)
 - [ ] `make infra-preparar` verde (usuário de deploy, wrapper, chaves)
 - [ ] variável `DOMINIO` no repositório
-- [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`)
+- [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`,
+      sobe a stack na `borda` com as labels)
 - [ ] imagens acessíveis ao servidor (públicas ou `docker login` feito)
 - [ ] esteira verde até o job `implantar`
-- [ ] bloco `stacktrack.conf` no `loadbalancer` roteando `/api` → `stacktrack-api`
-      e `/` → `stacktrack-web` (`https://` abre sem aviso e `/api/health` responde)
+- [ ] `https://stacktrack.caetasousa.tech` abre sem aviso (cert emitido no 1º
+      acesso) e `/api/health` responde 200 (prova que o router `/api` venceu)
 - [ ] cadastro → login → criar quadro → F5
-- [ ] **os outros sites da borda continuam no ar** depois do reload do nginx
+- [ ] **os outros sites da borda continuam no ar** (o Traefik só descobriu um
+      container novo, não recarregou nada)
 - [ ] papel de runtime do banco criado (`stacktrack_app`) e a API conectando com ele
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` com folga sobre a soma dos limites das stacks do VPS
@@ -597,10 +609,10 @@ Os comandos e o SQL da conferência estão em
 **TLS não é o último passo.** Sem HTTPS válido, o cookie `Secure` é descartado e
 o login falha em silêncio.
 
-**O `/api` tem que ir para a API.** O bloco `:443` do `loadbalancer` precisa
-rotear `/api/*` para `stacktrack-api:8080` (prefixo removido) e o resto para
-`stacktrack-web:3000`. Um bloco que mande tudo para o front deixa `/` no ar mas
-quebra login e WebSocket. Ver "O que o `loadbalancer` roteia para o stacktrack".
+**O `/api` tem que ir para a API.** O router `stacktrack-api` (label no serviço
+`api`) precisa ter `priority` maior que o do front e o middleware `stripprefix
+/api`. Sem ele, `/api/*` cai no SvelteKit e login e WebSocket quebram. Ver "O
+que o `loadbalancer` roteia para o stacktrack".
 
 **Rollback não desfaz migration.** Flyway é forward-only. Toda migration que
 aperta (`SET NOT NULL`, `DROP COLUMN`, `RENAME`, `UNIQUE` novo) exige dois

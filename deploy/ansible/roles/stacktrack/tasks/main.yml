@@ -48,7 +48,7 @@
       A rede Docker {{ rede_borda }} nao existe ou nao tem subnet. Ela e a
       origem confiavel do X-Real-IP e precisa existir antes de gerar o .env.
 
-- name: deriva os proxies confiaveis da rede real do nginx da borda
+- name: deriva os proxies confiaveis da rede real do Traefik da borda
   ansible.builtin.set_fact:
     stacktrack_proxies_confiaveis: >-
       {{ stacktrack_rede_borda_info.network.IPAM.Config

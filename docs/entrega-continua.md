@@ -55,7 +55,7 @@ o que o runner escreve chega em `SSH_ORIGINAL_COMMAND` e o wrapper decide se
 aquilo é `release <sha>`, `backup` ou `estado` — ou nada.
 
 Antes, o job montava linhas de comando no runner e as executava do outro lado.
-Quem tivesse a chave tinha a máquina — que roda a borda nginx e os outros sites
+Quem tivesse a chave tinha a máquina — que roda a borda Traefik e os outros sites
 do VPS.
 
 Duas consequências que valem conhecer:
@@ -86,7 +86,7 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 ### Por que o VPS só faz `pull`, nunca `build`
 
 Compilar Go e rodar `npm ci` no servidor consome a RAM que a aplicação — e a
-borda nginx e os outros sites do VPS — está usando. Além disso, build no
+borda Traefik e os outros sites do VPS — está usando. Além disso, build no
 servidor significa que o artefato em produção **nunca foi testado**: ele é uma
 segunda compilação, feita noutra máquina, em outro momento.
 
@@ -292,9 +292,9 @@ funciona para quem clonar sem configurar nada.
 **O deploy sem segredos não falha, só não faz nada.** `VPS_HOST` vazio marca o
 job como ignorado. O repositório precisa funcionar antes de o VPS existir.
 
-**A esteira não toca no proxy.** O bloco `:443` de `stacktrack.caetasousa.tech`
-é do projeto `loadbalancer`. O deploy daqui só sobe os containers na rede
-`borda` — o nginx já os alcança por nome.
+**A esteira não toca no proxy.** O roteamento de `stacktrack.caetasousa.tech`
+está nas labels do `docker-compose.prod.yml`; o Traefik do `loadbalancer` as lê
+pelo Docker. O deploy daqui só sobe os containers na rede `borda`.
 
 ---
 

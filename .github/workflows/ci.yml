@@ -8,9 +8,8 @@ name: CI
 # no mesmo push para a esteira rodar inteira.
 #
 # Consequência a conhecer: push só de documentação também não implanta. Está
-# certo — não há o que implantar, já que o deploy sincroniza o compose, o bloco
-# do Caddy e os scripts, nenhum deles markdown. Para reimplantar sem commit
-# novo, use o workflow_dispatch abaixo.
+# certo — não há o que implantar, já que o deploy só manda `release <sha>` ao
+# wrapper. Para reimplantar sem commit novo, use o workflow_dispatch abaixo.
 on:
   push:
     branches: [main]
@@ -474,11 +473,12 @@ jobs:
   # que este job manda é um de três verbos: `release <sha>`, `backup`, `estado`.
   # Qualquer outra coisa é recusada do lado de lá.
   #
-  # O que ele DEIXOU de fazer, e por quê: copiar o compose, o backup.sh e o
-  # bloco do Caddy. Esses arquivos são do Ansible agora — havia duas fontes
-  # escrevendo os mesmos caminhos, e a que ganhava era a última que rodou. O
-  # passo `estado` compara as impressões digitais do servidor com as do
-  # repositório e FALHA quando divergem, apontando o `make infra-apply`.
+  # O que ele DEIXOU de fazer, e por quê: copiar o compose e o backup.sh. Esses
+  # arquivos são do Ansible agora — havia duas fontes escrevendo os mesmos
+  # caminhos, e a que ganhava era a última que rodou. O passo `estado` compara
+  # as impressões digitais do servidor com as do repositório e FALHA quando
+  # divergem, apontando o `make infra-apply`. O roteamento do domínio é do
+  # projeto `loadbalancer` e a esteira não toca nele.
   #
   # Segredos (Settings → Secrets and variables → Actions, ou o Environment
   # `production`):
@@ -539,10 +539,10 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       # Pré-voo, e a defesa contra o furo que a mudança de dono dos arquivos
-      # abriu: o servidor recebe o compose, o backup.sh e o bloco do Caddy pelo
-      # PLAYBOOK, não mais por este job. Sem esta comparação, alterar um limite
-      # de memória e dar push produziria um deploy verde que não mudou limite
-      # nenhum — e nada diria isso.
+      # abriu: o servidor recebe o compose e o backup.sh pelo PLAYBOOK, não mais
+      # por este job. Sem esta comparação, alterar um limite de memória e dar
+      # push produziria um deploy verde que não mudou limite nenhum — e nada
+      # diria isso.
       - name: confere se a configuração do servidor é a deste commit
         if: steps.cfg.outputs.configurado == 'true'
         env:
@@ -567,7 +567,6 @@ jobs:
           }
           conferir docker-compose.prod.yml docker-compose.prod.yml
           conferir scripts/backup.sh backup.sh
-          conferir deploy/caddy/stacktrack.caddy stacktrack.caddy
           exit "$divergiu"
 
       # O deploy inteiro numa linha, porque do outro lado ele É uma linha: o

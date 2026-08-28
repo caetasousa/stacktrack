@@ -7,8 +7,8 @@ acesso) e roteia por domínio **lendo labels dos containers via Docker**. O
 stacktrack traz os próprios containers para a rede `borda` e declara o
 roteamento em labels no `docker-compose.prod.yml`.
 
-Este documento é o roteiro do servidor. A esteira que leva o commit até aqui
-está em [entrega-continua.md](entrega-continua.md).
+Este documento é o roteiro do servidor. Publicar as imagens e implantar (tudo
+manual — não há esteira) está em [entrega-continua.md](entrega-continua.md).
 
 ---
 
@@ -147,50 +147,29 @@ tela de login", sem erro visível.
 Se quiser testar sem gastar cota do Let's Encrypt, o `loadbalancer` tem o toggle
 de staging (`-e traefik_acme_staging=true` no `deploy.yml` dele).
 
-## 2️⃣ Configurar o deploy no GitHub
+## 2️⃣ A chave e o wrapper de deploy
 
-Primeiro, a chave — **exclusiva do stacktrack**, não a de outro projeto do VPS.
-Uma chave que abre dois projetos faz o comprometimento de um ser o
-comprometimento do outro:
+Uma chave dedicada ao deploy do stacktrack — não a de outro projeto do VPS. Uma
+chave que abre dois projetos faz o comprometimento de um ser o comprometimento
+do outro:
 
 ```bash
-ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy
+ssh-keygen -t ed25519 -C deploy-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
 ```
 
 A **pública** vai para `esteira_chave_publica` em
-`deploy/ansible/group_vars/producao/vars.yml`, e é o `make infra-preparar` que a
-instala no servidor — com `restrict` e comando forçado. A **privada** vira o
-secret `VPS_SSH_KEY`.
+`deploy/ansible/group_vars/producao/vars.yml`, e o `make infra-preparar` a
+instala no servidor com `restrict` e comando forçado apontando para o wrapper.
+Guarde a **privada** onde só você a alcança.
 
-Depois, em **Settings → Environments**, crie o environment `production` e
-defina a proteção que quiser (aprovação manual, branches permitidas). Os
-segredos abaixo ficam nele, e não no repositório: assim um job de pull request,
-que não declara environment nenhum, não os alcança.
-
-| Tipo | Nome | Valor |
-|---|---|---|
-| Secret | `VPS_HOST` | IP do servidor |
-| Secret | `VPS_USER` | `stacktrack` |
-| Secret | `VPS_SSH_KEY` | chave **privada** exclusiva da esteira |
-| Secret | `VPS_KNOWN_HOSTS` | saída de `ssh-keyscan -H <ip>` |
-| Variable | `DOMINIO` | `stacktrack.caetasousa.tech` (aba Variables, no repositório) |
-
-E em **Settings → Branches**, proteja a `main` exigindo os checks da esteira
-(`backend`, `frontend`, `e2e`, `infra`, `seguranca-*`).
-
-Sem `VPS_HOST`, o job de deploy passa marcado como ignorado em vez de falhar —
-o repositório funciona antes de o servidor existir. Sem `VPS_KNOWN_HOSTS`, ele
-**falha de propósito**: a alternativa seria aceitar a identidade de quem
-responder e entregar a chave de deploy junto.
-
-### O que a chave da esteira consegue fazer
+### O que essa chave consegue fazer
 
 Nada além de quatro verbos. Ela está no `authorized_keys` do usuário
 `stacktrack` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
 não abre shell, não faz `scp`, não encaminha porta nem agente.
 
-A restrição é **da chave**, não da conta: a mesma conta aceita a chave do
-operador sem limite algum e a da esteira limitada a quatro verbos.
+A restrição é **da chave**, não da conta: a mesma conta aceita a sua chave de
+operador sem limite algum e esta de deploy limitada a quatro verbos.
 
 | Verbo | O que faz |
 |---|---|
@@ -199,10 +178,14 @@ operador sem limite algum e a da esteira limitada a quatro verbos.
 | `backup` | um backup pontual |
 | `estado` | `compose ps`, o sha256 do compose e do `backup.sh`, fuso e cron |
 
-O que limita a esteira é o comando forçado, e só ele: a conta em que a chave
-mora tem Docker, porque é a conta que roda a aplicação. `scripts/testa-wrapper-de-release.sh`
-prova as recusas (shell, encadeamento, substituição de comando, SHA malformado)
-e roda no CI.
+O que limita quem tem essa chave é o comando forçado, e só ele: a conta em que
+ela mora tem Docker, porque é a conta que roda a aplicação.
+`scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
+substituição de comando, SHA malformado, allowlist do `sync`) e roda em
+`make infra-validar`.
+
+O `DOMINIO` que a aplicação usa vem do `.env` (escrito pelo Ansible a partir de
+`dominio` em `group_vars/producao/vars.yml`).
 
 ## 3️⃣ Provisionar o servidor
 
@@ -229,10 +212,9 @@ exige `ALTER ROLE` dentro do container — não basta mudar o vault. A role tem 
 `assert` que recusa a divergência em vez de deixar a API falhar a conexão no
 deploy seguinte.
 
-**O `.env` não é enviado pela esteira.** Ele mora só no host; a diferença é que
-agora quem o escreve é o Ansible, a partir do vault cifrado, e não um heredoc
-copiado à mão. O modelo comentado, com a explicação de cada variável, continua
-sendo o [`.env.prod.example`](../.env.prod.example).
+**O `.env` mora só no host.** Quem o escreve é o Ansible, a partir do vault
+cifrado, e não um heredoc copiado à mão. O modelo comentado, com a explicação de
+cada variável, é o [`.env.prod.example`](../.env.prod.example).
 
 **Arquivo que começa com ponto não aparece no `ls`.** Para conferir o resultado,
 `ls -la`:
@@ -242,9 +224,10 @@ ls -la /home/stacktrack/         # o .env aparece aqui
 grep -c . /home/stacktrack/.env  # 8 linhas
 ```
 
-E o job `implantar` da esteira agora **confere isto antes de qualquer coisa**:
-sem o `.env` ou sem a rede `borda`, ele falha com a instrução de rodar
-`make infra-apply`, em vez de subir a stack com todas as variáveis vazias.
+E o `stacktrack-release release` **confere isto antes de qualquer coisa** (o
+pré-voo do wrapper): sem o `.env` ou sem a rede `borda`, ele falha com a
+instrução de rodar `make infra-apply`, em vez de subir a stack com todas as
+variáveis vazias.
 
 ### 🔐 Dois papéis no banco: quem migra e quem serve
 
@@ -272,45 +255,27 @@ Dois detalhes que custam caro quando faltam:
 verdade, conecta **com o papel da aplicação** e exige que o DDL falhe. É a
 asserção negativa que um teste de leitura nunca faria.
 
-## 4️⃣ Liberar as imagens no GHCR
+## 4️⃣ Publicar e implantar
+
+Os passos de build, push e `release` estão em
+[entrega-continua.md](entrega-continua.md). Em resumo, da sua máquina:
+
+```bash
+sha=$(git rev-parse HEAD)
+# build + push das 3 imagens para ghcr.io/caetasousa/stacktrack-* (:$sha e :latest)
+make infra-apply                                   # se compose/backup.sh/papéis mudaram
+ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release $sha"
+```
 
 As imagens nascem **privadas**. Ou você as torna públicas em cada pacote
-(Packages → Package settings → Change visibility), ou o servidor autentica:
+(Packages → Package settings), ou o servidor autentica (o `make infra-apply` faz
+o `docker login` se `vault_ghcr_token` estiver no vault). O token de push
+precisa de `write:packages`; o de pull, só `read:packages`.
 
-```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u caetasousa --password-stdin
-```
+## 5️⃣ Conferir
 
-O token precisa apenas de `read:packages`.
-
-Isso só funciona depois que a esteira tiver publicado as imagens ao menos uma
-vez — antes disso os pacotes não existem.
-
-## 5️⃣ Publicar
-
-```bash
-# na sua máquina, no repositório do stacktrack
-git push
-```
-
-A esteira testa, varre, publica as três imagens e implanta: `sync` do
-`docker-compose.prod.yml`, confere o sha256 do `backup.sh`, e `release <sha>` —
-o wrapper tira um backup, faz `pull`, para web e api, sobe a stack fixando a tag
-no SHA do commit, e confere se `/api/health` e `/` respondem.
-
-**A ordem entre 4️⃣ e 5️⃣ tem um nó**: o `docker login` precisa das imagens
-publicadas, e as imagens só existem depois do primeiro push. Se os pacotes
-nascerem privados, o primeiro deploy falha no `pull` — faça o push, torne os
-pacotes públicos (ou rode o `docker login`), e reexecute a esteira pelo
-**workflow_dispatch**, sem precisar de commit novo.
-
-Do segundo deploy em diante não há passo manual nenhum. Ver
-[entrega-continua.md](entrega-continua.md).
-
-## 6️⃣ Conferir
-
-A esteira já checa `/api/health` e `/` no fim do deploy — se ela ficou verde,
-os dois responderam. O que ela não checa, e você deve:
+O `release` já checa `/api/health` e `/` no fim. O que ele não checa, e você
+deve:
 
 ```bash
 # no servidor
@@ -337,15 +302,16 @@ acima.
 
 ## Deploy do dia a dia
 
-Automático pela esteira, que manda uma linha e nada mais:
+Uma linha, depois de publicar as imagens (ver
+[entrega-continua.md](entrega-continua.md)):
 
 ```
-ssh stacktrack@servidor "stacktrack-release release <sha>"
+ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release <sha>"
 ```
 
 A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,
-backup, `pull`, parar web e api, `up -d`, limpar imagens órfãs. Manualmente, do
-próprio servidor, é o mesmo comando ou os passos abertos:
+backup, `pull`, parar web e api, `up -d`, limpar imagens órfãs. Do próprio
+servidor, é o mesmo comando ou os passos abertos:
 
 ```bash
 stacktrack-release release <sha>     # ou `latest`
@@ -356,12 +322,10 @@ docker compose -f docker-compose.prod.yml stop web api
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-**A esteira entrega o `docker-compose.prod.yml` deste commit** (verbo `sync`,
-que valida contra a allowlist antes de instalar) e sobe a stack — mudança no
-compose chega com o `git push`, sem passo manual. O `backup.sh` é outra
-história: o `release` o **executa**, então a esteira não o escreve, só confere
-o sha256 — mudá-lo exige `make infra-apply`, senão o deploy falha apontando
-isso. O `.env` e os papéis do banco continuam só do Ansible/vault.
+**O `docker-compose.prod.yml`, o `backup.sh`, o `.env` e os papéis do banco são
+do Ansible** — mudou algum deles, `make infra-apply` antes do `release`. (O
+wrapper tem um verbo `sync` que instala só o compose, validando-o contra uma
+allowlist; é útil para um ajuste pontual sem uma execução completa do playbook.)
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas
@@ -395,8 +359,7 @@ no mesmo deploy que estreia a coluna transforma o rollback num erro no primeiro
 
 `scripts/backup.sh` roda por cron às 03:20. O agendamento é feito pelo Ansible
 (`make infra-apply`), com `ansible.builtin.cron`, que gerencia só o bloco
-marcado. A esteira apenas CONFERE que ele existe, e falha se não existir —
-escrever dos dois lados fazia os dois brigarem pelo mesmo arquivo.
+marcado. O `stacktrack-release estado` mostra se a linha do cron está lá.
 
 Ele grava dois artefatos em `~/backups`:
 
@@ -559,16 +522,16 @@ mantém as cinco capabilities mínimas para essa troca.
 - [ ] `A stacktrack.caetasousa.tech` resolvendo para `2.25.101.3`
 - [ ] host provisionado pelo projeto `loadbalancer` (Docker, rede `borda`,
       firewall, Traefik no ar)
-- [ ] chave exclusiva da esteira gerada, pública em `vars.yml` e privada no
-      secret `VPS_SSH_KEY`
-- [ ] environment `production` criado, com os segredos `VPS_*` dentro dele
-- [ ] `main` protegida com os checks da esteira (incluindo `infra`)
+- [ ] chave de deploy gerada, pública em `esteira_chave_publica` no `vars.yml`,
+      privada guardada
+- [ ] `dominio: stacktrack.caetasousa.tech` no `group_vars/producao/vars.yml`
 - [ ] `make infra-preparar` verde (usuário de deploy, wrapper, chaves)
-- [ ] variável `DOMINIO` no repositório
 - [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`,
       sobe a stack na `borda` com as labels)
-- [ ] imagens acessíveis ao servidor (públicas ou `docker login` feito)
-- [ ] esteira verde até o job `implantar`
+- [ ] `make infra-validar` verde (ansible-lint + syntax-check + wrapper)
+- [ ] as 3 imagens publicadas no GHCR e acessíveis ao servidor (públicas ou
+      `docker login`)
+- [ ] `stacktrack-release release <sha>` verde
 - [ ] `https://stacktrack.caetasousa.tech` abre sem aviso (cert emitido no 1º
       acesso) e `/api/health` responde 200 (prova que o router `/api` venceu)
 - [ ] cadastro → login → criar quadro → F5

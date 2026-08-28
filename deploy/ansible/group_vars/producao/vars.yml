@@ -23,35 +23,29 @@ grupo_app: stacktrack
 # entra com ela) no usuário da aplicação. Não é segredo: chave pública é feita
 # para ser publicada, por isso fica aqui e não no vault.
 #
-# O que NÃO se reaproveita é a da esteira, que é de máquina e tem par próprio
-# (`esteira_chave_publica`, abaixo).
+# O que NÃO se reaproveita é a chave de DEPLOY, que tem par próprio
+# (`esteira_chave_publica`, abaixo — nome herdado).
 operador_chave_publica: >-
   ssh-ed25519
   AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
   github-actions-agendago
 
-# --- o acesso da esteira -----------------------------------------------------
+# --- a chave de deploy -----------------------------------------------------
 #
-# A esteira NÃO tem conta própria: ela entra na conta da aplicação, com uma
-# chave presa a um comando forçado. O comando forçado é propriedade da CHAVE,
-# não do usuário — a mesma conta aceita a sua chave com shell normal e a dela
-# limitada a quatro verbos (sync/release/backup/estado).
-
-# Chave PÚBLICA exclusiva do stacktrack, cujo par privado é o secret
-# VPS_SSH_KEY. Vazia enquanto o par não for gerado — e enquanto estiver vazia, a
-# role `usuario_app` avisa e NÃO instala chave nenhuma.
+# Opcional. Se você quiser implantar de um script ou de outra máquina sem dar a
+# chave do operador (que abre shell), gere um par dedicado e ponha a pública
+# aqui: a role `usuario_app` a instala presa a um comando forçado que só entende
+# quatro verbos (sync/release/backup/estado). Vazia, o deploy é só com a chave
+# do operador.
 #
-#   ssh-keygen -t ed25519 -C github-actions-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
+#   ssh-keygen -t ed25519 -C deploy-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
 #
-# A pública vai aqui; a privada vira o secret VPS_SSH_KEY do GitHub.
-#
-# Sem passphrase de propósito: quem a usa é o GitHub Actions, que não tem como
-# digitar uma. O que limita o estrago não é a senha da chave — é o comando
-# forçado do outro lado.
+# A pública vai aqui; guarde a privada. Sem passphrase, porque um script não
+# digita uma — o que limita o estrago é o comando forçado, não a senha da chave.
 esteira_chave_publica: >-
   ssh-ed25519
   AAAAC3NzaC1lZDI1NTE5AAAAIO8mNIDKQwLDbQJVreykGeb1G7luPfawEHCezTeSyHaM
-  github-actions-stacktrack
+  deploy-stacktrack
 
 pasta_base: /home/{{ usuario_app }}
 # A stack fica na RAIZ do home, e não num `stacktrack/` dentro dele: a conta já
@@ -60,8 +54,9 @@ pasta_stack: '{{ pasta_base }}'
 pasta_scripts: '{{ pasta_stack }}/scripts'
 pasta_backups: '{{ pasta_base }}/backups'
 
-# Imagens publicadas pela esteira no GHCR. `latest` segue a main; a esteira
-# sobrescreve com o SHA do commit no momento do deploy, sem tocar no .env.
+# Imagens no GHCR (build e push manuais — ver docs/entrega-continua.md). O
+# `stacktrack-release release <sha>` sobrescreve IMAGE_TAG no momento do deploy,
+# sem tocar no .env.
 imagem_repo: ghcr.io/caetasousa
 imagem_tag: latest
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# O que a chave da esteira consegue fazer, e o que ela NÃO consegue.
+# O que a chave de deploy consegue fazer, e o que ela NÃO consegue.
 #
-#   make infra-validar        (e o job `infra` da esteira roda o mesmo)
+#   make infra-validar
 #
 # O wrapper `/usr/local/bin/stacktrack-release` é a fronteira: quem tem a chave
-# do CI tem exatamente o que este arquivo passa. Um `eval` distraído, um verbo a
-# mais, uma validação de SHA frouxa — qualquer um dos três devolve a máquina, e
-# a máquina roda o Traefik da borda e os outros projetos do VPS.
+# de deploy tem exatamente o que este arquivo passa. Um `eval` distraído, um
+# verbo a mais, uma validação de SHA frouxa — qualquer um dos três devolve a
+# máquina, e a máquina roda o Traefik da borda e os outros projetos do VPS.
 #
 # O teste renderiza o template do Ansible com valores fixos e executa o script
 # com um PATH de mentira: `docker`, `sudo`, `crontab` e o backup.sh viram stubs
@@ -134,7 +134,7 @@ export REGISTRO="$trabalho/registro"
 falhas=0
 
 # roda executa o wrapper pelo caminho do SSH — comando forçado, que é como a
-# esteira chega — e devolve o código de saída.
+# chave de deploy chega — e devolve o código de saída.
 roda() {
 	: >"$REGISTRO"
 	SSH_ORIGINAL_COMMAND="$1" "$wrapper" >"$trabalho/saida" 2>&1
@@ -194,8 +194,8 @@ echo
 echo "sync: a allowlist do compose"
 if command -v python3 >/dev/null; then
 	# roda_stdin manda o SSH_ORIGINAL_COMMAND e alimenta o stdin do wrapper com
-	# um compose (o que a esteira faz). STUB_COMPOSE_JSON é a forma canônica que
-	# o `docker compose config` do stub devolve.
+	# um compose (o que o `sync` recebe). STUB_COMPOSE_JSON é a forma canônica
+	# que o `docker compose config` do stub devolve.
 	roda_stdin() {
 		: >"$REGISTRO"
 		STUB_COMPOSE_JSON="$1" SSH_ORIGINAL_COMMAND="sync" "$wrapper" \

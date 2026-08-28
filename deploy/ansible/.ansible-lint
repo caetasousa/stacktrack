@@ -1,6 +1,6 @@
 ---
-# Regras do ansible-lint para este diretório. O CI roda `ansible-lint` aqui, sem
-# a senha do vault — ver o job `infra` em .github/workflows/ci.yml.
+# Regras do ansible-lint para este diretório. Roda por `make infra-validar`, sem
+# a senha do vault.
 
 exclude_paths:
   # Coleções baixadas pelo ansible-galaxy: código de terceiros, versionado fora

@@ -11,7 +11,7 @@ repositório pressupõe esse host provisionado e descreve só o que roda em cima
 o usuário de deploy, o `.env`, o compose (com as labels do Traefik), o backup,
 o cron e os papéis do banco.
 
-A esteira que leva o commit até o ar continua sendo o GitHub Actions
+Publicar as imagens e implantar são manuais
 ([entrega-continua.md](entrega-continua.md)); o Ansible cuida da máquina, não da
 versão que roda nela.
 
@@ -37,14 +37,14 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | quando a **identidade de deploy** muda | `stacktrack` + `sudo` | o usuário `stacktrack`, o `sudoers` restrito, a chave do operador, a chave da esteira, o wrapper `stacktrack-release` |
+| `preparar-host.yml` | quando a **identidade de deploy** muda | `stacktrack` + `sudo` | o usuário `stacktrack`, o `sudoers` restrito, a chave do operador, a chave de deploy, o wrapper `stacktrack-release` |
 | `provisionar.yml` | sempre que quiser | `stacktrack`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, papéis do banco, stack na `borda` |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
 tudo mora no home do `stacktrack` e o acesso ao Docker vem do grupo. Só o outro
-exige privilégio — e é justamente o que o CI não consegue fazer, nem deve: a
-chave da esteira está presa a um comando forçado que executa quatro verbos
-(`sync`, `release`, `backup`, `estado`).
+exige privilégio. A chave de deploy — a que você usaria de um script ou de outra
+máquina — está presa a um comando forçado que executa quatro verbos (`sync`,
+`release`, `backup`, `estado`) e nada de `preparar-host.yml`.
 
 O `preparar-host.yml` entra como `stacktrack` e sobe por `sudo`, em vez de logar
 como root: o `loadbalancer` aplica `PermitRootLogin no`, e um playbook que só
@@ -67,9 +67,9 @@ senha de conta de serviço é senha que alguém guarda num arquivo. Sem senha,
 
 E não é privilégio novo: `stacktrack` está no grupo `docker`, o que nesta
 máquina já equivale a root (`docker run -v /:/host` monta o disco inteiro). O
-sudoers só torna explícito o que o grupo concede. O usuário da **esteira** é
-outro assunto: o acesso dele é restrito a um arquivo, e é ali que o privilégio
-mínimo importa.
+sudoers só torna explícito o que o grupo concede. A **chave de deploy** é outro
+assunto: o acesso dela é restrito a um arquivo, e é ali que o privilégio mínimo
+importa.
 
 Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — que
 é a prova de que ele descreve a máquina, em vez de só saber construí-la.
@@ -86,9 +86,9 @@ cabeçalhos, TLS) está nas **labels do Traefik no `docker-compose.prod.yml`** �
 Traefik as lê pelo Docker, nada é depositado na borda. O contrato está em
 [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
 
-### 🔑 Uma conta, e uma chave que não vale o que a conta vale
+### 🔑 Uma conta, duas chaves com poderes diferentes
 
-A esteira **não tem conta própria**: ela entra no `stacktrack`, e o que a limita
+O deploy **não tem conta própria**: ele entra no `stacktrack`, e o que o limita
 é a chave, não o usuário.
 
 ```
@@ -102,7 +102,7 @@ o pedido vai para `SSH_ORIGINAL_COMMAND`, como dado. `restrict` desliga PTY,
 encaminhamento de porta, de agente e X11.
 
 **O que se abriu mão, para não haver conta separada.** Se um dia essa linha
-perder as opções, a chave da esteira passa a dar shell numa conta do grupo
+perder as opções, a chave de deploy passa a dar shell numa conta do grupo
 `docker` — que nesta máquina é root. Uma conta separada faria o mesmo erro
 terminar num shell sem poder nenhum: falharia fechado, e esta escolha falha
 aberta. A mitigação é o `authorized_keys` ser escrito pelo playbook, e não à
@@ -116,7 +116,7 @@ host, bind mount ou capability nova) antes de instalar. Ele lê
 `SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é dado,
 não código. `scripts/testa-wrapper-de-release.sh` executa o script renderizado
 contra um `docker` de mentira e exige recusa para shell, encadeamento,
-substituição de comando e SHA malformado — e roda no CI.
+substituição de comando e SHA malformado — e roda em `make infra-validar`.
 
 ---
 
@@ -148,8 +148,8 @@ decifraria ao montar as variáveis de qualquer playbook que apontasse para o
 grupo `producao` — inclusive o `preparar-host.yml`, que não usa segredo nenhum,
 e inclusive um `--syntax-check`, que passava a exigir a senha. Quem o carrega
 hoje é uma task `include_vars` no `provisionar.yml`: ela só abre o arquivo
-quando a play roda de verdade. É o que permite ao CI validar o playbook sem
-receber a chave dos segredos de produção.
+quando a play roda de verdade. É o que permite validar o playbook (`make
+infra-validar`) numa máquina que não tem a senha dos segredos de produção.
 
 Pela mesma razão o `ansible.cfg` **não** declara `vault_password_file`: ali ela
 valeria para todo comando ansible do diretório, e um arquivo de senha ausente
@@ -203,12 +203,12 @@ do stacktrack nunca escreve fora do que é dele:
 | **rede `borda`** | criada pelo `loadbalancer`; o compose só a declara `external`, **nunca** a remove |
 | **Docker / firewall / hardening** | do `loadbalancer` — este repo pressupõe tudo isso pronto |
 
-O crontab tem **um dono só**: o Ansible. A esteira apenas confere que a entrada
-existe e falha se não existir. Enquanto os dois escreviam, brigavam: o
-`grep -v 'stacktrack/scripts/backup.sh'` do CI removia a linha do job sem
-remover o comentário `#Ansible:`, o marcador ficava órfão, e o `infra-check`
-seguinte acusava `changed` — reescrevia, e o deploy seguinte reescrevia de
-volta. Um `changed=0` que nunca estabiliza não prova nada.
+O crontab tem **um dono só**: o Ansible. Antes, quando o deploy também mexia
+nele (um `crontab -l | grep -v … | crontab -`), os dois brigavam: o `grep -v`
+removia a linha do job sem remover o comentário `#Ansible:`, o marcador ficava
+órfão, e o `infra-check` seguinte acusava `changed` — reescrevia, e o deploy
+seguinte reescrevia de volta. Um `changed=0` que nunca estabiliza não prova
+nada. Hoje só o `ansible.builtin.cron` toca no bloco marcado.
 
 ---
 
@@ -253,35 +253,22 @@ O critério de aceite é a **reconstrução**, e ele não cabe num teste automat
 5. `curl -sI https://<outro-site-da-borda>` — os vizinhos continuam no ar
 6. `crontab -u stacktrack -l` — a linha do backup do stacktrack
 
-### O CI valida o playbook — sem a senha do vault
-
-O job `infra` da esteira roda `--syntax-check` nos dois playbooks e
-`ansible-lint` no diretório, e o `publicar-imagens` depende dele: playbook que
-não passa não vira release.
-
-Isso não era possível enquanto o arquivo cifrado morava em `group_vars/`. Lá o
-Ansible o carregava ao montar as variáveis do grupo, e o comando morria antes de
-qualquer análise:
-
-```
-ERROR! The vault password file .senha-vault was not found
-```
-
-A saída não foi dar a senha ao CI — seria trocar um problema de validação por um
-de raio de explosão. Foi tirar o segredo do carregamento automático: ele entra
-por `include_vars` no `provisionar.yml`, que só executa numa play de verdade. O
-job confere inclusive que `.senha-vault` **não** existe no runner, para o
-critério não passar por acidente um dia.
-
-O mesmo alvo roda na sua máquina, antes do push:
+### Validar o playbook sem a senha do vault
 
 ```bash
-make infra-validar
+make infra-validar        # ansible-lint + --syntax-check nos dois playbooks + wrapper
 ```
 
-O que continua fora do CI é o que exige o servidor: `--check` e `--diff` contra o
-host, e a prova de idempotência (`changed=0` na segunda aplicação). Esses
-seguem locais, pelo `make infra-check`.
+Isso roda **sem** decifrar o vault, e é de propósito: enquanto o arquivo cifrado
+morava em `group_vars/`, o Ansible o carregava ao montar as variáveis do grupo, e
+até um `--syntax-check` morria com `ERROR! The vault password file .senha-vault
+was not found`. Hoje o segredo entra por `include_vars` no `provisionar.yml`, que
+só executa numa play de verdade — então dá para validar a sintaxe e o lint numa
+máquina que não tem a senha.
+
+O que `make infra-validar` não cobre é o que exige o servidor: `--check`/`--diff`
+contra o host e a prova de idempotência (`changed=0` na segunda aplicação),
+ambos pelo `make infra-check`.
 
 ---
 

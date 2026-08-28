@@ -1,124 +1,100 @@
-# 🔄 Entrega contínua e varredura de vulnerabilidades
+# 🔄 Publicação, varredura e deploy — tudo manual
 
-A esteira testa, varre, publica e implanta. Nada chega ao VPS sem ter passado
-por tudo o que vem antes — e o servidor nunca compila nada.
+**Não há esteira.** O GitHub Actions foi removido. Testar, buildar, publicar as
+imagens e implantar são passos que você roda à mão, na ordem abaixo. O servidor
+continua nunca compilando nada — ele só puxa imagem pronta do GHCR.
 
-O roteiro do servidor está em [producao.md](producao.md).
-
----
-
-## 1️⃣ O caminho de um commit até o ar
-
-```
-push na main
-     │
-     ├─► backend            gofmt · go vet · go test -race · migrations não escrevem dado
-     ├─► frontend           prettier · svelte-check · vitest
-     ├─► e2e                stack completa · Playwright · celular · duas pessoas
-     ├─► seguranca-codigo   govulncheck · npm audit
-     ├─► infra              ansible-lint · syntax-check · wrapper — SEM a senha do vault
-     ├─► imagens            (matriz: api, web, migrations)
-     └─► seguranca-imagens  Trivy por imagem → SARIF → portão em CRITICAL
-                    │
-                    ▼  todos verdes
-            publicar-imagens        GHCR: :latest e :<sha>
-                    │
-                    ▼
-                implantar           SSH → `stacktrack-release release <sha>`
-                    │                     (o wrapper faz backup, pull, troca)
-                    │                     → confere /api/health e /
-                    ▼
-        https://stacktrack.caetasousa.tech
-```
-
-### O job `infra`, e por que ele não tem a senha do vault
-
-A infraestrutura é código e passa pela mesma esteira: `--syntax-check` nos dois
-playbooks e `ansible-lint` no diretório, com `publicar-imagens` dependendo dele.
-
-O que o job **não** tem é a chave dos segredos de produção, e é por isso que ele
-existe nesta forma. Enquanto o arquivo cifrado morava em `group_vars/producao/`,
-o Ansible o decifrava ao montar as variáveis do grupo — validar o playbook aqui
-exigiria dar a senha do vault ao CI, que é justamente o raio de explosão que se
-está tentando reduzir. Hoje o vault entra por uma task `include_vars` no
-`provisionar.yml`, que só abre quando a play roda de verdade.
-
-O job confere que `.senha-vault` não existe no runner antes de validar: sem
-isso, um dia em que a senha vazasse para o ambiente faria o critério passar por
-acidente. Ver [infraestrutura.md](infraestrutura.md).
-
-### O deploy manda quatro verbos, e não comandos
-
-O job `implantar` não abre shell no servidor. A chave da esteira está no
-`authorized_keys` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
-o que o runner escreve chega em `SSH_ORIGINAL_COMMAND` e o wrapper decide se
-aquilo é `sync`, `release <sha>`, `backup` ou `estado` — ou nada.
-
-Antes, o job montava linhas de comando no runner e as executava do outro lado.
-Quem tivesse a chave tinha a máquina — que roda a borda Traefik e os outros sites
-do VPS.
-
-Duas consequências que valem conhecer:
-
-- **A esteira escreve um arquivo, e só um: o `docker-compose.prod.yml`**, pelo
-  verbo `sync`, que o valida contra uma allowlist (imagem do projeto ou
-  Postgres; sem `privileged`, sem namespace do host, sem bind mount, sem
-  capability nova) antes de instalar. O `.env` e os papéis do banco são do
-  Ansible/vault, e o `backup.sh` — que o `release` **executa** — também: a
-  esteira só confere o sha256 dele e **falha** se divergir do commit, com a
-  instrução `make infra-apply`.
-- **O job declara `environment: production`.** É lá que ficam os segredos do
-  VPS, e é o que impede um job de pull request de alcançá-los: quem não declara
-  o environment não enxerga os segredos dele.
-
-### Por que o cancelamento automático não vale para a main
-
-`concurrency.cancel-in-progress` é de **nível de workflow**: ele alcança todos os
-jobs do run anterior, inclusive o `implantar`. Um segundo push durante o deploy
-mataria o job no meio — entre o `pull` e o `up -d`, deixando a stack em versões
-misturadas, ou no meio da reescrita do crontab, que é um
-`crontab -l | ... | crontab -` e truncaria o agendamento do backup sem avisar.
-
-Por isso o cancelamento é ligado só em pull request:
-
-```yaml
-cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-```
-
-### Por que o VPS só faz `pull`, nunca `build`
-
-Compilar Go e rodar `npm ci` no servidor consome a RAM que a aplicação — e a
-borda Traefik e os outros sites do VPS — está usando. Além disso, build no
-servidor significa que o artefato em produção **nunca foi testado**: ele é uma
-segunda compilação, feita noutra máquina, em outro momento.
-
-### Por que a tag é o SHA do commit
-
-O deploy roda `IMAGE_TAG=<sha> docker compose pull`. Fixar no SHA garante que o
-servidor sobe **exatamente** o artefato que passou nos testes — `latest` pode ter
-mudado entre a publicação e o pull. É também o que torna o rollback trivial: uma
-linha no `.env`.
-
-### Por que o cron não implanta
-
-A varredura semanal (`schedule`) roda sem commit novo. Reimplantar produção
-sozinho toda segunda-feira não é o objetivo — ela existe para descobrir CVE
-publicada numa semana sem push. Por isso `publicar-imagens` e `implantar` exigem
-`github.event_name == 'push' || workflow_dispatch'`.
-
-### Por que push só de documentação não roda nada
-
-`paths-ignore` com `**.md` e `docs/**`. São minutos de runner para compilar e
-varrer exatamente o mesmo código de antes. É seguro porque nenhum markdown é
-entrada de build.
-
-Consequência: push só de documentação também não implanta — e está certo, já que
-o deploy só faz `sync` + `release <sha>` (o compose e o código não mudaram).
-Para reimplantar sem commit novo, existe o `workflow_dispatch`.
+O roteiro do servidor está em [producao.md](producao.md); o do host, em
+[infraestrutura.md](infraestrutura.md).
 
 ---
 
-## 2️⃣ Varredura de vulnerabilidades
+## 1️⃣ Antes de publicar: testar
+
+```bash
+make test                 # backend rápido + frontend
+cd frontend && npm run check   # tipos (svelte-check)
+cd backend  && make test       # com -race, o detector de corrida
+cd backend  && make test-integracao   # repositórios contra Postgres real (Docker)
+make test-e2e             # Playwright sobre a stack (exige `make run` no ar)
+```
+
+Migration nova: além dos testes de integração, confira à mão que ela **não
+escreve dado** (a regra do [CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados)) —
+não há mais automação para isso:
+
+```bash
+grep -rniE '^[[:space:]]*(INSERT|UPDATE|DELETE)[[:space:]]' backend/migrations/
+# nada = ok. Achou algo → mova o backfill para um comando do domínio.
+```
+
+E valide o Ansible antes de aplicar:
+
+```bash
+make infra-validar        # ansible-lint + --syntax-check nos dois playbooks
+```
+
+---
+
+## 2️⃣ Publicar as imagens no GHCR
+
+Três imagens: `stacktrack-api`, `stacktrack-web`, `stacktrack-migrations`. A do
+`web` leva `PUBLIC_API_URL=/api` embutido no build.
+
+```bash
+sha=$(git rev-parse HEAD)
+echo "$GHCR_TOKEN" | docker login ghcr.io -u caetasousa --password-stdin
+
+docker build -t ghcr.io/caetasousa/stacktrack-api:$sha        -t ghcr.io/caetasousa/stacktrack-api:latest        -f backend/Dockerfile.prod       backend
+docker build -t ghcr.io/caetasousa/stacktrack-web:$sha        -t ghcr.io/caetasousa/stacktrack-web:latest        -f frontend/Dockerfile.prod --build-arg PUBLIC_API_URL=/api frontend
+docker build -t ghcr.io/caetasousa/stacktrack-migrations:$sha -t ghcr.io/caetasousa/stacktrack-migrations:latest -f backend/Dockerfile.migrations backend
+
+for img in stacktrack-api stacktrack-web stacktrack-migrations; do
+  docker push --all-tags ghcr.io/caetasousa/$img
+done
+```
+
+O token só precisa de `write:packages`. Os pacotes nascem privados — ou você os
+torna públicos (Packages → Package settings), ou o servidor faz `docker login`
+(o `make infra-apply` faz, se `vault_ghcr_token` estiver no vault).
+
+**Fixe sempre a tag no SHA.** É o que garante que o servidor sobe exatamente o
+que você testou, e é o que torna o rollback uma linha no `.env`.
+
+---
+
+## 3️⃣ Implantar
+
+```bash
+# config (compose, backup.sh, papéis do banco) — só quando esses mudam:
+make infra-apply
+
+# o deploy em si:
+ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release $sha"
+```
+
+O wrapper (`stacktrack-release`, instalado pelo Ansible) faz, nessa ordem:
+backup pré-release, `pull`, para `web` e `api` juntas, `up -d`, limpa imagens
+órfãs. Depois, confira:
+
+```bash
+curl -fsS https://stacktrack.caetasousa.tech/api/health
+curl -sI  https://stacktrack.caetasousa.tech | head -1
+```
+
+E o teste que vale mais que os `curl`: **cadastro → login → criar quadro → F5**
+(exercita o cookie `__Host-` de ponta a ponta).
+
+O wrapper é a fronteira do que uma chave de deploy alcança —
+`scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
+substituição de comando, SHA malformado, allowlist do `sync`) e roda em
+`make infra-validar`.
+
+---
+
+## 4️⃣ Varredura de vulnerabilidades
+
+Rode periodicamente (uma dependência não fica insegura só quando você commita).
 
 ### O modelo mental: a aplicação tem três camadas
 
@@ -134,46 +110,44 @@ Rodar só uma dá a sensação de cobertura sem a cobertura.
 
 ### 🔷 govulncheck — o diferencial é a *alcançabilidade*
 
+```bash
+cd backend
+go install golang.org/x/vuln/cmd/govulncheck@latest
+govulncheck ./...
+```
+
 Ele não lista CVE que existe no `go.mod`: lista a que o **seu código de fato
 alcança**, com o rastro de chamadas. Isso separa "temos essa dependência" de
-"temos esse risco".
+"temos esse risco". Achado de *module* (não alcançável) não é problema.
 
-A versão é **fixa** (`@v1.6.0`), e não `@latest`: com latest, uma release nova da
-ferramenta reprova um commit que não mexeu em nada, e o build de ontem deixa de
-ser reproduzível hoje. A varredura semanal já garante que CVEs novas apareçam.
+### 🟠 npm audit
 
-### 🟠 npm audit — por que roda duas vezes
-
-```yaml
-- run: npm audit --omit=dev --audit-level=high   # trava o CI
-- run: npm audit || true                          # relatório, não trava
+```bash
+cd frontend
+npm audit --omit=dev --audit-level=high   # o que vai para produção
+npm audit                                  # relatório completo
 ```
 
 Dependência de **desenvolvimento** não vai para produção: uma CVE no Vite não é
-risco do que está no ar. Travar nisso transformaria o portão em ruído que se
-aprende a ignorar. Mas o relatório completo continua aparecendo no log, porque
-saber é diferente de barrar.
+risco do que está no ar. Mas o relatório completo vale a leitura — saber é
+diferente de barrar.
 
 ### 🐳 Trivy — o que os outros dois não veem
 
+```bash
+for img in stacktrack-api stacktrack-web stacktrack-migrations; do
+  trivy image --severity HIGH,CRITICAL --ignorefile .trivyignore ghcr.io/caetasousa/$img:latest
+done
+```
+
 O binário Go pode estar limpo e a imagem carregar um OpenSSL com CVE crítica. O
-Trivy varre as **três** imagens que vão para produção, inclusive a de migrations
-— ela roda no VPS com acesso ao banco.
-
-Três passos, nessa ordem:
-
-1. **relatório** (HIGH + CRITICAL, não trava) — HIGH em imagem base costuma não
-   ter correção disponível;
-2. **SARIF** para a aba Security — no log o achado se perde no scroll e some no
-   run seguinte; ali ele ganha histórico e data de aparecimento. `category`
-   distinta por imagem, senão a última perna da matriz sobrescreve as anteriores;
-3. **portão** (só CRITICAL, trava). Por último, para que relatório e SARIF subam
-   mesmo quando ele reprova — é justamente na execução que falha que o registro
-   importa mais.
+Trivy varre as três — inclusive a de migrations, que roda no VPS com acesso ao
+banco. `.trivyignore` guarda os achados aceitos conscientemente (HIGH em imagem
+base costuma não ter correção).
 
 ---
 
-## 3️⃣ Casos reais deste projeto
+## 5️⃣ Casos reais deste projeto
 
 ### Caso 1 — sete CVEs da stdlib do Go, achadas antes do primeiro deploy
 
@@ -189,9 +163,7 @@ go get golang.org/x/text@v0.39.0
 → "Your code is affected by 0 vulnerabilities."
 ```
 
-A tentação era marcar o passo como `continue-on-error` para a esteira ficar
-verde. Isso teria publicado as sete em produção — que é exatamente o que o passo
-existe para impedir.
+A tentação era ignorar o passo. Isso teria publicado as sete em produção.
 
 ### Caso 1b — as mesmas sete viraram oito, e a correção foi a mesma linha
 
@@ -214,7 +186,7 @@ está no nosso grafo pelo **argon2** (hash de senha), `blake2b` e `sha3` — o
 `openpgp` não entra no binário, e por isso o govulncheck o classifica como
 *module*, não como alcançável. Não há versão que resolva: a correção é não
 importar aquele subpacote, o que já é o caso. O `exit 0` do govulncheck
-confirma — achado de módulo não reprova a esteira.
+confirma — achado de módulo não reprova.
 
 A lição que se repete: **o rastro de chamadas assusta mais que a causa**. Ler
 "seu ListenAndServe alcança um bug de TLS" sugere um problema de arquitetura;
@@ -233,8 +205,7 @@ correção é `rm -rf` no Dockerfile.
 **Cuidado:** o Flyway resolve os plugins por `ServiceLoader` e os carrega
 avidamente — remover o driver errado derruba o boot com `ClassNotFoundException`
 mesmo sem uso nenhum daquele banco. O teste que vale é `flyway migrate` contra um
-Postgres de verdade. Naquela etapa, o ensaio aplicou as 13 migrations que
-existiam com os drivers removidos.
+Postgres de verdade.
 
 ### Caso 3 — o bug que só apareceu porque o script rodou
 
@@ -243,7 +214,7 @@ Não é CVE, mas é o mesmo tipo de lição. O `backup.sh` empacotava os anexos 
 opção. E usava o `-z` do tar, que chama o gzip **sem** `-n` e carimba a data no
 cabeçalho.
 
-O primeiro quebrava o passo em voz alta. O segundo não quebraria nada: o backup
+O primeiro quebrava em voz alta. O segundo não quebraria nada: o backup
 funcionaria, mas cada execução geraria bytes diferentes para o mesmo conteúdo, a
 deduplicação nunca acertaria, e a descoberta viria meses depois na conta do
 armazenamento.
@@ -252,79 +223,41 @@ Nenhuma revisão de código pegaria os dois. Rodar pegou.
 
 ---
 
-## 4️⃣ Ficou vermelho. E agora?
+## 6️⃣ Achou algo. E agora?
 
-**`govulncheck`** — leia o rastro de chamadas que ele imprime. Se a função
-vulnerável for alcançável, atualize a dependência (ou o toolchain, quando for
-stdlib). Se não for, ele não teria reclamado: alcançabilidade é o critério dele.
+**`govulncheck`** — leia o rastro de chamadas. Se a função vulnerável for
+alcançável, atualize a dependência (ou o toolchain, quando for stdlib). Se não
+for, ele não teria reclamado: alcançabilidade é o critério dele.
 
-**`npm audit` no passo que trava** — é dependência de produção. `npm audit fix`,
-e se exigir major, avalie a mudança. Se a correção não existir ainda, a decisão
-de seguir é consciente e merece registro.
+**`npm audit --omit=dev`** — é dependência de produção. `npm audit fix`, e se
+exigir major, avalie a mudança. Se a correção não existir ainda, a decisão de
+seguir é consciente e merece registro.
 
 **Trivy em CRITICAL** — normalmente é a imagem base. Suba a versão do Alpine, do
 Node ou do Postgres. Se não houver correção publicada, a saída é trocar de base
-ou remover o pacote (caso 2).
+ou remover o pacote (caso 2), e registrar no `.trivyignore` o que ficou.
 
-**Deploy vermelho no passo de verificação** — a aplicação não respondeu em 60s.
-`docker compose logs api` no VPS. Costuma ser migration que falhou ou `.env`
-incompleto.
-
----
-
-## 5️⃣ As proteções chatas do workflow
-
-**`timeout-minutes` em todos os jobs.** Um `pull` travado seguraria o runner até
-o limite de 6 horas do GitHub.
-
-**`permissions: contents: read` no topo.** Menor privilégio por padrão; só
-`publicar-imagens` (packages: write) e `seguranca-imagens` (security-events:
-write) elevam, e só o que precisam.
-
-**`VPS_KNOWN_HOSTS` obrigatório.** A alternativa preguiçosa é um `ssh-keyscan` na
-hora do deploy — que aceita a identidade de quem responder e entrega a chave de
-deploy junto.
-
-**As actions locais em `.github/actions/`.** O Docker Hub limita pull anônimo por
-IP e os runners compartilham IP: quando a cota estoura, o "Booting builder" do
-buildx morre sem explicação. Autenticar (quando há segredo) e pré-baixar com
-retentativa resolve. Sem os segredos, as actions não fazem nada — o repositório
-funciona para quem clonar sem configurar nada.
-
-**O deploy sem segredos não falha, só não faz nada.** `VPS_HOST` vazio marca o
-job como ignorado. O repositório precisa funcionar antes de o VPS existir.
-
-**A esteira não toca no proxy.** O roteamento de `stacktrack.caetasousa.tech`
-está nas labels do `docker-compose.prod.yml`; o Traefik do `loadbalancer` as lê
-pelo Docker. O deploy daqui só sobe os containers na rede `borda`.
+**Deploy que não responde** — a aplicação não respondeu no `curl` pós-release.
+`docker compose -f docker-compose.prod.yml logs api` no VPS. Costuma ser
+migration que falhou ou `.env` incompleto.
 
 ---
 
-## ⚠️ O que esta esteira **não** cobre
+## 7️⃣ O que fica de fora, e você precisa saber
 
-**Arrastar com mouse no Playwright.** A suíte cobre a colaboração em duas
-sessões, a reconexão, o modal ao vivo, o link público e os gestos de toque. O
-caso que ainda falta é pegar um card com mouse, soltá-lo em outra coluna e
-verificar a mudança na segunda sessão.
-
-**Recuperação real de desastre.** O workflow executa o script de backup antes
-do deploy e confere o cron, mas não restaura automaticamente um dump nem prova
-que os anexos e o banco formam um conjunto recuperável. O ensaio de restauração
-continua sendo operação manual documentada em `producao.md`.
-
-**Dependabot.** Não configurado. Hoje a atualização de dependência é manual, e
-quem avisa é a varredura semanal.
-
-**Análise estática de segurança do código** (CodeQL, gosec). A aba Security
-recebe só os achados do Trivy.
+- **Regressão automática.** Sem CI, nada roda os testes por você antes de um
+  merge — a disciplina é sua.
+- **Recuperação de desastre.** O `release` tira um backup, mas ninguém restaura
+  um dump para provar que banco + anexos formam um conjunto recuperável. O
+  ensaio de restauração é manual, em `producao.md`.
+- **Dependabot / atualização de dependência.** Manual; quem avisa é você rodando
+  a §4.
+- **Análise estática de segurança** (CodeQL, gosec). Não configurada.
 
 ---
 
 ## 📚 Para estudar
 
-- [govulncheck](https://go.dev/blog/govulncheck) — por que alcançabilidade muda o
-  jogo
+- [govulncheck](https://go.dev/blog/govulncheck) — por que alcançabilidade muda o jogo
 - [Trivy](https://trivy.dev/latest/docs/) — varredura de imagem
-- [SARIF no GitHub](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning)
-- [GitHub Actions — workflow syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
-- [OpenSSF — Security Scorecard](https://securityscorecards.dev/)
+- [docker build / GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)

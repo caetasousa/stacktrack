@@ -12,7 +12,7 @@
 O stacktrack já tem uma fundação técnica acima da média para um projeto desse
 porte. Há separação de domínio e infraestrutura, autenticação com sessão,
 autorização por recurso, colaboração em tempo real, histórico de eventos,
-anexos, testes de integração, imagens de produção, CI, borda Traefik, backup e
+anexos, testes de integração, imagens de produção, borda Traefik, backup e
 provisionamento com Ansible.
 
 Os melhores pontos da base atual são:
@@ -42,7 +42,7 @@ Os melhores pontos da base atual são:
 | Organização | etiquetas, prazos, checklists, responsáveis e filtros |
 | Conteúdo | comentários Markdown, anexos, histórico e auditoria |
 | Compartilhamento | membros do quadro e link público de acompanhamento |
-| Engenharia | testes Go/TypeScript/E2E, Testcontainers, Compose, CI, imagens, borda Traefik e Ansible |
+| Engenharia | testes Go/TypeScript/E2E, Testcontainers, Compose, imagens, borda Traefik e Ansible |
 
 O projeto, porém, **ainda não deve ser tratado como pronto para dados valiosos
 em produção**. Os riscos que mudam essa conclusão não são falta de

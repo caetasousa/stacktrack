@@ -5,8 +5,8 @@
 #
 # O playbook JÁ conecta como `{{ usuario_app }}` (ver inventario/producao.yml),
 # então nenhuma task aqui usa `become`: os arquivos moram no home dele e o
-# acesso ao Docker vem do grupo. É exatamente o mesmo privilégio que o job
-# `implantar` da esteira já usa — esta role não amplia o raio de explosão.
+# acesso ao Docker vem do grupo. É exatamente o mesmo privilégio que a chave de
+# deploy já tem — esta role não amplia o raio de explosão.
 
 - name: diretórios da stack, dos scripts e dos backups
   ansible.builtin.file:
@@ -108,7 +108,7 @@
 
 # A VERSÃO que está no ar, e não a do `imagem_tag`.
 #
-# O `.env` gravava `latest` fixo, e a esteira passava o SHA por variável de
+# O `.env` gravava `latest` fixo, e o `release` passa o SHA por variável de
 # ambiente no momento do deploy, sem tocar no arquivo. A consequência só
 # apareceu quando um `infra-apply` recriou os containers: o Compose leu o
 # `.env`, subiu `latest` — que no disco do servidor era de três dias antes,
@@ -180,8 +180,7 @@
 # --- operação ----------------------------------------------------------------
 
 # `name:` faz o módulo gerenciar SÓ este bloco do crontab, preservando as outras
-# entradas do usuário. É a garantia que o `crontab -l | grep -v | crontab -` da
-# esteira tem por sorte, não por desenho.
+# entradas do usuário — sem reconstruir o arquivo inteiro.
 - name: agenda o backup diário do banco e dos anexos
   ansible.builtin.cron:
     name: backup do stacktrack
@@ -195,9 +194,9 @@
 # `pull: missing` puxa só o que falta: `always` marcaria a task como alterada a
 # cada execução e destruiria o `changed=0` que é o critério de aceite da fase.
 #
-# A esteira continua dona dos deploys de versão — ela fixa IMAGE_TAG no SHA do
-# commit. Aqui a stack sobe na tag do .env, que é o que faz um servidor vazio
-# virar aplicação no ar sem esperar o próximo push.
+# O deploy de versão é o `stacktrack-release release <sha>`, que fixa IMAGE_TAG
+# no SHA. Aqui a stack sobe na tag do .env, que é o que faz um servidor vazio
+# virar aplicação no ar sem um deploy explícito.
 - name: verifica se a stack já existe no servidor
   ansible.builtin.stat:
     path: '{{ pasta_stack }}/docker-compose.prod.yml'

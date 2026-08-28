@@ -43,9 +43,9 @@ Não usar nas migrations:
 - `UPDATE`, `INSERT` ou `DELETE` — **migration não escreve dado**. Todo backfill
   precisa decidir com que valor as linhas antigas ficam, e essa decisão é do
   domínio; em SQL ela vira uma segunda fonte da verdade, sem teste e sem
-  conserto, porque migration aplicada não se corrige. A partir da fase 8 o CI
-  reprova (job `backend`, passo "migrations não podem escrever dado"); até lá a
-  regra vale igual, só não há quem a faça cumprir sozinha.
+  conserto, porque migration aplicada não se corrige. A conferência é humana —
+  não há automação que a faça cumprir. O comando que a checava está preservado
+  em `docs/entrega-continua.md`, para rodar à mão numa revisão de migration.
 
 ### Migration que aperta exige dois deploys
 
@@ -92,15 +92,13 @@ o `make infra-apply` é quem aplica.
   gerencia só o bloco marcado
 - nunca remover a rede `borda`, que é compartilhada com o `loadbalancer`
 
-**A esteira escreve um arquivo no servidor: o `docker-compose.prod.yml`**, e
-só ele, pelo verbo `sync` do comando forçado (`/usr/local/bin/stacktrack-release`).
-O `sync` valida o compose contra uma allowlist (imagem do projeto ou Postgres;
-sem `privileged`, sem namespace do host, sem bind mount, sem capability fora das
-cinco do Postgres) antes de instalar — uma chave da esteira roubada não escapa
-dela. O `.env`, o `backup.sh` (que o `release` executa) e os papéis do banco
-continuam vindo **só do Ansible/vault**; o `backup.sh` do servidor é conferido
-por sha256 e o deploy falha se divergir do commit. Nunca dar `scp` livre nem a
-senha do vault ao CI.
+**Não há esteira.** O GitHub Actions foi removido: testar, buildar, publicar as
+imagens no GHCR e implantar são passos manuais — ver
+[docs/entrega-continua.md](docs/entrega-continua.md).
+
+O deploy é `stacktrack-release release <sha>` (o wrapper faz backup, `pull`,
+para web e api, `up -d`). O `docker-compose.prod.yml` e o `backup.sh` são do
+Ansible (`make infra-apply`).
 
 Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
 `POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:
@@ -119,13 +117,13 @@ Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas 
 
 ### Estrutura de documentação
 
-O `README.md` é enxuto — cartão de visitas: badges, stack resumida, quick start, tabela de rotas, comandos de teste, e links para `docs/`. Não crescer o README com conteúdo detalhado; extrair para arquivos dedicados em `docs/`:
+O `README.md` é enxuto — cartão de visitas: stack resumida, quick start, tabela de rotas, comandos de teste, e links para `docs/`. Não crescer o README com conteúdo detalhado; extrair para arquivos dedicados em `docs/`:
 
 - `docs/tecnologias.md` — guia de estudo do stack (o que é, por que está no projeto, fontes oficiais para aprofundar)
 - `docs/testes.md` — instruções detalhadas de cada camada de teste (build tags, Testcontainers, Playwright)
 - `docs/regra-de-negocio.md` — modelo de negócio
 - `docs/producao.md` — arquitetura no VPS, primeiro deploy, backup e operação
-- `docs/entrega-continua.md` — CI, segurança de dependências, publicação e deploy
+- `docs/entrega-continua.md` — publicação, varredura de vulnerabilidades e deploy, todos manuais
 
 O `PLANO.md` começa pelo estado atual das fases e depois preserva o roteiro e as
 retrospectivas. Backlog de produto fica nele; procedimento operacional fica em
@@ -179,5 +177,5 @@ pronto — quantos commits, o que entrou — e parar por aí. Quem decide se e q
 publicar é o usuário.
 
 Isso vale mesmo quando o push parece a consequência natural do que foi pedido
-(implantar, ver a esteira rodar, validar em produção). Nesses casos, descrever o
-que aconteceria e deixar a decisão de lado do usuário.
+(publicar, implantar, validar em produção). Nesses casos, descrever o que
+aconteceria e deixar a decisão de lado do usuário.

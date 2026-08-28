@@ -2,27 +2,28 @@
 # ATENÇÃO: arquivo gerado pelo Ansible (roles/usuario_app). Editar no
 # servidor não adianta — o próximo `make infra-preparar` sobrescreve.
 #
-# O ÚNICO comando que a esteira consegue executar neste servidor.
+# O ÚNICO comando que a chave de deploy consegue executar neste servidor.
 #
-# A chave do CI está no authorized_keys do usuário da aplicação com
-# `command="..."` apontando para cá e com `restrict`: não há shell, não há scp,
-# não há port forwarding, não há agente. A restrição é da CHAVE — a mesma conta
-# aceita a chave do operador sem limite nenhum. O que o cliente pediu chega em SSH_ORIGINAL_COMMAND, e este script
-# decide se aquilo é uma das operações de release — ou nada.
+# Essa chave está no authorized_keys do usuário da aplicação com `command="..."`
+# apontando para cá e com `restrict`: não há shell, não há scp, não há port
+# forwarding, não há agente. A restrição é da CHAVE — a mesma conta aceita a
+# chave do operador sem limite nenhum. O que o cliente pediu chega em
+# SSH_ORIGINAL_COMMAND, e este script decide se aquilo é uma das operações de
+# release — ou nada.
 #
-# Por que isso importa: o job de deploy anterior abria um shell no servidor e
-# mandava linhas de comando montadas no runner. Quem tivesse a chave tinha a
-# máquina — que roda a borda Traefik e os outros sites do VPS. Aqui, quem tem a
-# chave tem quatro verbos, e o único que escreve arquivo (`sync`) só aceita o
-# `docker-compose.prod.yml` e o passa por uma allowlist antes de instalar.
+# Por que isso importa: se o deploy abrisse um shell e mandasse linhas de
+# comando, quem tivesse a chave teria a máquina — que roda a borda Traefik e os
+# outros sites do VPS. Aqui, quem tem a chave tem quatro verbos, e o único que
+# escreve arquivo (`sync`) só aceita o `docker-compose.prod.yml` e o passa por
+# uma allowlist antes de instalar.
 #
 # O script serve os DOIS caminhos de invocação, de propósito:
 #
 #   - chamado por SSH com comando forçado → lê SSH_ORIGINAL_COMMAND
 #   - chamado direto, com argumentos      → usa "$@"
 #
-# É o que permite trocar o usuário da esteira sem trocar o job da esteira no
-# mesmo instante: a linha que o CI manda é a mesma nos dois mundos.
+# É o que permite trocar a chave de deploy sem trocar quem a usa no mesmo
+# instante: a linha é a mesma nos dois mundos.
 
 set -euo pipefail
 
@@ -58,8 +59,8 @@ fi
 #   sem comando forçado   o shell do usuário resolve `stacktrack-release` pelo
 #                         PATH e o nome vira o $0, não um argumento
 #
-# É o que permite trocar o usuário e a chave da esteira sem trocar o job da
-# esteira no mesmo instante.
+# É o que permite trocar a chave de deploy sem trocar quem a usa no mesmo
+# instante.
 if [ "$(basename -- "${argumentos[0]:-}")" = "stacktrack-release" ]; then
 	argumentos=("${argumentos[@]:1}")
 fi
@@ -82,7 +83,7 @@ fi
 
 # --- quem executa ------------------------------------------------------------
 #
-# A esteira entra JÁ como o usuário da aplicação: a chave dela está no
+# A chave de deploy entra JÁ como o usuário da aplicação: ela está no
 # authorized_keys dessa conta, presa a este arquivo. Então normalmente não há
 # troca de usuário nenhuma aqui.
 #
@@ -117,9 +118,9 @@ preVoo() {
 
 case "$verbo" in
 release)
-	# `latest` serve ao provisionamento manual; a esteira sempre manda o SHA,
-	# que é o que faz o servidor subir EXATAMENTE o artefato testado, e não um
-	# `latest` que pode ter mudado no meio do caminho.
+	# `latest` serve a um provisionamento rápido; para um deploy de verdade mande
+	# o SHA, que é o que faz o servidor subir EXATAMENTE o artefato testado, e
+	# não um `latest` que pode ter mudado no meio do caminho.
 	if [ "$alvo" != "latest" ] && ! [[ "$alvo" =~ ^[0-9a-f]{7,40}$ ]]; then
 		recusa "referência de release inválida: ${alvo:-<vazia>}"
 	fi
@@ -144,14 +145,15 @@ release)
 	;;
 
 sync)
-	# A esteira entrega SÓ o docker-compose.prod.yml, pelo stdin. É o único
-	# arquivo que ela escreve, e não tem segredo — o .env, o backup.sh e os
-	# papéis do banco continuam vindo só do Ansible.
+	# Instala SÓ o docker-compose.prod.yml, recebido pelo stdin — um atalho para
+	# um ajuste pontual sem uma execução completa do playbook. É o único verbo
+	# que escreve arquivo, e o compose não tem segredo: o .env, o backup.sh e os
+	# papéis do banco continuam vindo só do `make infra-apply`.
 	#
 	# O compose É código: pode montar o disco do host, subir container
 	# privilegiado, trocar a imagem. Por isso passa por uma allowlist contra a
 	# FORMA CANÔNICA (`docker compose config`, que resolve variáveis e defaults)
-	# antes de ser instalado. Uma chave da esteira roubada não escapa dela.
+	# antes de ser instalado. Uma chave de deploy roubada não escapa dela.
 	[ -z "$alvo" ] || recusa "sync não recebe argumento"
 	[ -f "$PASTA_STACK/.env" ] || { echo "sync: host sem .env — rode make infra-apply" >&2; exit 1; }
 	command -v python3 >/dev/null || recusa "sync: python3 ausente no servidor"
@@ -212,12 +214,9 @@ estado)
 	[ -z "$alvo" ] || recusa "estado não recebe argumento"
 	$COMPOSE ps
 
-	# As impressões digitais dos arquivos da stack.
-	#
-	# O `docker-compose.prod.yml` a esteira entrega pelo `sync` a cada deploy, então
-	# o hash dele aqui é só informativo. O `backup.sh` é do Ansible, e a esteira
-	# compara: mudou o backup.sh sem `make infra-apply` e o deploy falha, em vez de
-	# rodar código de backup que não é o do commit.
+	# As impressões digitais dos arquivos da stack, para comparar com o
+	# repositório antes de um `release` — confere que o servidor está no estado
+	# do commit que você vai implantar.
 	for arquivo in \
 		"$PASTA_STACK/docker-compose.prod.yml" \
 		"$PASTA_SCRIPTS/backup.sh"; do

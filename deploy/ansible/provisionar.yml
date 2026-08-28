@@ -11,8 +11,8 @@
 # de terminar em `changed=0`.
 #
 # Conecta como `stacktrack` e NÃO usa sudo em lugar nenhum: tudo mora no home
-# dele e o acesso ao Docker vem do grupo. É o mesmo privilégio que a esteira já
-# tem, o que significa que este playbook não amplia o raio de explosão de nada.
+# dele e o acesso ao Docker vem do grupo. É o mesmo privilégio que a chave de
+# deploy já tem, o que significa que este playbook não amplia o raio de explosão.
 #
 # O que exige root — criar o usuário, o wrapper, as chaves — está em
 # `preparar-host.yml`. O host em si (Docker, rede `borda`, firewall, TLS) é do
@@ -37,8 +37,8 @@
     # QUALQUER playbook que aponte para este grupo — inclusive o
     # preparar-host.yml, que não usa segredo nenhum. E tanto group_vars quanto
     # `vars_files` são resolvidos antes de a play rodar, o que fazia até um
-    # `--syntax-check` exigir a senha do vault. Era o que impedia o CI de validar
-    # este diretório sem receber a chave dos segredos de produção.
+    # `--syntax-check` exigir a senha do vault — impossível validar o playbook
+    # (`make infra-validar`) numa máquina que não tem a senha.
     #
     # `include_vars` é uma TASK: só abre o arquivo quando a play executa de
     # verdade. Quem analisa o playbook não toca no cifrado; quem provisiona

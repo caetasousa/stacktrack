@@ -33,7 +33,9 @@ A base tecnológica reaproveitou decisões que já eram conhecidas:
 - Docker Compose em desenvolvimento e produção;
 - Caddy como proxy e terminador TLS (depois substituído pela borda Traefik do
   projeto `loadbalancer` — ver [producao.md](producao.md));
-- GitHub Actions e, posteriormente, Ansible.
+- GitHub Actions e, posteriormente, Ansible (a esteira foi removida em ago/2026
+  — publicação e deploy voltaram a ser manuais; ver
+  [entrega-continua.md](entrega-continua.md)).
 
 O produto cresceu até permitir que várias pessoas trabalhassem no mesmo quadro,
 com presença, eventos em tempo real, reconexão, comentários, auditoria, anexos,
@@ -129,7 +131,8 @@ manual das rotas.
 - O host recebe imagens prontas; nunca compila o projeto.
 - PostgreSQL e anexos permanecem em volumes locais enquanto o perfil suportado
   for uma única instância.
-- Ansible descreve configuração persistente; a esteira promove versões.
+- Ansible descreve a configuração persistente; a versão em produção é promovida
+  à mão (`stacktrack-release release <sha>`).
 
 ---
 
@@ -249,7 +252,7 @@ recuperação, observabilidade e capacidade estiverem prontas.
 - [regra-de-negocio.md](regra-de-negocio.md): comportamento atual do produto.
 - [producao.md](producao.md): topologia, deploy, backup e operação.
 - [infraestrutura.md](infraestrutura.md): Ansible e reconstrução do host.
-- [entrega-continua.md](entrega-continua.md): CI, imagens e deploy.
+- [entrega-continua.md](entrega-continua.md): publicar imagens, varrer e implantar (manual).
 
 Quando uma etapa do roadmap mudar o comportamento real, esses documentos devem
 ser atualizados no mesmo conjunto de alterações. O histórico, por outro lado,

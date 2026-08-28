@@ -5,8 +5,6 @@ mesmo quadro e todas veem na hora, sem recarregar a página.
 
 🔗 **[stacktrack.caetasousa.tech](https://stacktrack.caetasousa.tech)**
 
-[![CI](https://github.com/caetasousa/stacktrack/actions/workflows/ci.yml/badge.svg)](https://github.com/caetasousa/stacktrack/actions/workflows/ci.yml)
-
 Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado entre
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
 [PLANO.md](PLANO.md).
@@ -24,7 +22,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 |---|---|
 | [docs/producao.md](docs/producao.md) | arquitetura no ar, primeiro deploy, backup e operação |
 | [docs/infraestrutura.md](docs/infraestrutura.md) | o servidor como código: playbooks, segredos e recomeço do zero |
-| [docs/entrega-continua.md](docs/entrega-continua.md) | a esteira, a varredura de vulnerabilidades e o deploy automático |
+| [docs/entrega-continua.md](docs/entrega-continua.md) | publicar as imagens, varrer vulnerabilidades e implantar — tudo manual |
 | [docs/tecnologias.md](docs/tecnologias.md) | o stack peça por peça: o que é, por que está aqui, onde estudar |
 | [docs/regra-de-negocio.md](docs/regra-de-negocio.md) | o que o produto faz — papéis, convites, cards e ordenação |
 | [docs/testes.md](docs/testes.md) | as camadas de teste, o que cada uma cobre e o que não cobre |
@@ -39,7 +37,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) |
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
-| Produção | imagens no GHCR pelo GitHub Actions · deploy contínuo por SSH · borda Traefik + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
+| Produção | imagens no GHCR (build e push manuais) · deploy por SSH (`stacktrack-release`) · borda Traefik + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
 | Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — a aplicação provisionada por playbook, segredos em `ansible-vault` |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de

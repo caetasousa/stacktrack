@@ -16,9 +16,8 @@ segura no produto.
 O toolchain é fixado em `go.mod` (`go 1.26.6`). Não é decoração, e já foi a
 correção **duas vezes**: seis das sete vulnerabilidades que o `govulncheck`
 acusou antes do primeiro deploy eram da biblioteca padrão, e depois outras oito
-de uma vez. Nos dois casos nenhuma linha de código nosso mudou — o CI instala a
-versão que esta linha diz (`go-version-file: backend/go.mod`), então ela é o
-botão. Ver [entrega-continua.md](entrega-continua.md), em "Casos reais deste
+de uma vez. Nos dois casos nenhuma linha de código nosso mudou — subir essa
+linha e recompilar foi o botão. Ver [entrega-continua.md](entrega-continua.md), em "Casos reais deste
 projeto".
 
 📚 [How to Write Go Code](https://go.dev/doc/code) — módulos e layout
@@ -109,7 +108,8 @@ Migrations versionadas, aplicadas por um job que roda **antes** da API subir
 (`depends_on: service_completed_successfully`), então o schema nunca fica atrás
 do código.
 
-Duas regras do projeto que o CI faz cumprir (ver [CLAUDE.md](../CLAUDE.md)):
+Duas regras do projeto, hoje sem automação — a conferência é sua (ver
+[CLAUDE.md](../CLAUDE.md)):
 
 - **migration não escreve dado** — todo backfill é decisão do domínio; em SQL
   ele vira uma segunda fonte da verdade, sem teste e sem conserto;
@@ -152,7 +152,7 @@ Gera um servidor Node autônomo em `build/`. A imagem de produção
 ([`Dockerfile.prod`](../frontend/Dockerfile.prod)) copia **só** essa pasta — a
 saída é autocontida — e **remove npm, npx, yarn e corepack**, que não são usados
 em runtime e trazem as próprias dependências junto. Foi de dentro do npm que
-saiu a única CVE CRITICAL que a esteira barrou.
+saiu a única CVE CRITICAL que o Trivy já apontou.
 
 Atrás do proxy ele precisa de `ORIGIN`, `PROTOCOL_HEADER` e `HOST_HEADER` — sem
 isso só enxerga o IP do container e recusa requisições por origem inválida.
@@ -949,9 +949,10 @@ Esta seção é longa de propósito. Ansible tem pouca sintaxe e muito modelo
 mental, e quase todo erro de quem começa vem de imaginar a máquina errada
 executando o código.
 
-O **servidor** descrito como código, em `deploy/ansible/`. Não substitui a
-esteira: o GitHub Actions continua levando o commit até o ar, e o Ansible cuida
-da máquina que o recebe.
+A **aplicação no servidor** descrita como código, em `deploy/ansible/` — `.env`,
+compose, backup, cron, papéis do banco. Publicar as imagens e implantar são
+passos manuais (ver [entrega-continua.md](entrega-continua.md)); o Ansible cuida
+da máquina, não da versão que roda nela.
 
 Entrou por um motivo específico: o `.env` de produção, com a senha do Postgres,
 nascia de um heredoc copiado à mão. Era o único passo que impedia o servidor de
@@ -987,9 +988,10 @@ Três consequências que valem entender:
   `.env` já renderizado, não a chave que o decifra.
 - **Sua máquina precisa alcançar o servidor.** Não há daemon esperando conexão;
   é você que empurra. Por isso se chama modelo *push*.
-- **O que a esteira faz é parecido.** O runner do GitHub também abre SSH — mas
-  preso a um comando forçado que só entende quatro verbos. O Ansible manda
-  módulos que sabem dizer se mudaram alguma coisa.
+- **O deploy usa o mesmo canal SSH — mas preso.** `stacktrack-release release
+  <sha>` abre SSH e cai num comando forçado que só entende quatro verbos. O
+  Ansible manda módulos que sabem dizer se mudaram alguma coisa; o wrapper, uma
+  sequência fixa.
 
 #### 2. Quem conecta como quem, e por quê
 
@@ -1002,20 +1004,20 @@ A separação não é organização, é necessidade. `preparar-host.yml` **cria*
 usuário `stacktrack` — num host onde ele ainda não existe, o playbook entra por
 outra conta com sudo (a `edge` do projeto `loadbalancer`, tipicamente).
 
-É a mesma razão pela qual a esteira nunca vai provisionar um servidor do zero:
-ela faz login com `VPS_USER=stacktrack`, um usuário que num host novo ainda não
-existe. Não é limitação do Ansible; é ovo e galinha.
+É a mesma razão pela qual a chave de deploy nunca provisiona um servidor do
+zero: ela loga como `stacktrack`, um usuário que num host novo ainda não existe.
+Não é limitação do Ansible; é ovo e galinha.
 
 Do outro lado, `provisionar.yml` não usa `become` em lugar nenhum. Tudo mora em
-`/home/stacktrack` e o acesso ao Docker vem do grupo — **o mesmo privilégio que a
-esteira já tinha**. Provisionar não ampliou o poder de ninguém.
+`/home/stacktrack` e o acesso ao Docker vem do grupo — **o mesmo privilégio que
+a chave de deploy já tem**. Provisionar não ampliou o poder de ninguém.
 
 #### 3. Declarar, não mandar
 
 A diferença que muda tudo:
 
 ```bash
-# imperativo — o que o CI fazia
+# imperativo — o roteiro que o Ansible substituiu
 mkdir -p ~/stacktrack/scripts        # e se já existir? e se for um arquivo?
 ```
 
@@ -1070,9 +1072,8 @@ O que aconteceu de verdade na reconstrução, em ordem:
 20 3 * * * /home/stacktrack/scripts/backup.sh >> ...
 ```
 
-Compare com o que o CI fazia — `crontab -l | grep -v … | crontab -` —, que
-reconstruía o arquivo inteiro e tinha um comentário no próprio workflow
-admitindo que um cancelamento no meio truncaria o agendamento.
+Compare com um `crontab -l | grep -v … | crontab -`, que reconstrói o arquivo
+inteiro — um corte no meio trunca o agendamento.
 
 8. **`docker compose up -d`** — Postgres → Flyway (aplica as migrations e sai) →
    API → web, tudo na rede `borda`. Três containers `healthy`; o Traefik da borda
@@ -1164,11 +1165,12 @@ Fora de lá, quem o carrega é uma task:
       no_log: true
 ```
 
-`include_vars` roda dentro da play, não antes dela: analisar o playbook deixou
-de ser a mesma coisa que abrir os segredos de produção. Pelo mesmo motivo o
-`ansible.cfg` não declara `vault_password_file` — ali a senha valeria para todo
-comando do diretório, inclusive os do CI, que não a tem. Quem precisa dela passa
-`--vault-password-file`, e os alvos `infra-*` do Makefile já o fazem.
+`include_vars` roda dentro da play, não antes dela: analisar o playbook
+(`--syntax-check`, `ansible-lint`) deixou de ser a mesma coisa que abrir os
+segredos de produção. Pelo mesmo motivo o `ansible.cfg` não declara
+`vault_password_file` — ali a senha valeria para todo comando do diretório,
+inclusive um `make infra-validar` numa máquina que não a tem. Quem precisa dela
+passa `--vault-password-file`, e os alvos `infra-*` do Makefile já o fazem.
 
 O que isso muda: o segredo deixa de ser um artefato que só existe no servidor e
 passa a ser reproduzível. O custo é que a senha do vault vira o segredo que não
@@ -1187,7 +1189,7 @@ O `authorized_keys` do OpenSSH aceita opções por chave, e duas delas mudam o q
 uma credencial vazada significa:
 
 ```
-restrict,command="/usr/local/bin/stacktrack-release" ssh-ed25519 AAAA... github-actions-stacktrack
+restrict,command="/usr/local/bin/stacktrack-release" ssh-ed25519 AAAA... deploy-stacktrack
 ```
 
 `command=` faz o sshd executar **aquele** programa e ignorar o que o cliente
@@ -1201,7 +1203,7 @@ obedecido, e o comando forçado não teria servido para nada.
 
 O detalhe que decide o desenho: a restrição é **da chave**, não da conta. A
 mesma conta pode ter, no mesmo `authorized_keys`, a chave do operador sem limite
-nenhum e a da esteira presa a um programa. Não é preciso um usuário por
+nenhum e a de deploy presa a um programa. Não é preciso um usuário por
 credencial.
 
 O que se paga por isso: a conta em que a chave mora tem Docker, porque é a conta
@@ -1256,7 +1258,7 @@ A ordem que funciona é mexer, não ler:
    crontab aparecer, e só o bloco marcado `#Ansible:` mudar.
 3. Desfaça, e confirme que volta a `changed=0`.
 4. `cd deploy/ansible && ansible-vault view --vault-password-file .senha-vault segredos/producao.yml`
-   — veja o segredo que a esteira nunca precisou conhecer.
+   — veja o segredo que só existe na sua máquina, nunca no servidor.
 5. Apague `~/stacktrack/.env` no servidor e rode `make infra-check`. Uma task
    `changed`, as outras `ok` — é a convergência funcionando: o Ansible conserta
    o que falta, sem refazer o que está certo.

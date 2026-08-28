@@ -85,8 +85,8 @@ PASTA_ANSIBLE := deploy/ansible
 
 # A senha do vault entra por comando, e não pelo ansible.cfg: declarada lá, ela
 # passaria a ser exigida por QUALQUER comando ansible neste diretório — até um
-# `--syntax-check` —, e o CI, que valida o playbook sem ter direito aos segredos
-# de produção, não conseguiria rodar. Ver o comentário no ansible.cfg.
+# `--syntax-check` —, e o `infra-validar` (sintaxe + lint, sem tocar em segredo)
+# não conseguiria rodar. Ver o comentário no ansible.cfg.
 SENHA_VAULT := --vault-password-file .senha-vault
 
 # Repassa opções para o ansible-playbook do `infra-preparar` (ex.: `--limit`,
@@ -118,7 +118,7 @@ infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 	@$(PASTA_ANSIBLE)/segredos.sh
 
 # O que exige privilégio: criar o usuário de deploy, o sudoers restrito, as
-# chaves e o wrapper da esteira. Entra como `stacktrack` e sobe por sudo — a
+# chaves e o wrapper de release. Entra como `stacktrack` e sobe por sudo — a
 # senha é pedida na hora, em vez de guardada. Pressupõe o host já provisionado
 # pelo projeto loadbalancer (grupo `docker`, `PermitRootLogin no`).
 #
@@ -139,13 +139,11 @@ infra-apply: $(PASTA_ANSIBLE)/.dependencias
 	$(CONFERE_VAULT)
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --diff
 
-# O que o CI roda, e que aqui serve de ensaio antes de abrir PR: análise
-# estática dos playbooks e o teste do wrapper de release, SEM a senha do vault e
-# SEM tocar no servidor.
+# Análise estática dos playbooks e o teste do wrapper de release, SEM a senha do
+# vault e SEM tocar no servidor. Rode antes de aplicar.
 #
-# É a prova do critério de aceite "CI valida Ansible sem possuir a senha do
-# vault": se algum arquivo cifrado voltar a ser carregado por padrão, este alvo
-# passa a falhar aqui, e não só na esteira.
+# Se algum arquivo cifrado voltar a ser carregado por padrão (ver o comentário
+# no ansible.cfg), este alvo passa a falhar — é o que impede aquilo em silêncio.
 infra-validar: $(PASTA_ANSIBLE)/.dependencias
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --syntax-check
 	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml --syntax-check

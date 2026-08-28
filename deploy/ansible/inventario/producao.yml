@@ -1,12 +1,11 @@
 ---
-# O VPS de produção — a mesma máquina que roda o nginx do `loadbalancer`.
+# O VPS de produção — a mesma máquina que roda o Traefik do `loadbalancer`.
 producao:
   hosts:
     srv1856874:
-      # O mesmo nome que o DNS já aponta para o VPS, e que a esteira usa no
-      # `curl` de verificação pós-deploy. Um IP fixo aqui seria uma segunda
-      # fonte da verdade para "onde fica o servidor", que passaria a divergir do
-      # DNS no dia da troca de máquina.
+      # O mesmo nome que o DNS já aponta para o VPS. Um IP fixo aqui seria uma
+      # segunda fonte da verdade para "onde fica o servidor", que passaria a
+      # divergir do DNS no dia da troca de máquina.
       ansible_host: stacktrack.caetasousa.tech
 
       # O usuário DONO da aplicação, NÃO root.
@@ -24,7 +23,7 @@ producao:
       #   ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass
       ansible_user: stacktrack
 
-      # A chave do OPERADOR. É um caminho, não um segredo. A esteira tem par
-      # próprio e não passa por aqui. (Nome de arquivo herdado — a chave é a
-      # mesma pessoa que opera os outros projetos do VPS.)
+      # A chave do OPERADOR. É um caminho, não um segredo. A chave de deploy tem
+      # par próprio e não passa por aqui. (Nome de arquivo herdado — é a mesma
+      # pessoa que opera os outros projetos do VPS.)
       ansible_ssh_private_key_file: ~/.ssh/agendago_deploy

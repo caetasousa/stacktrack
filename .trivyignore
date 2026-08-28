@@ -1,4 +1,6 @@
-# Achados do Trivy deliberadamente silenciados.
+# Achados do Trivy deliberadamente silenciados. Passe este arquivo com
+# `trivy image --ignorefile .trivyignore ...` na varredura manual
+# (docs/entrega-continua.md).
 #
 # A regra de ouro deste arquivo: SILENCIA-SE UM ID, NUNCA UM PACOTE. Um módulo
 # inteiro na lista esconderia também o próximo defeito real que aparecesse nele

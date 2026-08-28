@@ -1,6 +1,6 @@
 ---
 # A identidade de deploy do stacktrack no host: o usuário da aplicação, o
-# `sudoers` restrito, a chave do operador, a chave da esteira e o wrapper
+# `sudoers` restrito, a chave do operador, a chave de deploy e o wrapper
 # `stacktrack-release`.
 #
 #   make infra-preparar
@@ -15,8 +15,8 @@
 #
 # Está separado porque é a única parte que exige ROOT — e um playbook que entra
 # como `stacktrack` não pode criar o `stacktrack`. É o mesmo motivo pelo qual a
-# esteira nunca vai conseguir provisionar do zero: ela faz login com
-# `VPS_USER=stacktrack`, que num host novo ainda não existe.
+# chave de deploy nunca provisiona do zero: ela loga como `stacktrack`, que num
+# host novo ainda não existe.
 #
 # O privilégio vem de `sudo`, e a senha é pedida na hora — nem o inventário nem
 # o vault a guardam:

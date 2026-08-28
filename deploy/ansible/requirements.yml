@@ -9,11 +9,11 @@
 # install` numa máquina nova baixa a 5.x, avisa que não suporta este core e
 # falha em tempo de execução — bem depois do syntax-check passar.
 collections:
-  # docker_network e docker_compose_v2: substituem o `docker network inspect ||
-  # create` e o par `pull` + `up -d` que hoje são shell no job `implantar`.
+  # docker_network_info e docker_compose_v2: leem a rede da borda e sobem a stack
+  # sem shell cru nem SDK Python no servidor.
   - name: community.docker
     version: '>=4.0.0,<5.0.0'
 
-  # authorized_key, para declarar a chave da esteira no usuário da aplicação.
+  # authorized_key, para declarar a chave de deploy no usuário da aplicação.
   - name: ansible.posix
     version: '>=1.5.0'

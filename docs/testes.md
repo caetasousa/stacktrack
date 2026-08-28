@@ -334,24 +334,27 @@ comparação de texto, roda no `go test ./...` de sempre.
 
 ---
 
-## O que a esteira roda
+## O que rodar antes de publicar
 
-Ver [entrega-continua.md](entrega-continua.md). Além dos testes: `gofmt`,
-`go vet`, `prettier --check`, `svelte-check`, `govulncheck`, `npm audit` e Trivy
-nas três imagens.
+Não há esteira — a disciplina é sua. O conjunto mínimo antes de buildar as
+imagens (ver [entrega-continua.md](entrega-continua.md)):
 
-O `go test` roda com **`-race`** — obrigatório desde que o hub existe.
-Concorrência sem detector de corrida é fé, não engenharia.
+```bash
+cd backend && gofmt -l . && go vet ./... && make test        # -race incluído
+cd backend && make test-integracao                            # Testcontainers
+cd frontend && npx prettier --check . && npm run check && npm run test:unit
+make test-e2e                                                 # Playwright, com `make run` no ar
+```
 
-O job `e2e` sobe a stack inteira com `docker compose up -d --wait`, espera
-`/ready` e a página responderem, e roda o Playwright. Ele é pré-requisito da
-publicação: imagem só vai para o registry depois de o navegador ter aberto o
-quadro.
+O `go test` roda com **`-race`** — concorrência sem detector de corrida é fé,
+não engenharia.
 
-O `duas_abas_test.go` do backend NÃO roda na esteira — o job `e2e` cobre o
-mesmo caminho pela tela, que é o que faltava. Ele fica como ferramenta de
-diagnóstico: quando o E2E falha, ele diz se o problema é do protocolo ou do
-cliente.
+O E2E sobe a stack inteira e roda o Playwright pela tela. É o que prova que a
+imagem serve o quadro — rode-o antes de publicar, não depois.
+
+O `duas_abas_test.go` do backend cobre o mesmo caminho do E2E pelo protocolo, e
+fica como ferramenta de diagnóstico: quando o E2E falha, ele diz se o problema é
+do protocolo ou do cliente.
 
 ---
 

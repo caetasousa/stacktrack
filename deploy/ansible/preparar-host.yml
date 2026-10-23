@@ -1,14 +1,13 @@
 ---
-# A identidade de deploy do stacktrack no host: o usuário da aplicação, o
-# `sudoers` restrito, a chave do operador, a chave de deploy e o wrapper
-# `stacktrack-release`.
+# A identidade de deploy do stacktrack no servidor: o usuário da aplicação, o
+# Docker rootless dele, o `sudoers` restrito, a chave do operador, a chave de
+# deploy e o wrapper `stacktrack-release`.
 #
 #   make infra-preparar
 #
-# O HOST em si — Docker, rede `borda`, firewall, hardening de SSH, TLS — é do
-# projeto `loadbalancer` (repo à parte), dono da borda. Este playbook pressupõe
-# esse host já provisionado: precisa do grupo `docker` e de `PermitRootLogin no`
-# já valendo. Rode o `site.yml` do `loadbalancer` antes.
+# O SERVIDOR em si — a distro `ubuntu-server` do WSL, o sshd na 2222, os
+# pacotes do Docker rootless, o cloudflared — é do `site.yml` do studygo, que o
+# montou. Este playbook pressupõe esse servidor já provisionado.
 #
 # Depois dele é `provisionar.yml` que manda o dia a dia, e esse não precisa de
 # privilégio nenhum.
@@ -25,10 +24,10 @@
 #   # equivale a:
 #   cd deploy/ansible && ansible-playbook preparar-host.yml --ask-become-pass --diff
 #
-# Numa MÁQUINA em que o `stacktrack` ainda não consiga elevar, entre por outra
-# conta com sudo — e a forma importa:
+# Numa MÁQUINA em que o `stacktrack` ainda não exista ou não consiga elevar,
+# entre por outra conta com sudo — e a forma importa:
 #
-#   ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass
+#   make infra-preparar ARGS="-e ansible_user=<conta-com-sudo> -e ansible_ssh_private_key_file=<chave>"
 #
 # `-e ansible_user=...`, e NÃO `-u ...`: o `-u` troca só o usuário da conexão; a
 # variável `ansible_user` continua valendo `stacktrack`, vinda do inventário, e

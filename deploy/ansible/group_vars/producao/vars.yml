@@ -6,16 +6,16 @@
 # Ansible carrega tudo por precedência, e um cifrado aqui passaria a exigir a
 # senha do vault até para um `--syntax-check`. Gerar: `make infra-segredos`.
 
-# Domínio público. Precisa bater EXATAMENTE com o server_name do bloco do
-# stacktrack no nginx do projeto `loadbalancer`: é o que faz o cookie __Host-
-# valer, porque ele amarra a sessão a um host exato.
-dominio: stacktrack.caetasousa.tech
+# Domínio público. Precisa bater EXATAMENTE com o hostname da rota do túnel no
+# painel da Cloudflare (Zero Trust → Networks → Tunnels → Routes, apontando para
+# http://localhost:8580): é o que faz o cookie __Host- valer, porque ele amarra
+# a sessão a um host exato.
+dominio: stacktrack.d4ffy.com
 
 # --- os usuários, e o que cada um pode --------------------------------------
 
-# Dono da aplicação: os arquivos da stack, os backups e o cron são dele, e é ele
-# quem fala com o Docker. Estar no grupo `docker` equivale a root nesta máquina
-# — é inerente a quem opera containers.
+# Dono da aplicação: os arquivos da stack, os backups e o cron são dele, e o
+# Docker rootless que roda a stack também.
 usuario_app: stacktrack
 grupo_app: stacktrack
 
@@ -69,11 +69,6 @@ ghcr_usuario: caetasousa
 # roles/stacktrack/files/ criaria uma segunda cópia, que divergiria da primeira
 # no dia em que alguém editasse só uma.
 raiz_repo: '{{ playbook_dir }}/../..'
-
-# Rede Docker compartilhada com o nginx do `loadbalancer`. Declarada `external`
-# no compose, o que significa que o Compose NÃO a cria: quem a garante é o
-# playbook do `loadbalancer`, dono da borda.
-rede_borda: borda
 
 # O cron do Debian não suporta CRON_TZ — a expressão vale sempre no fuso do
 # HOST, não no seu.

@@ -12,8 +12,8 @@
 # release — ou nada.
 #
 # Por que isso importa: se o deploy abrisse um shell e mandasse linhas de
-# comando, quem tivesse a chave teria a máquina — que roda a borda Traefik e os
-# outros sites do VPS. Aqui, quem tem a chave tem quatro verbos, e o único que
+# comando, quem tivesse a chave teria a conta — que tem sudo, e portanto o
+# servidor inteiro, com os outros projetos dele. Aqui, quem tem a chave tem quatro verbos, e o único que
 # escreve arquivo (`sync`) só aceita o `docker-compose.prod.yml` e o passa por
 # uma allowlist antes de instalar.
 #
@@ -107,8 +107,7 @@ preVoo() {
 	local faltando=""
 	[ -f "$PASTA_STACK/.env" ] || faltando="$faltando .env"
 	[ -f "$PASTA_STACK/docker-compose.prod.yml" ] || faltando="$faltando docker-compose.prod.yml"
-	docker network inspect {{ rede_borda | quote }} >/dev/null 2>&1 || faltando="$faltando rede-{{ rede_borda }}"
-	grep -Eq '^PROXIES_CONFIAVEIS=.+' "$PASTA_STACK/.env" 2>/dev/null || faltando="$faltando PROXIES_CONFIAVEIS"
+	docker version >/dev/null 2>&1 || faltando="$faltando docker-rootless"
 	grep -Eq '^DB_USER=.+' "$PASTA_STACK/.env" 2>/dev/null || faltando="$faltando DB_USER"
 	if [ -n "$faltando" ]; then
 		echo "host não provisionado (faltando:$faltando). Rode: make infra-apply" >&2
@@ -175,7 +174,8 @@ caps_ok = {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}
 ruins = []
 for nome, s in (d.get("services") or {}).items():
     img = s.get("image", "")
-    if not (img.startswith("ghcr.io/%s/" % owner) or img.startswith("postgres:")):
+    if not (img.startswith("ghcr.io/%s/" % owner) or img.startswith("postgres:")
+            or img.startswith("nginxinc/nginx-unprivileged:")):
         ruins.append("%s: imagem fora da allowlist (%s)" % (nome, img))
     if s.get("privileged"):
         ruins.append("%s: privileged" % nome)

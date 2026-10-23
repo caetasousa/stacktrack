@@ -70,8 +70,9 @@ test-e2e:
 # --- Infraestrutura (Ansible) ------------------------------------------------
 #
 # A APLICAÇÃO descrita como código: usuário de deploy, diretórios, .env,
-# compose, backup, cron, papéis do banco. O HOST (Docker, firewall, TLS, a borda
-# nginx) é do projeto loadbalancer. A ordem de uso é
+# compose, backup, cron, papéis do banco. O SERVIDOR (a distro `ubuntu-server`
+# do WSL, os pacotes do Docker rootless, o sshd, o cloudflared) é do `site.yml`
+# do studygo, e a rota do túnel é do painel da Cloudflare. A ordem de uso é
 #
 #   make infra-segredos   uma vez, cria e cifra a senha do banco e o token
 #   make infra-preparar   o que exige privilégio: o usuário de deploy, o
@@ -117,10 +118,13 @@ $(PASTA_ANSIBLE)/.dependencias: $(PASTA_ANSIBLE)/requirements.yml
 infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 	@$(PASTA_ANSIBLE)/segredos.sh
 
-# O que exige privilégio: criar o usuário de deploy, o sudoers restrito, as
-# chaves e o wrapper de release. Entra como `stacktrack` e sobe por sudo — a
-# senha é pedida na hora, em vez de guardada. Pressupõe o host já provisionado
-# pelo projeto loadbalancer (grupo `docker`, `PermitRootLogin no`).
+# O que exige privilégio: criar o usuário de deploy, o Docker rootless dele, o
+# sudoers restrito, as chaves e o wrapper de release. Entra como `stacktrack` e
+# sobe por sudo — a senha, se a conta tiver uma, é pedida na hora (sem senha,
+# basta Enter). Pressupõe o servidor já provisionado pelo `site.yml` do studygo.
+# Na primeira vez, sem a conta, entre por outra com sudo:
+#
+#   make infra-preparar ARGS="-e ansible_user=<conta> -e ansible_ssh_private_key_file=<chave>"
 #
 # Sem $(SENHA_VAULT), e é de propósito: este playbook não lê segredo nenhum, e um
 # playbook que roda com privilégio é o último lugar onde vale abrir os segredos

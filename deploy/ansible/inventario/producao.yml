@@ -1,29 +1,34 @@
 ---
-# O VPS de produção — a mesma máquina que roda o Traefik do `loadbalancer`.
+# O servidor de produção: a distro `ubuntu-server` do WSL desta mesma máquina,
+# publicada por um túnel da Cloudflare. Só fica no ar com o PC ligado e a
+# distro de pé.
 producao:
   hosts:
-    srv1856874:
-      # O mesmo nome que o DNS já aponta para o VPS. Um IP fixo aqui seria uma
-      # segunda fonte da verdade para "onde fica o servidor", que passaria a
-      # divergir do DNS no dia da troca de máquina.
-      ansible_host: stacktrack.caetasousa.tech
+    ubuntu-server:
+      # Loopback, e não um IP da rede: todas as distros do WSL2 dividem a mesma
+      # rede, e o sshd do servidor escuta na 2222 para deixar a 22 livre na
+      # distro de desenvolvimento.
+      ansible_host: 127.0.0.1
+      ansible_port: 2222
 
-      # O usuário DONO da aplicação, NÃO root.
+      # O usuário DONO da aplicação, NÃO root — um por projeto no servidor, cada
+      # um com o seu Docker rootless.
       #
       # Nada do que `provisionar.yml` faz precisa de privilégio: os arquivos
-      # moram no home dele e o acesso ao Docker vem do grupo.
+      # moram no home dele e o Docker é o dele.
       #
-      # O que exige privilégio — criar a conta, o wrapper, as chaves — está em
-      # `preparar-host.yml`, que sobe por sudo. O host (Docker, firewall,
-      # hardening, TLS) é do projeto `loadbalancer`. Ver docs/infraestrutura.md.
+      # O que exige privilégio — criar a conta, o daemon rootless, o wrapper, as
+      # chaves — está em `preparar-host.yml`, que sobe por sudo. O host (pacotes
+      # do Docker, sshd, cloudflared) é do `site.yml` do studygo, que montou o
+      # servidor. Ver docs/infraestrutura.md.
       #
       # ⚠️ Num servidor onde esta conta ainda NÃO existe, o `preparar-host.yml`
       # precisa entrar por outra conta com sudo:
       #
-      #   ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass
+      #   make infra-preparar ARGS="-e ansible_user=<conta-com-sudo> -e ansible_ssh_private_key_file=<chave>"
       ansible_user: stacktrack
 
       # A chave do OPERADOR. É um caminho, não um segredo. A chave de deploy tem
       # par próprio e não passa por aqui. (Nome de arquivo herdado — é a mesma
-      # pessoa que opera os outros projetos do VPS.)
+      # pessoa que opera os outros projetos.)
       ansible_ssh_private_key_file: ~/.ssh/agendago_deploy

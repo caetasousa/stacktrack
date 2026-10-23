@@ -6,7 +6,7 @@
 # O wrapper `/usr/local/bin/stacktrack-release` é a fronteira: quem tem a chave
 # de deploy tem exatamente o que este arquivo passa. Um `eval` distraído, um
 # verbo a mais, uma validação de SHA frouxa — qualquer um dos três devolve a
-# máquina, e a máquina roda o Traefik da borda e os outros projetos do VPS.
+# conta, que tem sudo — e com ela o servidor e os outros projetos dele.
 #
 # O teste renderiza o template do Ansible com valores fixos e executa o script
 # com um PATH de mentira: `docker`, `sudo`, `crontab` e o backup.sh viram stubs
@@ -37,8 +37,7 @@ if command -v ansible >/dev/null; then
 		-e usuario_app=stacktrack \
 		-e pasta_stack=/home/stacktrack \
 		-e pasta_scripts=/home/stacktrack/scripts \
-		-e ghcr_usuario=caetasousa \
-		-e rede_borda=borda >"$trabalho/ansible.log" 2>&1 || {
+		-e ghcr_usuario=caetasousa >"$trabalho/ansible.log" 2>&1 || {
 		echo "FALHA: o Jinja não conseguiu renderizar o template:"
 		sed 's/^/       /' "$trabalho/ansible.log"
 		exit 1
@@ -63,8 +62,6 @@ sed \
 	-e "s@{{ pasta_stack | quote }}@'$trabalho/stack'@g" \
 	-e "s@{{ pasta_scripts | quote }}@'$trabalho/stack/scripts'@g" \
 	-e "s@{{ ghcr_usuario | quote }}@'caetasousa'@g" \
-	-e "s@{{ rede_borda | quote }}@'borda'@g" \
-	-e "s@{{ rede_borda }}@borda@g" \
 	"$template" >"$wrapper"
 chmod +x "$wrapper"
 
@@ -101,7 +98,7 @@ case " $* " in
 		exit 0
 		;;
 esac
-# `network inspect` precisa responder 0 para o pré-voo passar.
+# `docker version` precisa responder 0 para o pré-voo achar o daemon.
 exit 0
 STUB
 
@@ -125,7 +122,7 @@ chmod +x "$trabalho/bin/docker" "$trabalho/bin/sudo" "$trabalho/bin/crontab" \
 	"$trabalho/stack/scripts/backup.sh"
 
 # O que o pré-voo exige encontrar.
-printf 'PROXIES_CONFIAVEIS=172.18.0.0/16\nDB_USER=stacktrack_app\n' >"$trabalho/stack/.env"
+printf 'DB_USER=stacktrack_app\n' >"$trabalho/stack/.env"
 touch "$trabalho/stack/docker-compose.prod.yml"
 
 export PATH="$trabalho/bin:$PATH"
@@ -219,9 +216,10 @@ if command -v python3 >/dev/null; then
 			echo "  ok   recusa: $1"
 		fi
 	}
-	ok='{"services":{"api":{"image":"ghcr.io/caetasousa/stacktrack-api:latest"},"postgres":{"image":"postgres:16-alpine","cap_add":["CHOWN","DAC_OVERRIDE","FOWNER","SETGID","SETUID"]}}}'
-	sync_aceita "compose do projeto (imagens do projeto + Postgres, caps do initdb)" "$ok"
+	ok='{"services":{"api":{"image":"ghcr.io/caetasousa/stacktrack-api:latest"},"postgres":{"image":"postgres:16-alpine","cap_add":["CHOWN","DAC_OVERRIDE","FOWNER","SETGID","SETUID"]},"borda":{"image":"nginxinc/nginx-unprivileged:1.28-alpine"}}}'
+	sync_aceita "compose do projeto (imagens do projeto, Postgres com as caps do initdb, nginx da borda)" "$ok"
 	sync_recusa "imagem de fora"        '{"services":{"x":{"image":"evilcorp/miner:latest"}}}'
+	sync_recusa "nginx que não é o unprivileged" '{"services":{"x":{"image":"nginx:1.28-alpine"}}}'
 	sync_recusa "privileged"            '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","privileged":true}}}'
 	sync_recusa "namespace do host"     '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","network_mode":"host"}}}'
 	sync_recusa "bind mount do host"    '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","volumes":[{"type":"bind","source":"/","target":"/host"}]}}}'

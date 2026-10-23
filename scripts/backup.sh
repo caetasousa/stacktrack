@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backup do banco e dos anexos de produção. Roda por cron na VPS, como o
+# Backup do banco e dos anexos de produção. Roda por cron no servidor, como o
 # usuário `stacktrack`:
 #
 #   20 3 * * * /home/stacktrack/scripts/backup.sh >> /home/stacktrack/backups/backup.log 2>&1
@@ -40,7 +40,7 @@ set +a
 compose() { docker compose -f "$ARQUIVO_COMPOSE" "$@"; }
 
 # campo_manifesto lê um campo do manifesto de um backup anterior. sed em vez de
-# jq porque a VPS não tem jq instalado, e o JSON aqui é gerado por este próprio
+# jq porque o servidor não tem jq instalado, e o JSON aqui é gerado por este próprio
 # script — formato fixo, sem aninhamento.
 campo_manifesto() {
 	[ -f "$1" ] || return 0
@@ -180,7 +180,7 @@ fi
 # Heartbeat para um monitor externo (opcional, via URL_HEARTBEAT).
 #
 # O alerta nasce da AUSÊNCIA do ping, não da presença de um erro: um cron
-# desativado, uma VPS desligada e um dump que falhou produzem o mesmo silêncio,
+# desativado, um servidor desligado e um dump que falhou produzem o mesmo silêncio,
 # e todos os três merecem alerta.
 #
 # Fica na última linha porque, com `set -e`, qualquer falha acima encerra o

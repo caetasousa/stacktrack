@@ -1,14 +1,15 @@
 ---
 # O usuário DONO da aplicação: os arquivos da stack, os backups e o cron são
-# dele, e é ele quem fala com o Docker.
+# dele, e o Docker rootless que roda a stack também.
 #
 # É a ÚNICA role deste repositório que roda com privilégio, e faz só o que é a
-# identidade de deploy do stacktrack: a conta, o sudoers restrito, a chave do
-# operador, a chave de deploy e o wrapper de release. O host em si — Docker,
-# firewall, hardening de SSH, TLS — é do projeto `loadbalancer`.
+# identidade de deploy do stacktrack: a conta, o daemon rootless dela, o sudoers
+# restrito, a chave do operador, a chave de deploy e o wrapper de release. O
+# host em si — os pacotes do Docker, o sshd na 2222, o cloudflared — é do
+# `site.yml` do studygo, que montou o servidor.
 #
-# Precisa que o grupo `docker` já exista (o `loadbalancer` o cria ao instalar a
-# engine) — logo, roda depois de o host estar provisionado por lá.
+# Precisa dos pacotes do modo rootless já instalados — logo, roda depois de o
+# servidor estar provisionado por lá.
 
 - name: exige a chave pública do operador
   ansible.builtin.assert:
@@ -25,45 +26,37 @@
     name: '{{ grupo_app }}'
     state: present
 
-# O grupo `docker` é o que permite subir a stack. Equivale a root nesta máquina,
-# e é inerente a quem opera containers.
-#
-# `append: true` para não desfazer nenhum outro grupo que a conta tenha.
+# Fora do grupo `docker`, de propósito: o daemon de sistema está desligado no
+# servidor, e o grupo daria root no dia em que alguém o religasse. A stack roda
+# no Docker rootless da própria conta (abaixo).
 - name: garante o usuário da aplicação
   ansible.builtin.user:
     name: '{{ usuario_app }}'
     group: '{{ grupo_app }}'
-    groups:
-      - docker
-    append: true
     shell: /bin/bash
     home: '{{ pasta_base }}'
     create_home: true
     state: present
 
-# A conta precisa conseguir elevar SOZINHA: o `loadbalancer` aplica
-# `PermitRootLogin no` no host, então um playbook que só soubesse entrar como
-# root deixaria de rodar. O sudo sem senha resolve isso.
+# A conta precisa conseguir elevar SOZINHA: o sshd do servidor tem
+# `PermitRootLogin no`, e é com ela que o `make infra-preparar` entra depois da
+# primeira vez. O sudo sem senha resolve isso — é o mesmo que o servidor dá a
+# cada usuário de projeto (`bootstrap-wsl.sh` do studygo).
 #
 # A conta nasce com a senha BLOQUEADA (`passwd -S` responde `L`), o que é o
 # certo para uma conta de serviço — senha de conta de serviço é senha que
 # alguém guarda num arquivo. Por isso o sudo é sem senha.
 #
-# E isso NÃO amplia privilégio: a conta está no grupo `docker`, e nesta máquina
-# isso já é equivalente a root — `docker run -v /:/host` monta o disco inteiro.
-# O sudoers apenas torna explícito o que o grupo já concede, em vez de deixar o
-# caminho passar por um container.
-#
-# A chave de deploy é outro assunto: ela entra nesta mesma conta, mas presa a
-# um comando forçado — e é ali que o privilégio mínimo importa.
+# Quem ganha esse sudo é a chave do OPERADOR — você, que já é dono da máquina.
+# A chave de deploy entra nesta mesma conta, mas presa a um comando forçado, e
+# é ali que o privilégio mínimo importa.
 - name: sudo do usuário da aplicação
   ansible.builtin.copy:
     content: |
       # Gerado pelo Ansible (roles/usuario_app). Não editar no servidor.
       #
       # Sem senha porque a conta não tem senha: ela é de serviço, e o acesso
-      # vem por chave. Ver o comentário na role para por que isto não amplia
-      # privilégio nesta máquina.
+      # vem por chave. Ver o comentário na role.
       {{ usuario_app }} ALL=(ALL) NOPASSWD: ALL
     dest: /etc/sudoers.d/stacktrack-{{ usuario_app }}
     owner: root
@@ -85,6 +78,106 @@
     # deixa uma chave a mais.
     exclusive: false
 
+# --- o Docker rootless da conta ---------------------------------------------
+#
+# Um daemon por usuário de projeto: rede, imagens e volumes próprios. Todas as
+# distros do WSL2 dividem a mesma rede, e um Docker de sistema brigaria com o
+# da distro de desenvolvimento pelo docker0 e pelo iptables; o rootless roda
+# numa rede própria e só publica as portas pedidas. Outro projeto no mesmo
+# servidor não enxerga nem derruba este.
+
+- name: confere os pacotes do modo rootless
+  ansible.builtin.stat:
+    path: /usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh
+  register: usuario_app_setuptool
+
+- name: exige um servidor com o modo rootless instalado
+  ansible.builtin.assert:
+    that: usuario_app_setuptool.stat.exists
+    fail_msg: >-
+      O instalador do Docker rootless não está no servidor. Ele vem dos pacotes
+      docker.io, rootlesskit, uidmap, slirp4netns e dbus-user-session, que o
+      `site.yml` do studygo instala (role docker_rootless). Provisione o
+      servidor por lá antes deste playbook.
+
+# O rootless mapeia o root do container para uma faixa de uids do host. O
+# `useradd` do Ubuntu reserva a faixa ao criar a conta; uma conta antiga, de
+# antes do uidmap, pode ter ficado sem.
+- name: confere a faixa de uids e gids do usuário
+  ansible.builtin.command: grep -q '^{{ usuario_app }}:' {{ item }}
+  loop:
+    - /etc/subuid
+    - /etc/subgid
+  changed_when: false
+  check_mode: false
+
+# Sem linger, o systemd do usuário — e o daemon com ele — só vive enquanto
+# houver uma sessão aberta. É o que mantém a stack no ar com ninguém logado.
+- name: mantém os serviços do usuário de pé sem sessão aberta
+  ansible.builtin.command: loginctl enable-linger {{ usuario_app }}
+  args:
+    creates: /var/lib/systemd/linger/{{ usuario_app }}
+
+- name: descobre o uid do usuário
+  ansible.builtin.command: id -u {{ usuario_app }}
+  register: usuario_app_uid
+  changed_when: false
+  check_mode: false
+
+# --skip-iptables: o daemon não mexe no iptables do WSL, que é compartilhado. O
+# instalador termina chamando um `docker version` num caminho que o pacote do
+# Ubuntu não tem — o serviço já está criado quando isso falha, e o `creates`
+# é quem decide se a task rodou.
+- name: instala o daemon rootless
+  become: true
+  become_user: '{{ usuario_app }}'
+  environment:
+    XDG_RUNTIME_DIR: /run/user/{{ usuario_app_uid.stdout }}
+    PATH: /usr/share/docker.io/contrib:/usr/bin:/bin
+  ansible.builtin.shell: dockerd-rootless-setuptool.sh install --skip-iptables || true
+  args:
+    creates: '{{ pasta_base }}/.config/systemd/user/docker.service'
+
+- name: liga o daemon rootless
+  become: true
+  become_user: '{{ usuario_app }}'
+  # Sem sessão aberta do usuário (o caso do Ansible), o systemctl --user só acha
+  # o gerenciador dele pelo barramento explícito.
+  environment:
+    XDG_RUNTIME_DIR: /run/user/{{ usuario_app_uid.stdout }}
+    DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/{{ usuario_app_uid.stdout }}/bus
+  ansible.builtin.systemd:
+    name: docker
+    scope: user
+    enabled: true
+    state: started
+
+# O cliente `docker` procura o daemon de SISTEMA por padrão. Um contexto
+# corrente na config da conta faz TODO caminho achar o daemon rootless — o
+# shell do operador, o comando forçado da chave de deploy, o cron do backup —
+# sem cada um precisar exportar DOCKER_HOST.
+- name: confere o contexto do cliente docker
+  become: true
+  become_user: '{{ usuario_app }}'
+  ansible.builtin.command: docker context show
+  register: usuario_app_contexto
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: aponta o cliente docker para o daemon rootless
+  become: true
+  become_user: '{{ usuario_app }}'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker context inspect rootless >/dev/null 2>&1 \
+      || docker context create rootless --docker host=unix:///run/user/{{ usuario_app_uid.stdout }}/docker.sock
+    docker context use rootless
+  args:
+    executable: /bin/bash
+  when: usuario_app_contexto.stdout | default('') | trim != 'rootless'
+  changed_when: true
+
 # --- a chave de deploy, na MESMA conta --------------------------------------
 #
 # O comando forçado é uma propriedade DA CHAVE, não do usuário: a mesma conta
@@ -92,10 +185,10 @@
 # programa. É o que permite implantar sem ganhar o shell da conta.
 #
 # O que se abre mão, e vale saber: se um dia essa linha do authorized_keys
-# perder as opções, a chave de deploy passa a dar shell numa conta do grupo
-# `docker` — que nesta máquina é root. Com uma conta separada, o mesmo erro
-# daria um shell sem poder nenhum. Um desenho falha fechado, este falha aberto;
-# a troca foi deliberada, para não haver duas contas e um sudo no meio.
+# perder as opções, a chave de deploy passa a dar shell numa conta com sudo —
+# que é root. Com uma conta separada, o mesmo erro daria um shell sem poder
+# nenhum. Um desenho falha fechado, este falha aberto; a troca foi deliberada,
+# para não haver duas contas e um sudo no meio.
 
 - name: o wrapper de release, único comando que a chave de deploy alcança
   ansible.builtin.template:

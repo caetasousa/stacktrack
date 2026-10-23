@@ -1,25 +1,26 @@
-# Stack de PRODUÇÃO. A borda do VPS é o projeto `loadbalancer` (repo à parte):
-# um Traefik em container ocupa as portas 80 e 443, termina o TLS (ACME, cert no
-# primeiro acesso) e roteia por domínio lendo as LABELS dos containers via
-# Docker. O stacktrack entra ao lado dele, alcançado pela rede compartilhada
-# `borda`. Nenhum serviço daqui publica porta no host.
+# Stack de PRODUÇÃO. O servidor é a distro `ubuntu-server` do WSL desta máquina,
+# publicada por um túnel da Cloudflare: o `cloudflared` do servidor termina o
+# TLS lá fora e entrega o tráfego de `${DOMINIO}` em http://localhost:8580 —
+# que é o serviço `borda` abaixo, o ÚNICO que publica porta, e só em loopback.
 #
-# O split front/API está nas labels dos serviços `web` e `api` abaixo: /api/*
-# vai para a API com o prefixo removido, todo o resto para o frontend. Origem
-# única é o que faz o cookie __Host- valer e mantém a CSP em `connect-src 'self'`.
+# O split front/API está na config da `borda` (fim do arquivo): /api/* vai para
+# a API com o prefixo removido, todo o resto para o frontend. Origem única é o
+# que faz o cookie __Host- valer e mantém a CSP em `connect-src 'self'`.
 #
-# Este arquivo NÃO constrói nada: as imagens vêm prontas do GHCR, publicadas
-# pelo CI. Por isso o host de produção precisa de dois arquivos apenas — este e
-# o .env.prod —, nunca do código-fonte.
+# Roda no Docker ROOTLESS do usuário `stacktrack`: daemon, rede, volumes e
+# imagens próprios, separados dos outros projetos do servidor.
 #
-#   docker network create borda        # uma vez, no host (o playbook do loadbalancer faz)
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod pull
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+# Este arquivo NÃO constrói nada: as imagens vêm prontas do GHCR, publicadas à
+# mão (docs/entrega-continua.md). Por isso o servidor precisa de dois arquivos
+# apenas — este e o .env —, nunca do código-fonte.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
 
 name: stacktrack
 
-# Rotação de log: sem isto o log do Docker cresce sem limite e enche o disco do
-# host — derrubando junto a borda Traefik e os outros sites do VPS.
+# Rotação de log: sem isto o log do Docker cresce sem limite e enche o disco —
+# que é o mesmo disco da distro de desenvolvimento e dos outros projetos.
 x-logging: &logging
   driver: json-file
   options:
@@ -119,10 +120,9 @@ services:
       APP_ENV: production
       FRONTEND_ORIGIN: https://${DOMINIO}
       ANEXOS_DIR: /var/lib/stacktrack/anexos
-      # De onde a API aceita o cabeçalho X-Real-IP. Só o Traefik da borda fala
-      # com ela, e ele chega pela rede `borda`. Informe de preferência o IP
-      # exato do container do Traefik, ou a sub-rede exata de `borda`; confiar em
-      # toda a faixa privada permitiria que qualquer container vizinho forjasse IP.
+      # De onde a API aceita o cabeçalho X-Real-IP: a sub-rede da rede `borda`
+      # (fim do arquivo), onde só estão a borda, a API e o front. O Postgres
+      # fica de fora dela.
       #
       # É a variável que decide se o IP do cliente é confiável, e portanto se
       # os tetos por IP valem alguma coisa: vinda de qualquer outro lugar, a
@@ -130,30 +130,14 @@ services:
       # a API recusa subir em produção (config.Validar) — de propósito, porque
       # o modo "não confia em ninguém" jogaria todos os clientes no balde do
       # IP do proxy e a primeira rajada trancaria todo mundo para fora.
-      PROXIES_CONFIAVEIS: ${PROXIES_CONFIAVEIS:?defina o IP ou CIDR exato do Traefik da borda}
+      PROXIES_CONFIAVEIS: 10.89.0.0/24
     volumes:
       - anexos:/var/lib/stacktrack/anexos
-    # Participa das duas redes: a interna (para falar com o Postgres) e a borda
-    # (por onde o Traefik do loadbalancer a alcança).
+    # Participa das duas redes: a interna (para falar com o Postgres) e a
+    # `borda` (por onde o nginx da borda a alcança).
     networks:
       - default
       - borda
-    # Roteamento pela borda Traefik (projeto loadbalancer). O Traefik lê estas
-    # labels pelo Docker — nenhum arquivo é depositado nele, nenhum reload.
-    # /api/* na MESMA origem que o front, com o prefixo removido antes de chegar
-    # aqui (é o que faz o cookie __Host- valer e a CSP em `connect-src 'self'`).
-    # `priority` alta para o router vencer o do front. O `${DOMINIO}` é
-    # interpolado pelo Compose a partir do .env.
-    labels:
-      traefik.enable: 'true'
-      traefik.docker.network: borda
-      traefik.http.routers.stacktrack-api.rule: Host(`${DOMINIO}`) && PathPrefix(`/api`)
-      traefik.http.routers.stacktrack-api.priority: '100'
-      traefik.http.routers.stacktrack-api.entrypoints: websecure
-      traefik.http.routers.stacktrack-api.tls.certresolver: le
-      traefik.http.routers.stacktrack-api.middlewares: stacktrack-apistrip
-      traefik.http.middlewares.stacktrack-apistrip.stripprefix.prefixes: /api
-      traefik.http.services.stacktrack-api.loadbalancer.server.port: '8080'
     depends_on:
       flyway:
         condition: service_completed_successfully
@@ -175,42 +159,124 @@ services:
     mem_limit: 256m
     environment:
       # adapter-node atrás de proxy: conhece a origem pública e confia nos
-      # cabeçalhos X-Forwarded-* do Traefik da borda. Sem isto ele só enxerga o
+      # cabeçalhos X-Forwarded-* que a borda escreve. Sem isto ele só enxerga o
       # IP do container e recusa requisições por origem inválida.
       ORIGIN: https://${DOMINIO}
       PROTOCOL_HEADER: x-forwarded-proto
       HOST_HEADER: x-forwarded-host
+    # Só a `borda`: o front não fala com o Postgres, nem com a API pelo servidor
+    # — quem chama a API é o navegador, por /api.
     networks:
-      - default
       - borda
-    # Roteamento pela borda Traefik: tudo que não casar com /api cai aqui. O
-    # middleware `stacktrack-headers` põe os cabeçalhos de segurança na resposta
-    # (a CSP NÃO — quem a emite é o SvelteKit, que sabe o hash dos próprios
-    # scripts). TLS automático: o Traefik emite o certificado no primeiro acesso.
-    labels:
-      traefik.enable: 'true'
-      traefik.docker.network: borda
-      traefik.http.routers.stacktrack-web.rule: Host(`${DOMINIO}`)
-      traefik.http.routers.stacktrack-web.entrypoints: websecure
-      traefik.http.routers.stacktrack-web.tls.certresolver: le
-      traefik.http.routers.stacktrack-web.middlewares: stacktrack-headers
-      traefik.http.services.stacktrack-web.loadbalancer.server.port: '3000'
-      traefik.http.middlewares.stacktrack-headers.headers.stsSeconds: '31536000'
-      traefik.http.middlewares.stacktrack-headers.headers.stsIncludeSubdomains: 'true'
-      traefik.http.middlewares.stacktrack-headers.headers.contentTypeNosniff: 'true'
-      traefik.http.middlewares.stacktrack-headers.headers.frameDeny: 'true'
-      traefik.http.middlewares.stacktrack-headers.headers.referrerPolicy: no-referrer
-      traefik.http.middlewares.stacktrack-headers.headers.customResponseHeaders.Permissions-Policy: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
-      traefik.http.middlewares.stacktrack-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy: same-origin
     depends_on:
       - api
 
-networks:
-  # Compartilhada com o Traefik do loadbalancer. Criada uma vez no host, fora do
-  # ciclo de vida de qualquer stack — quem garante é o playbook do loadbalancer:
-  #   docker network create borda
+  # A borda: o único serviço que publica porta, e só em loopback. O túnel da
+  # Cloudflare (rota de `${DOMINIO}` → http://localhost:8580) é o único cliente
+  # previsto; o WSL em modo NAT não expõe a porta na rede local.
+  #
+  # nginx, e não Traefik: atrás do túnel, o IP do visitante chega no cabeçalho
+  # CF-Connecting-IP, e o Traefik preencheria o X-Real-IP com o IP do próprio
+  # cloudflared — todo mundo num balde só do rate limit.
   borda:
-    external: true
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    restart: unless-stopped
+    logging: *logging
+    # Sem `read_only`, e é a única exceção da stack: o Compose recusa `configs`
+    # com `content` num serviço read_only. O que compensa: roda como usuário sem
+    # privilégio (a imagem é a `unprivileged`), sem capability nenhuma.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 64m
+    ports:
+      - '127.0.0.1:8580:8080'
+    networks:
+      - borda
+    configs:
+      - source: borda_nginx
+        target: /etc/nginx/conf.d/default.conf
+    depends_on:
+      - web
+      - api
+
+configs:
+  # A config da borda mora AQUI, e não num arquivo ao lado: o roteamento fica
+  # num lugar só, que o `stacktrack-release sync` também consegue entregar.
+  #
+  # O Compose interpola `$` neste texto: toda variável do nginx vai como `$$`.
+  # A sub-rede 10.89.0.0/24 é a da rede `borda`, logo abaixo — as três
+  # ocorrências (aqui, a rede e o PROXIES_CONFIAVEIS da API) andam juntas.
+  borda_nginx:
+    content: |
+      map $$http_upgrade $$connection_upgrade {
+        default upgrade;
+        ''      close;
+      }
+
+      server {
+        listen 8080;
+        server_tokens off;
+
+        # O teto da API é 11 MiB (anexo + envelope multipart). Um pouco acima
+        # aqui, para que quem responda o 413 seja a API, com a mensagem dela.
+        client_max_body_size 12m;
+
+        # O IP do visitante vem do cabeçalho da Cloudflare, e só é aceito de
+        # quem entra pela porta publicada — que chega pelo gateway da rede
+        # `borda`, dentro desta sub-rede.
+        set_real_ip_from 10.89.0.0/24;
+        real_ip_header CF-Connecting-IP;
+
+        # Upstream por variável + resolver do Docker: o nginx resolve o nome a
+        # cada 10 s, em vez de guardar o IP do boot. Sem isto, todo release (que
+        # recria api e web) deixaria a borda apontando para containers mortos.
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $$api http://api:8080;
+        set $$web http://web:3000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $$host;
+
+        # /api/* na MESMA origem que o front, com o prefixo removido — é o que
+        # faz o cookie __Host- valer e a CSP em `connect-src 'self'`. O /ws
+        # passa por aqui, por isso o Upgrade e o timeout longo.
+        location /api/ {
+          rewrite ^/api(/.*)$$ $$1 break;
+          proxy_pass $$api;
+          proxy_set_header Upgrade $$http_upgrade;
+          proxy_set_header Connection $$connection_upgrade;
+          proxy_read_timeout 1h;
+        }
+
+        # Os cabeçalhos de segurança vão na resposta do front. A CSP NÃO: quem
+        # a emite é o SvelteKit, que sabe o hash dos próprios scripts.
+        location / {
+          proxy_pass $$web;
+          add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+          add_header X-Content-Type-Options nosniff always;
+          add_header X-Frame-Options DENY always;
+          add_header Referrer-Policy no-referrer always;
+          add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
+          add_header Cross-Origin-Opener-Policy same-origin always;
+        }
+      }
+
+networks:
+  # Da borda para a API e o front. Sub-rede fixa porque é ela que a API e o
+  # nginx usam como lista de confiança do IP do cliente. Não colide com nada:
+  # o Docker rootless tem rede própria, separada da do WSL e dos outros
+  # projetos do servidor.
+  borda:
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
 
 volumes:
   postgres_data:

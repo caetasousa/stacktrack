@@ -1,11 +1,13 @@
 # 🚀 Produção
 
-O stacktrack roda num VPS cuja **borda é o projeto
-[`loadbalancer`](https://github.com/caetasousa/loadbalancer)** (repo à parte):
-um Traefik em container recebe 80/443, termina o TLS (ACME, cert no primeiro
-acesso) e roteia por domínio **lendo labels dos containers via Docker**. O
-stacktrack traz os próprios containers para a rede `borda` e declara o
-roteamento em labels no `docker-compose.prod.yml`.
+O stacktrack roda na distro **`ubuntu-server` do WSL desta máquina**, publicada
+por um **túnel da Cloudflare**. O servidor foi montado pelo `site.yml` do
+studygo, que divide a máquina com ele; cada projeto tem o seu usuário e o seu
+Docker rootless. O `cloudflared` do servidor termina o TLS lá fora e entrega
+`stacktrack.d4ffy.com` em `http://localhost:8580` — a borda nginx que mora
+**dentro** do `docker-compose.prod.yml`.
+
+O servidor só fica no ar com o PC ligado e a distro de pé.
 
 Este documento é o roteiro do servidor. Publicar as imagens e implantar (tudo
 manual — não há esteira) está em [entrega-continua.md](entrega-continua.md).
@@ -15,72 +17,79 @@ manual — não há esteira) está em [entrega-continua.md](entrega-continua.md)
 ## 🏗️ Arquitetura no ar
 
 ```
-                     ┌──────────────────── VPS ────────────────────┐
-  :80/:443 ─────────►│ Traefik  (projeto loadbalancer)             │
-                     │   stacktrack.caetasousa.tech ─┐  (lê labels)│
-                     └──────────────────────────────┼─────────────┘
-                                    rede `borda`    │
-                                 ┌──────────────────┼──────────────────┐
-                                 │  ┌───────────────▼────────────────┐  │
-                                 │  │ stacktrack-web   :3000  (/)    │  │
-                                 │  │ stacktrack-api   :8080  (/api) │  │
-                                 │  │ stacktrack postgres           │  │
-                                 │  └───────────────────────────────┘  │
-                                 └─────────────────────────────────────┘
+ internet ── HTTPS ──► Cloudflare ── túnel (conexão de SAÍDA) ──┐
+                                                               │
+ ┌────────────── ubuntu-server (WSL) ──────────────────────────┼──────┐
+ │  cloudflared (do servidor)  stacktrack.d4ffy.com ──► localhost:8580 │
+ │                                                             │      │
+ │  Docker rootless do usuário `stacktrack`                    │      │
+ │  ┌──────────────────────────────────────────────────────────▼───┐  │
+ │  │ borda   nginx :8080 ── rede `borda` (10.89.0.0/24) ──┐        │  │
+ │  │                         /api/* ─► api :8080  ◄───────┤        │  │
+ │  │                         /*     ─► web :3000  ◄───────┘        │  │
+ │  │ api ── rede default ──► postgres                              │  │
+ │  └───────────────────────────────────────────────────────────────┘  │
+ │  (o studygo tem o seu usuário, o seu Docker e a sua porta, 8480)    │
+ └─────────────────────────────────────────────────────────────────────┘
 ```
 
-Front e API compartilham a origem: um router do Traefik manda `/api/*` para a
-API **removendo o prefixo**, e todo o resto para o frontend.
+Front e API compartilham a origem: a borda manda `/api/*` para a API
+**removendo o prefixo**, e todo o resto para o frontend.
 
-Nenhum serviço do stacktrack publica porta no host. Quem fala com o mundo é o
-Traefik da borda; o Postgres não é alcançável de fora do compose.
+Só a `borda` publica porta, e só em `127.0.0.1:8580`. O WSL em modo NAT não
+expõe a porta na rede local, e o túnel só abre conexões de saída: não há porta
+aberta para fora nem firewall a manter. O Postgres não é alcançável de fora do
+compose.
 
-A rede `borda` é criada pelo playbook do `loadbalancer`. O stacktrack só precisa
-declará-la `external` no compose, subir nela e pôr as labels — o Traefik
-descobre os containers lendo o Docker (via socket-proxy) e roteia sozinho.
+### A borda: o que o túnel alcança
 
-### O que o `loadbalancer` roteia para o stacktrack
-
-O roteamento está **nas labels dos serviços `web` e `api` do
-`docker-compose.prod.yml`** — não num arquivo no `loadbalancer`, e não neste
-repo em nenhum outro lugar. Duas rotas, como o Caddy fazia:
+O roteamento está **no serviço `borda` do `docker-compose.prod.yml`**, com a
+config do nginx embutida no próprio arquivo (`configs.borda_nginx.content`) — não
+num arquivo no servidor, e não neste repo em nenhum outro lugar:
 
 ```
-api:   Host(`${DOMINIO}`) && PathPrefix(`/api`)   priority 100
-       -> stacktrack-api:8080, middleware stripprefix /api
-web:   Host(`${DOMINIO}`)
-       -> stacktrack-web:3000, middleware stacktrack-headers
+location /api/   rewrite ^/api(/.*)$ $1  ->  api:8080   (Upgrade, timeout 1h)
+location /                                ->  web:3000   (cabeçalhos de segurança)
 ```
 
-O router da API tem `priority` alta para vencer o do front; o `stripprefix`
-remove o `/api` antes de a requisição chegar (`/api/boards` -> `/boards`). É a
-origem única que faz o cookie `__Host-` valer e a CSP em `connect-src 'self'` —
-o frontend chama `/api` relativo (`PUBLIC_API_URL=/api` assado no build). O
-`/api/ws` entra por esse mesmo router e o Traefik faz o upgrade de WebSocket
-sozinho (o `idleTimeout` de 1h está na config estática da borda).
+`/api/boards` chega na API como `/boards`. É a origem única que faz o cookie
+`__Host-` valer e a CSP em `connect-src 'self'` — o frontend chama `/api`
+relativo (`PUBLIC_API_URL=/api` assado no build). O `/api/ws` passa pela mesma
+location, que repassa o `Upgrade` do WebSocket e segura a conexão por até 1h.
 
-O `${DOMINIO}` é interpolado pelo Compose a partir do `.env`. O middleware
-`stacktrack-headers` põe HSTS, `X-Content-Type-Options`, `X-Frame-Options DENY`,
-`Referrer-Policy`, `Permissions-Policy` e `Cross-Origin-Opener-Policy` na
-resposta (a CSP **não** — quem a emite é o SvelteKit). O Traefik já injeta
-`X-Forwarded-*` e `X-Real-Ip` do peer da conexão, então `PROXIES_CONFIAVEIS`
-(derivado da sub-rede da `borda`) continua sendo o que faz o `IPReal` valer.
+A resposta do front leva HSTS, `X-Content-Type-Options`, `X-Frame-Options DENY`,
+`Referrer-Policy`, `Permissions-Policy` e `Cross-Origin-Opener-Policy` (a CSP
+**não** — quem a emite é o SvelteKit). O corpo tem teto de 12 MiB, um pouco
+acima dos 11 da API, para que quem responda o 413 seja ela.
 
-Não há limite de corpo de requisição a configurar: o Traefik não impõe um por
-padrão, e a API devolve 413 sozinha acima de 10 MiB.
+Três detalhes que não são óbvios:
 
-**Se o router `stacktrack-api` sumir ou perder a prioridade**, o `/api` cai no
-SvelteKit, o login não completa e o WebSocket não conecta.
+- **O IP do visitante vem do `CF-Connecting-IP`.** Atrás do túnel, o peer da
+  conexão é o `cloudflared`; o nginx aceita o cabeçalho de quem entra pela porta
+  publicada (no rootless, chega pelo gateway `10.89.0.1`) e o repassa à API em
+  `X-Real-IP`. A API confia nele só vindo da sub-rede da `borda`
+  (`PROXIES_CONFIAVEIS: 10.89.0.0/24`). É por isso que a borda é nginx, e não
+  Traefik: o Traefik preencheria o `X-Real-IP` com o IP do `cloudflared`, e todo
+  mundo cairia num balde só do rate limit.
+- **O upstream é resolvido a cada 10 s** (`resolver 127.0.0.11` + variável no
+  `proxy_pass`). Sem isso o nginx guardaria o IP do boot, e todo `release` —
+  que recria `api` e `web` — deixaria a borda apontando para containers mortos.
+- **O Compose interpola `$`** na config embutida: as variáveis do nginx vão
+  escritas como `$$`. E a `borda` é o único serviço sem `read_only` — o Compose
+  recusa `configs` com `content` num serviço read_only. Ela compensa rodando
+  como usuário sem privilégio (imagem `nginxinc/nginx-unprivileged`), sem
+  capability nenhuma.
 
-**Regressão consciente:** o bloco Caddy redigia do *access log do proxy* os
-tokens de convite e de link público. O access log do Traefik é política da
-borda. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando; o
-ensaio automatizado disso (`test/repository/caddy_log_test.go`) foi removido
-junto com o bloco Caddy.
+**Se a location `/api/` sumir**, o `/api` cai no SvelteKit, o login não completa
+e o WebSocket não conecta.
+
+**Regressão consciente:** o bloco Caddy de antigamente redigia do *access log do
+proxy* os tokens de convite e de link público; o access log do nginx da borda não
+redige. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando.
 
 ### Por que subdomínio, e não um caminho
 
-`stacktrack.caetasousa.tech`, e não `caetasousa.tech/stacktrack`.
+`stacktrack.d4ffy.com`, e não `d4ffy.com/stacktrack`.
 
 O cookie de sessão tem `Path=/`, e o navegador o envia em **toda** requisição
 daquele host. Servindo o stacktrack sob um caminho de outro domínio, o vizinho
@@ -105,51 +114,56 @@ O servidor guarda **três arquivos** e nada além:
 
 | Arquivo | Vem de | Contém |
 |---|---|---|
-| `~/stacktrack/docker-compose.prod.yml` | repositório, via Ansible | a topologia |
-| `~/stacktrack/.env` | **só existe no host**, escrito pelo Ansible | segredos |
-| `~/stacktrack/scripts/backup.sh` | repositório, via Ansible | operação |
+| `~/docker-compose.prod.yml` | repositório, via Ansible | a topologia e a borda |
+| `~/.env` | **só existe no host**, escrito pelo Ansible | segredos |
+| `~/scripts/backup.sh` | repositório, via Ansible | operação |
 
-O roteamento não é um quarto arquivo: são as labels do Traefik dentro do
+O roteamento não é um quarto arquivo: é a config da `borda` dentro do
 `docker-compose.prod.yml` (ver a seção anterior).
 
 As migrations não são exceção a isso: os `.sql` viajam **dentro** da imagem
 `stacktrack-migrations` (ver `backend/Dockerfile.migrations`). Sem ela, o job de
 migration dependeria de um bind mount de `backend/migrations`, obrigando a
-manter um clone do repositório no VPS — e a mantê-lo em sincronia com a imagem
-que está rodando.
+manter um clone do repositório no servidor — e a mantê-lo em sincronia com a
+imagem que está rodando.
 
 ```
-/home/stacktrack/             a aplicação
+/home/stacktrack/             a aplicação (o home do usuário é a stack)
 ├── .env                      escrito pelo Ansible a partir do vault
-├── docker-compose.prod.yml   inclui as labels do Traefik
+├── docker-compose.prod.yml   inclui a borda nginx
 ├── scripts/backup.sh
-└── backups/
+├── backups/
+└── .local/share/docker/      o Docker rootless: imagens e volumes do projeto
 
-/opt/loadbalancer/            a borda (projeto à parte) — Traefik + socket-proxy
+/usr/local/bin/stacktrack-release   o wrapper da chave de deploy
 ```
 
 ---
 
 # 🧭 Roteiro do primeiro deploy
 
-## 1️⃣ DNS
+## 1️⃣ A rota do túnel
 
-Um registro `A` apontando `stacktrack.caetasousa.tech` para `2.25.101.3` (o IP
-do VPS). O Traefik da borda separa por `Host(...)`.
+No painel da Cloudflare (Zero Trust → Networks → Tunnels), no túnel com token
+que o servidor já roda, uma rota nova (**Routes** → *Published application*):
 
-**O DNS precisa resolver ANTES de subir a stack.** O Traefik emite o
-certificado (ACME HTTP-01) **no primeiro acesso** ao domínio — não há passo
-manual de emissão nem de renovação. Mas sem o DNS resolvendo, o desafio ACME
-falha; e sem HTTPS válido o login não completa — `APP_ENV=production` liga o
-`Secure` no cookie, o navegador o descarta, e o sintoma é "entra e volta para a
-tela de login", sem erro visível.
+| Campo | Valor |
+|---|---|
+| Hostname | `stacktrack.d4ffy.com` |
+| Service | `HTTP` → `localhost:8580` |
 
-Se quiser testar sem gastar cota do Let's Encrypt, o `loadbalancer` tem o toggle
-de staging (`-e traefik_acme_staging=true` no `deploy.yml` dele).
+O painel cria sozinho o CNAME para `<id-do-túnel>.cfargotunnel.com`. Não há
+certificado a emitir nem a renovar: o HTTPS é da Cloudflare. A rota pode existir
+antes da stack — até ela subir, a Cloudflare responde 502.
+
+O hostname precisa bater **exatamente** com `dominio` em
+`group_vars/producao/vars.yml`. O `APP_ENV=production` liga o `Secure` no
+cookie; com outro host, o navegador o descarta, e o sintoma é "entra e volta
+para a tela de login", sem erro visível.
 
 ## 2️⃣ A chave e o wrapper de deploy
 
-Uma chave dedicada ao deploy do stacktrack — não a de outro projeto do VPS. Uma
+Uma chave dedicada ao deploy do stacktrack — não a de outro projeto do servidor. Uma
 chave que abre dois projetos faz o comprometimento de um ser o comprometimento
 do outro:
 
@@ -173,13 +187,13 @@ operador sem limite algum e esta de deploy limitada a quatro verbos.
 
 | Verbo | O que faz |
 |---|---|
-| `sync` | recebe o `docker-compose.prod.yml` pelo stdin, valida contra a allowlist (imagem do projeto ou Postgres; sem `privileged`, namespace do host, bind mount ou capability nova) e instala. É o **único** que escreve arquivo |
+| `sync` | recebe o `docker-compose.prod.yml` pelo stdin, valida contra a allowlist (imagem do projeto, Postgres ou o nginx `unprivileged` da borda; sem `privileged`, namespace do host, bind mount ou capability nova) e instala. É o **único** que escreve arquivo |
 | `release <sha>` | pré-voo, backup, `pull`, para web e api, `up -d`, limpa imagens órfãs |
 | `backup` | um backup pontual |
 | `estado` | `compose ps`, o sha256 do compose e do `backup.sh`, fuso e cron |
 
 O que limita quem tem essa chave é o comando forçado, e só ele: a conta em que
-ela mora tem Docker, porque é a conta que roda a aplicação.
+ela mora tem Docker e sudo, porque é a conta que roda a aplicação.
 `scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
 substituição de comando, SHA malformado, allowlist do `sync`) e roda em
 `make infra-validar`.
@@ -198,11 +212,17 @@ make infra-check       # mostra o que mudaria, sem tocar em nada
 make infra-apply       # aplica
 ```
 
-Antes disso o host precisa existir — Docker, rede `borda`, firewall, hardening e
-TLS são do projeto `loadbalancer` (rode o `site.yml` dele). E `make
-infra-preparar`, que cria o usuário `stacktrack`, o `sudoers` restrito, as
-chaves e o wrapper `stacktrack-release` (pede a senha do sudo). O procedimento
-completo, os segredos e como recomeçar do zero estão em
+Antes disso o servidor precisa existir — a distro `ubuntu-server`, o sshd na
+2222, os pacotes do Docker rootless e o `cloudflared` são do `site.yml` do
+studygo. E `make infra-preparar`, que cria o usuário `stacktrack`, o Docker
+rootless dele, o `sudoers` restrito, as chaves e o wrapper `stacktrack-release`.
+Na primeira vez, sem a conta, ele entra pela do studygo:
+
+```bash
+make infra-preparar ARGS="-e ansible_user=studygo -e ansible_ssh_private_key_file=~/.ssh/studygo_ci"
+```
+
+O procedimento completo, os segredos e como recomeçar do zero estão em
 [infraestrutura.md](infraestrutura.md).
 
 O que continua valendo, e que o playbook não dispensa você de saber:
@@ -221,11 +241,11 @@ cada variável, é o [`.env.prod.example`](../.env.prod.example).
 
 ```bash
 ls -la /home/stacktrack/         # o .env aparece aqui
-grep -c . /home/stacktrack/.env  # 8 linhas
+stat -c '%a %U' /home/stacktrack/.env   # 600 stacktrack
 ```
 
 E o `stacktrack-release release` **confere isto antes de qualquer coisa** (o
-pré-voo do wrapper): sem o `.env` ou sem a rede `borda`, ele falha com a
+pré-voo do wrapper): sem o `.env` ou sem o Docker rootless respondendo, ele falha com a
 instrução de rodar `make infra-apply`, em vez de subir a stack com todas as
 variáveis vazias.
 
@@ -264,7 +284,7 @@ Os passos de build, push e `release` estão em
 sha=$(git rev-parse HEAD)
 # build + push das 3 imagens para ghcr.io/caetasousa/stacktrack-* (:$sha e :latest)
 make infra-apply                                   # se compose/backup.sh/papéis mudaram
-ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release $sha"
+ssh -i ~/.ssh/stacktrack_deploy -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
 ```
 
 As imagens nascem **privadas**. Ou você as torna públicas em cada pacote
@@ -278,23 +298,24 @@ O `release` já checa `/api/health` e `/` no fim. O que ele não checa, e você
 deve:
 
 ```bash
-# no servidor
-cd ~/stacktrack
+# no servidor (ssh -p 2222 stacktrack@127.0.0.1)
+cd ~
 docker compose -f docker-compose.prod.yml ps      # api só fica healthy se enxergar o banco
 docker compose -f docker-compose.prod.yml logs flyway   # quantas migrations aplicou
+docker compose -f docker-compose.prod.yml logs borda | tail   # o IP real do visitante, não 10.89.0.1
 
-# o certificado é do domínio certo e não expirou, e /api vai para a API
-curl -sI https://stacktrack.caetasousa.tech | head -1
-curl -fsS https://stacktrack.caetasousa.tech/api/health
+# o túnel entrega no domínio certo, e /api vai para a API
+curl -sI https://stacktrack.d4ffy.com | head -1
+curl -fsS https://stacktrack.d4ffy.com/api/health
 
-# os outros sites da borda continuam no ar (o Traefik só descobriu um container)
-curl -sI https://<outro-dominio-da-borda> | head -1
+# o vizinho do servidor continua no ar
+curl -sI https://studygo.d4ffy.com | head -1
 ```
 
 E o teste que vale mais que todos: **criar uma conta, entrar, montar um quadro e
 dar F5.** É ele que exercita o cookie `__Host-` de ponta a ponta — se o
-certificado não estivesse válido, o login falharia aqui e em nenhum dos `curl`
-acima.
+domínio não batesse com o `dominio` do vars.yml, o login falharia aqui e em
+nenhum dos `curl` acima.
 
 ---
 
@@ -401,7 +422,7 @@ a hora do incidente.
 Um dump que ninguém nunca restaurou é uma esperança, não um backup:
 
 ```bash
-cd ~/stacktrack
+cd ~
 gunzip -c ~/backups/stacktrack-<data>.sql.gz | \
   docker compose -f docker-compose.prod.yml exec -T postgres \
   psql -q -U stacktrack -d ensaio
@@ -412,20 +433,21 @@ gunzip -c ~/backups/stacktrack-<data>.sql.gz | \
 ### Quem avisa que o backup parou
 
 Ninguém, hoje. O script aceita `URL_HEARTBEAT` e pinga ao terminar bem — o
-alerta nasce da **ausência** do ping, porque um cron desativado, um VPS
+alerta nasce da **ausência** do ping, porque um cron desativado, um PC
 desligado e um dump que falhou produzem o mesmo silêncio.
 
 ### O que ainda falta
 
-A cópia sai do VPS? **Não.** `~/backups` cobre erro de aplicação e migration
-ruim; não cobre perder a máquina. O Supabase Storage fala S3 e resolveria com
+A cópia sai do servidor? **Não.** `~/backups` cobre erro de aplicação e
+migration ruim; não cobre perder a máquina — e aqui o servidor e o PC de
+desenvolvimento são o mesmo disco. O Supabase Storage fala S3 e resolveria com
 uma linha no fim do script — com uma chave que só possa **escrever** no bucket,
-senão quem invadir o VPS apaga os backups junto.
+senão quem invadir o servidor apaga os backups junto.
 
 ## Diagnóstico
 
 ```bash
-cd ~/stacktrack
+cd ~
 alias dc='docker compose -f docker-compose.prod.yml'
 
 dc ps                  # api fica healthy só se enxergar o banco
@@ -433,13 +455,13 @@ dc logs -f api         # log estruturado (slog), com request id
 dc logs flyway         # o que a última migration fez
 dc exec postgres psql -U stacktrack -d stacktrack -c '\dt'
 
-# a API não publica porta: para falar com ela, entre pela rede
-docker run --rm --network borda alpine:3.21 wget -qO- http://stacktrack-api:8080/ready
+# a API não publica porta: para falar com ela, entre pela rede da stack
+docker run --rm --network stacktrack_borda alpine:3.21 wget -qO- http://api:8080/ready
 ```
 
 Os logs rotacionam em 10 MB × 3 arquivos por serviço. Sem isso, um log de acesso
-enche o disco do VPS e derruba tudo junto — **inclusive a borda Traefik e os
-outros sites dela**.
+enche o disco e derruba tudo junto — **inclusive o studygo e a distro de
+desenvolvimento**, que estão no mesmo disco virtual do WSL.
 
 ---
 
@@ -456,7 +478,7 @@ explicitamente, no mesmo container e com a mesma versão do domínio que está n
 ar.
 
 ```bash
-cd ~/stacktrack
+cd ~
 alias dcm='docker compose -f docker-compose.prod.yml run --rm --entrypoint manutencao api'
 
 dcm reparar-ordenacao --conferir   # só relata; sai 1 se houver trabalho
@@ -496,50 +518,57 @@ para explicar depois por que a ordem mudou numa madrugada.
 
 ## 📊 Dimensionamento
 
-Os `mem_limit` desta stack somam ~1,15 GB:
+Os `mem_limit` desta stack somam ~1,2 GB:
 
 | Serviço | Teto | Por quê |
 |---|---|---|
 | postgres | 512m | |
 | api | 384m | Argon2id usa ~19 MiB por hash simultâneo |
 | web | 256m | servidor Node do adapter-node |
+| borda | 64m | nginx |
 
-A borda Traefik e os outros sites do VPS têm os seus. `free -h` antes de subir. O
-sintoma de estourar é a API morrendo por OOM em rajada de login.
+São tetos, não reservas. A VM do WSL tem ~4 GB e é dividida com o studygo, com a
+distro de desenvolvimento e com o runner dela. `free -h` no servidor antes de
+subir. O sintoma de estourar é a API morrendo por OOM em rajada de login.
 
 ## Contenção dos containers
 
 Todos rodam com `no-new-privileges`, `cap_drop: ALL` e limite de processos.
 `api` e `web` são `read_only` com `tmpfs` em `/tmp` — o upload de anexo precisa
 de arquivo temporário, e é só isso que eles escrevem fora dos volumes. O
-Postgres é a exceção: o entrypoint sobe como root e larga privilégio, então
-mantém as cinco capabilities mínimas para essa troca.
+Postgres é uma exceção: o entrypoint sobe como root e larga privilégio, então
+mantém as cinco capabilities mínimas para essa troca. A `borda` é a outra: sem
+`read_only`, pelo motivo em "A borda: o que o túnel alcança".
+
+E tudo isso roda dentro do Docker **rootless**: o root de um container é um uid
+sem privilégio no servidor.
 
 ---
 
 ## ✅ Checklist de go-live
 
-- [ ] `A stacktrack.caetasousa.tech` resolvendo para `2.25.101.3`
-- [ ] host provisionado pelo projeto `loadbalancer` (Docker, rede `borda`,
-      firewall, Traefik no ar)
+- [ ] rota `stacktrack.d4ffy.com` → `http://localhost:8580` no túnel da Cloudflare
+- [ ] servidor provisionado pelo `site.yml` do studygo (sshd na 2222, Docker
+      rootless, cloudflared no ar)
 - [ ] chave de deploy gerada, pública em `esteira_chave_publica` no `vars.yml`,
       privada guardada
-- [ ] `dominio: stacktrack.caetasousa.tech` no `group_vars/producao/vars.yml`
-- [ ] `make infra-preparar` verde (usuário de deploy, wrapper, chaves)
+- [ ] `dominio: stacktrack.d4ffy.com` no `group_vars/producao/vars.yml`
+- [ ] `make infra-preparar` verde (usuário de deploy, Docker rootless, wrapper,
+      chaves) — e `changed=0` na segunda vez
 - [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`,
-      sobe a stack na `borda` com as labels)
+      sobe a stack com a borda)
 - [ ] `make infra-validar` verde (ansible-lint + syntax-check + wrapper)
 - [ ] as 3 imagens publicadas no GHCR e acessíveis ao servidor (públicas ou
       `docker login`)
 - [ ] `stacktrack-release release <sha>` verde
-- [ ] `https://stacktrack.caetasousa.tech` abre sem aviso (cert emitido no 1º
-      acesso) e `/api/health` responde 200 (prova que o router `/api` venceu)
+- [ ] `https://stacktrack.d4ffy.com` abre e `/api/health` responde 200 (prova
+      que a location `/api/` vai para a API)
+- [ ] o log da `borda` mostra o IP real de quem acessou, não `10.89.0.1`
 - [ ] cadastro → login → criar quadro → F5
-- [ ] **os outros sites da borda continuam no ar** (o Traefik só descobriu um
-      container novo, não recarregou nada)
+- [ ] **o studygo continua no ar** (`https://studygo.d4ffy.com`)
 - [ ] papel de runtime do banco criado (`stacktrack_app`) e a API conectando com ele
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
-- [ ] `free -h` com folga sobre a soma dos limites das stacks do VPS
+- [ ] `free -h` no servidor com folga sobre a soma dos limites das stacks
 
 ### Antes do próximo deploy: o contract da ordenação
 
@@ -570,13 +599,17 @@ Os comandos e o SQL da conferência estão em
 
 ## 🚨 Armadilhas conhecidas
 
-**TLS não é o último passo.** Sem HTTPS válido, o cookie `Secure` é descartado e
-o login falha em silêncio.
+**O domínio tem que bater nos três lugares.** A rota do túnel, o `dominio` do
+`vars.yml` e o host que o navegador usa. Fora disso, o cookie `Secure`/`__Host-`
+é descartado e o login falha em silêncio.
 
-**O `/api` tem que ir para a API.** O router `stacktrack-api` (label no serviço
-`api`) precisa ter `priority` maior que o do front e o middleware `stripprefix
-/api`. Sem ele, `/api/*` cai no SvelteKit e login e WebSocket quebram. Ver "O
-que o `loadbalancer` roteia para o stacktrack".
+**O `/api` tem que ir para a API.** A location `/api/` da `borda` precisa
+remover o prefixo e repassar o `Upgrade`. Sem ela, `/api/*` cai no SvelteKit e
+login e WebSocket quebram. Ver "A borda: o que o túnel alcança".
+
+**A 8580 é do stacktrack na máquina inteira.** As distros do WSL dividem a
+rede: um `vite`, um `docker run -p 8580` ou qualquer coisa na distro de
+desenvolvimento que ocupe a porta tira o stacktrack do ar.
 
 **Rollback não desfaz migration.** Flyway é forward-only. Toda migration que
 aperta (`SET NOT NULL`, `DROP COLUMN`, `RENAME`, `UNIQUE` novo) exige dois

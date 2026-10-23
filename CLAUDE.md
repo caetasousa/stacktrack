@@ -71,26 +71,32 @@ coluna nova obrigatória, coluna removida e coluna apertada.
 
 ## Infraestrutura
 
-**Nada é configurado à mão no VPS. Se não está no playbook, não existe.**
+**Nada é configurado à mão no servidor. Se não está no playbook, não existe.**
 
-A **borda** do VPS é o projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer)
-(repo à parte): um **Traefik** em container recebe 80/443, termina o TLS (ACME,
-cert no primeiro acesso) e roteia por domínio **lendo labels dos containers via
-Docker**. Esse repo é **dono do host** — Docker, rede `borda`, firewall,
-hardening de SSH. O stacktrack sobe os containers na `borda` e declara o
-roteamento em **labels do Traefik no `docker-compose.prod.yml`** (serviços `web`
-e `api`, com o split `/api` → API). Não há arquivo de config depositado na borda.
+O servidor é a distro **`ubuntu-server` do WSL desta máquina**, publicada por um
+**túnel da Cloudflare** (`stacktrack.d4ffy.com` → `http://localhost:8580`, rota
+administrada no painel). Ele foi montado pelo `site.yml` do **studygo**
+(`~/studygo/ansible`), que é **dono do host** — sshd na 2222, pacotes do Docker
+rootless, `cloudflared`, nginx de sistema. O stacktrack só pressupõe isso pronto.
 
-O que `deploy/ansible/` descreve é só **a aplicação** — o usuário de deploy,
-diretórios, `.env`, compose, cron do backup, papéis do banco. Um comando dado
-por SSH que não tenha uma task equivalente é deriva: ele funciona hoje e
-desaparece no próximo servidor. Ao resolver algo, a correção vai para a role, e
-o `make infra-apply` é quem aplica.
+O que `deploy/ansible/` descreve é só **o que é do stacktrack** — o usuário de
+deploy e o Docker rootless dele, diretórios, `.env`, compose, cron do backup,
+papéis do banco. Um comando dado por SSH que não tenha uma task equivalente é
+deriva: ele funciona hoje e desaparece no próximo servidor. Ao resolver algo, a
+correção vai para a role, e o `make infra-apply` é quem aplica.
 
-- o roteamento vive nas labels do compose — nada de config de proxy fora dele
+- o roteamento vive no serviço `borda` (nginx) do `docker-compose.prod.yml`,
+  com a config embutida — nada de config de proxy fora dele, e nada no nginx
+  nem no `cloudflared` do servidor
+- só a `borda` publica porta, e só em `127.0.0.1:8580`: as distros do WSL dividem
+  a rede, e a 8480 é do studygo
+- a stack roda no Docker **rootless** do usuário `stacktrack`; nunca o Docker de
+  sistema, nunca o grupo `docker`
 - nunca reescrever o crontab inteiro — `ansible.builtin.cron` com `name:`
   gerencia só o bloco marcado
-- nunca remover a rede `borda`, que é compartilhada com o `loadbalancer`
+- não mexer no que é do studygo no servidor (o usuário dele, o `cloudflared`, o
+  nginx de sistema). A conta `studygo` só serve para o primeiro
+  `make infra-preparar`, quando o `stacktrack` ainda não existe
 
 **Não há esteira.** O GitHub Actions foi removido: testar, buildar, publicar as
 imagens no GHCR e implantar são passos manuais — ver
@@ -122,7 +128,7 @@ O `README.md` é enxuto — cartão de visitas: stack resumida, quick start, tab
 - `docs/tecnologias.md` — guia de estudo do stack (o que é, por que está no projeto, fontes oficiais para aprofundar)
 - `docs/testes.md` — instruções detalhadas de cada camada de teste (build tags, Testcontainers, Playwright)
 - `docs/regra-de-negocio.md` — modelo de negócio
-- `docs/producao.md` — arquitetura no VPS, primeiro deploy, backup e operação
+- `docs/producao.md` — arquitetura no servidor do WSL, primeiro deploy, backup e operação
 - `docs/entrega-continua.md` — publicação, varredura de vulnerabilidades e deploy, todos manuais
 
 O `PLANO.md` começa pelo estado atual das fases e depois preserva o roteiro e as

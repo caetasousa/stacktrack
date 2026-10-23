@@ -12,8 +12,8 @@
 O stacktrack já tem uma fundação técnica acima da média para um projeto desse
 porte. Há separação de domínio e infraestrutura, autenticação com sessão,
 autorização por recurso, colaboração em tempo real, histórico de eventos,
-anexos, testes de integração, imagens de produção, borda Traefik, backup e
-provisionamento com Ansible.
+anexos, testes de integração, imagens de produção, borda nginx atrás de um
+túnel da Cloudflare, backup e provisionamento com Ansible.
 
 Os melhores pontos da base atual são:
 
@@ -231,8 +231,9 @@ rodam fora de unidade de trabalho e de snapshot.
 Caddy, `test/repository/caddy_log_test.go` subia o proxy com o filtro do arquivo
 de produção e conferia que nenhum token ia para o log. A borda passou a ser o
 Traefik do projeto `loadbalancer`, cuja política de log é dele; o log da
-aplicação continua sanitizado e testado. Ver
-[docs/producao.md](docs/producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
+aplicação continua sanitizado e testado. Hoje (out/2026) a borda é o nginx do
+próprio compose, atrás do túnel da Cloudflare, e o access log dele também não
+redige. Ver [docs/producao.md](docs/producao.md#a-borda-o-que-o-túnel-alcança).
 
 ### Os dois passos agendados
 

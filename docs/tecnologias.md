@@ -918,28 +918,63 @@ teste.
 📚 [Testcontainers for Go](https://golang.testcontainers.org/)
 📝 [Módulo de Postgres, com exemplo completo](https://golang.testcontainers.org/modules/postgres/) — inclusive as estratégias de espera
 
-### Traefik (projeto `loadbalancer`)
+### Túnel da Cloudflare (`cloudflared`)
 
-Proxy reverso e terminação de TLS. **Não é uma stack nossa**: a borda do VPS é o
-projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) — um Traefik
-v3 em container que recebe 80/443, termina o TLS (ACME HTTP-01, cert emitido no
-primeiro acesso — sem passo de emissão nem de renovação) e roteia lendo **labels
-dos containers** pelo provider Docker (via um `socket-proxy`, nunca o socket
-direto).
+Um conector que roda no servidor e abre uma conexão de **saída** para a
+Cloudflare; o tráfego do domínio volta por ela. O HTTPS termina lá fora, e o
+servidor não abre porta nenhuma para a internet — nem tem IP público.
 
-O stacktrack traz os containers para a rede `borda` e declara o roteamento nas
-labels dos serviços `web` e `api` do `docker-compose.prod.yml`: um router com
-regra `Host(...) && PathPrefix(/api)`, `priority` alta e middleware `stripprefix`
-manda o `/api` para a API; o router `Host(...)` sem prefixo manda o resto para o
-front. O contrato está em
-[producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
+Está aqui porque o servidor é a distro `ubuntu-server` do WSL desta máquina:
+sem IP fixo, atrás do NAT de casa. O túnel com token já existia (o studygo o
+instalou) e a rota é administrada no painel: `stacktrack.d4ffy.com` →
+`http://localhost:8580`. O que o stacktrack precisa saber dele: o IP do
+visitante chega no cabeçalho `CF-Connecting-IP`, e o peer da conexão é o
+próprio `cloudflared`. Detalhes em [producao.md](producao.md#a-borda-o-que-o-túnel-alcança).
 
-Por que outro repo: a borda é compartilhada por vários apps do mesmo VPS, e um
-proxy por app disputaria as portas 80/443. Um Traefik só, dono do host; cada app
-se descreve nas próprias labels e nada é copiado para a borda.
+📚 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) · [rotas publicadas](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/)
+📝 [Cabeçalhos HTTP da Cloudflare](https://developers.cloudflare.com/fundamentals/reference/http-headers/) — o `CF-Connecting-IP` e por que ele, e não o `X-Forwarded-For`
 
-📚 [Traefik — provider Docker](https://doc.traefik.io/traefik/providers/docker/) · [roteadores](https://doc.traefik.io/traefik/routing/routers/)
-📝 [Traefik — middleware StripPrefix](https://doc.traefik.io/traefik/middlewares/http/stripprefix/) — o que remove o `/api` antes de a requisição chegar na API
+### nginx (a borda da stack)
+
+Proxy reverso. É o serviço `borda` do `docker-compose.prod.yml`, com a config
+embutida no próprio arquivo (`configs.borda_nginx.content`): `/api/*` vai para a
+API sem o prefixo, o resto para o front, e a resposta do front leva os
+cabeçalhos de segurança.
+
+Por que nginx e não Traefik, que era a borda no VPS: atrás do túnel, o IP do
+visitante vem num cabeçalho, e o nginx sabe trocar o peer por ele
+(`set_real_ip_from` + `real_ip_header CF-Connecting-IP`) antes de repassar o
+`X-Real-IP` à API. O Traefik preencheria o `X-Real-IP` com o IP do
+`cloudflared`, e o rate limit por IP contaria o mundo inteiro num balde só.
+
+Duas armadilhas que a config resolve, e que valem para qualquer nginx em
+Docker: o `proxy_pass` com variável + `resolver 127.0.0.11` (sem eles, o nginx
+guarda o IP do boot e um container recriado fica inalcançável) e o `rewrite` no
+lugar da barra final do `proxy_pass`, que não funciona com variável.
+
+📚 [ngx_http_realip_module](https://nginx.org/en/docs/http/ngx_http_realip_module.html) · [proxy_pass](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass) · [WebSocket proxying](https://nginx.org/en/docs/http/websocket.html)
+📝 [nginx-unprivileged](https://github.com/nginx/docker-nginx-unprivileged) — a imagem que roda sem root, escutando na 8080
+
+### Docker rootless
+
+O daemon do Docker rodando como um usuário comum, dentro de um user namespace:
+o root de um container é um uid sem privilégio no servidor.
+
+Está aqui por causa do WSL: todas as distros dividem a mesma rede, e um Docker
+de sistema na `ubuntu-server` brigaria com o da distro de desenvolvimento pelo
+`docker0` e pelo iptables. Com o rootless, cada projeto do servidor tem o seu
+usuário e o seu daemon — rede, imagens e volumes próprios. O
+`roles/usuario_app/tasks/main.yml` o instala para o `stacktrack`, liga o
+*linger* (sem ele, o daemon morre com a última sessão) e cria o contexto
+`rootless` do cliente. Os módulos `community.docker` não leem contexto, e por
+isso o `provisionar.yml` lhes passa `DOCKER_HOST` no `environment` da play.
+
+Uma consequência prática: a porta publicada chega ao container vinda do gateway
+da rede (`10.89.0.1`), e não do IP de quem conectou — é por isso que o nginx
+confia na sub-rede da `borda`.
+
+📚 [Rootless mode](https://docs.docker.com/engine/security/rootless/) — instalação, limitações e o que muda na rede
+📝 [`loginctl enable-linger`](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html) — o que mantém os serviços do usuário de pé sem sessão aberta
 
 ---
 
@@ -965,7 +1000,7 @@ A primeira pergunta de todo mundo é "então instalo o Ansible no servidor?".
 **Não.** O servidor não sabe que o Ansible existe; ele vê uma sessão SSH comum.
 
 ```
-sua máquina (WSL)                          VPS srv1856874
+distro de desenvolvimento (WSL)            ubuntu-server (WSL, porta 2222)
 ─────────────────                          ──────────────
 $ make infra-apply
    └─ ansible-playbook
@@ -1002,15 +1037,15 @@ Três consequências que valem entender:
 
 A separação não é organização, é necessidade. `preparar-host.yml` **cria** o
 usuário `stacktrack` — num host onde ele ainda não existe, o playbook entra por
-outra conta com sudo (a `edge` do projeto `loadbalancer`, tipicamente).
+outra conta com sudo (no servidor do WSL, a do studygo).
 
 É a mesma razão pela qual a chave de deploy nunca provisiona um servidor do
 zero: ela loga como `stacktrack`, um usuário que num host novo ainda não existe.
 Não é limitação do Ansible; é ovo e galinha.
 
 Do outro lado, `provisionar.yml` não usa `become` em lugar nenhum. Tudo mora em
-`/home/stacktrack` e o acesso ao Docker vem do grupo — **o mesmo privilégio que
-a chave de deploy já tem**. Provisionar não ampliou o poder de ninguém.
+`/home/stacktrack` e o Docker é o rootless da conta — **o mesmo privilégio que a
+chave de deploy já tem**. Provisionar não ampliou o poder de ninguém.
 
 #### 3. Declarar, não mandar
 
@@ -1039,7 +1074,7 @@ não, corrige e reporta `changed`.
 
 ```
 PLAY RECAP
-srv1856874 : ok=14  changed=0  failed=0
+ubuntu-server : ok=18  changed=0  failed=0
 ```
 
 **`changed=0` na segunda execução** significa que o código descreve o servidor,
@@ -1076,21 +1111,16 @@ Compare com um `crontab -l | grep -v … | crontab -`, que reconstrói o arquivo
 inteiro — um corte no meio trunca o agendamento.
 
 8. **`docker compose up -d`** — Postgres → Flyway (aplica as migrations e sai) →
-   API → web, tudo na rede `borda`. Três containers `healthy`; o Traefik da borda
-   os alcança por nome sem reiniciar nada.
+   API → web → borda. A borda publica `127.0.0.1:8580`, onde o túnel da
+   Cloudflare já estava esperando.
 
 #### 5. Quando um módulo custa caro demais
 
-A rede `borda` é criada pelo playbook do `loadbalancer`, não por este. A role
-só a **lê**, para derivar `PROXIES_CONFIAVEIS` da IPAM real — e ler um recurso
-por `command` é o mesmo vocabulário de sempre:
-
-```yaml
-- name: le a rede compartilhada do proxy
-  community.docker.docker_network_info:
-    name: '{{ rede_borda }}'
-  register: stacktrack_rede_borda_info
-```
+Quando existe módulo para o que a task faz, ele vem primeiro: o módulo sabe
+dizer se mudou alguma coisa, e um `command` não sabe. A versão do VPS lia a rede
+`borda` com `community.docker.docker_network_info`, para derivar a lista de
+proxies confiáveis da IPAM real; hoje a rede nasce dentro do compose, com
+sub-rede fixa, e não há o que ler.
 
 Quando um `command` cru é inevitável (o `psql` dos papéis, o `docker ps` que
 descobre a tag no ar), os quatro atributos são o que o torna honesto:

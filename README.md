@@ -3,7 +3,7 @@
 **Quadro Kanban colaborativo em tempo real.** Várias pessoas movem cards no
 mesmo quadro e todas veem na hora, sem recarregar a página.
 
-🔗 **[stacktrack.caetasousa.tech](https://stacktrack.caetasousa.tech)**
+🔗 **[stacktrack.d4ffy.com](https://stacktrack.d4ffy.com)**
 
 Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado entre
 clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
@@ -37,7 +37,7 @@ clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, est�
 | Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) |
 | Testes | `go test` · [Vitest](https://vitest.dev/) |
 | Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
-| Produção | imagens no GHCR (build e push manuais) · deploy por SSH (`stacktrack-release`) · borda Traefik + Let's Encrypt no projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer) |
+| Produção | servidor na distro `ubuntu-server` do WSL · Docker rootless · borda nginx atrás de um túnel da Cloudflare · imagens no GHCR (build e push manuais) · deploy por SSH (`stacktrack-release`) |
 | Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — a aplicação provisionada por playbook, segredos em `ansible-vault` |
 
 Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de

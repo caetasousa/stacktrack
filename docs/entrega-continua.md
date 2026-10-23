@@ -70,7 +70,7 @@ que você testou, e é o que torna o rollback uma linha no `.env`.
 make infra-apply
 
 # o deploy em si:
-ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release $sha"
+ssh -i ~/.ssh/stacktrack_deploy -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
 ```
 
 O wrapper (`stacktrack-release`, instalado pelo Ansible) faz, nessa ordem:
@@ -78,8 +78,8 @@ backup pré-release, `pull`, para `web` e `api` juntas, `up -d`, limpa imagens
 órfãs. Depois, confira:
 
 ```bash
-curl -fsS https://stacktrack.caetasousa.tech/api/health
-curl -sI  https://stacktrack.caetasousa.tech | head -1
+curl -fsS https://stacktrack.d4ffy.com/api/health
+curl -sI  https://stacktrack.d4ffy.com | head -1
 ```
 
 E o teste que vale mais que os `curl`: **cadastro → login → criar quadro → F5**
@@ -141,7 +141,7 @@ done
 ```
 
 O binário Go pode estar limpo e a imagem carregar um OpenSSL com CVE crítica. O
-Trivy varre as três — inclusive a de migrations, que roda no VPS com acesso ao
+Trivy varre as três — inclusive a de migrations, que roda no servidor com acesso ao
 banco. `.trivyignore` guarda os achados aceitos conscientemente (HIGH em imagem
 base costuma não ter correção).
 
@@ -238,7 +238,7 @@ Node ou do Postgres. Se não houver correção publicada, a saída é trocar de 
 ou remover o pacote (caso 2), e registrar no `.trivyignore` o que ficou.
 
 **Deploy que não responde** — a aplicação não respondeu no `curl` pós-release.
-`docker compose -f docker-compose.prod.yml logs api` no VPS. Costuma ser
+`docker compose -f docker-compose.prod.yml logs api` no servidor. Costuma ser
 migration que falhou ou `.env` incompleto.
 
 ---

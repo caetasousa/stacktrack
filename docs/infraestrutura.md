@@ -4,12 +4,12 @@ A **aplicação** descrita em Ansible, em `deploy/ansible/`. O que antes era um
 roteiro de comandos para copiar à mão em `producao.md` agora é um playbook que
 se pode rodar quantas vezes quiser.
 
-O **host** — Docker, rede `borda`, firewall, hardening de SSH e o Traefik da
-borda que termina o TLS — é do projeto
-[`loadbalancer`](https://github.com/caetasousa/loadbalancer), repo à parte. Este
-repositório pressupõe esse host provisionado e descreve só o que roda em cima:
-o usuário de deploy, o `.env`, o compose (com as labels do Traefik), o backup,
-o cron e os papéis do banco.
+O **servidor** é a distro `ubuntu-server` do WSL desta máquina, publicada por
+um túnel da Cloudflare. Ele foi montado pelo `site.yml` do studygo
+(`~/studygo/ansible`): o sshd na 2222, os pacotes do Docker rootless, o
+`cloudflared`. Este repositório pressupõe esse servidor e descreve só o que é
+do stacktrack: o usuário de deploy e o Docker rootless dele, o `.env`, o compose
+(com a borda nginx dentro), o backup, o cron e os papéis do banco.
 
 Publicar as imagens e implantar são manuais
 ([entrega-continua.md](entrega-continua.md)); o Ansible cuida da máquina, não da
@@ -37,23 +37,23 @@ precisa saber qual é.
 
 | | Quando roda | Como conecta | O que faz |
 |---|---|---|---|
-| `preparar-host.yml` | quando a **identidade de deploy** muda | `stacktrack` + `sudo` | o usuário `stacktrack`, o `sudoers` restrito, a chave do operador, a chave de deploy, o wrapper `stacktrack-release` |
-| `provisionar.yml` | sempre que quiser | `stacktrack`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, papéis do banco, stack na `borda` |
+| `preparar-host.yml` | quando a **identidade de deploy** muda | `stacktrack` + `sudo` | o usuário `stacktrack`, o Docker rootless dele, o `sudoers` restrito, a chave do operador, a chave de deploy, o wrapper `stacktrack-release` |
+| `provisionar.yml` | sempre que quiser | `stacktrack`, **sem sudo** | diretórios, `.env`, compose, `backup.sh`, cron, papéis do banco, stack no ar |
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
-tudo mora no home do `stacktrack` e o acesso ao Docker vem do grupo. Só o outro
+tudo mora no home do `stacktrack` e o Docker é o rootless dele. Só o outro
 exige privilégio. A chave de deploy — a que você usaria de um script ou de outra
 máquina — está presa a um comando forçado que executa quatro verbos (`sync`,
 `release`, `backup`, `estado`) e nada de `preparar-host.yml`.
 
 O `preparar-host.yml` entra como `stacktrack` e sobe por `sudo`, em vez de logar
-como root: o `loadbalancer` aplica `PermitRootLogin no`, e um playbook que só
-soubesse entrar como root deixaria de rodar. Numa máquina em que `stacktrack`
-ainda não consiga elevar, entre por outra conta com sudo:
+como root: o sshd do servidor tem `PermitRootLogin no`. Na **primeira vez**, com
+o `stacktrack` ainda inexistente, entre por outra conta com sudo — no servidor
+do WSL, a do studygo, que o `bootstrap-wsl.sh` dele criou com sudo sem senha:
 
 ```bash
-cd deploy/ansible
-ansible-playbook preparar-host.yml -e ansible_user=<conta-com-sudo> --ask-become-pass --diff
+make infra-preparar ARGS="-e ansible_user=studygo -e ansible_ssh_private_key_file=~/.ssh/studygo_ci"
+# a senha do sudo é pedida: sem senha, basta Enter
 ```
 
 `-e ansible_user=...`, e não `-u ...`: o `-u` troca só o usuário da conexão e
@@ -65,11 +65,28 @@ bloqueada (`passwd -S` responde `L`), que é o certo para conta de serviço —
 senha de conta de serviço é senha que alguém guarda num arquivo. Sem senha,
 `sudo` com senha nunca funciona, e o playbook ficaria preso ao root para sempre.
 
-E não é privilégio novo: `stacktrack` está no grupo `docker`, o que nesta
-máquina já equivale a root (`docker run -v /:/host` monta o disco inteiro). O
-sudoers só torna explícito o que o grupo concede. A **chave de deploy** é outro
-assunto: o acesso dela é restrito a um arquivo, e é ali que o privilégio mínimo
-importa.
+É o mesmo sudo que o servidor dá a cada usuário de projeto, e quem o usa é a
+chave do **operador** — você, que já é dono da máquina. A **chave de deploy** é
+outro assunto: o acesso dela é restrito a um arquivo, e é ali que o privilégio
+mínimo importa.
+
+### 🐳 Um Docker por projeto
+
+O `stacktrack` **não** está no grupo `docker`: o daemon de sistema está
+desligado no servidor, e o grupo daria root no dia em que alguém o religasse. A
+stack roda no Docker **rootless** da própria conta — daemon, rede, imagens e
+volumes próprios, que o studygo não enxerga e vice-versa.
+
+Todas as distros do WSL2 dividem a mesma rede, e um Docker de sistema brigaria
+com o da distro de desenvolvimento pelo `docker0` e pelo iptables. O rootless
+roda numa rede própria e só publica as portas pedidas.
+
+O `preparar-host.yml` instala o daemon (`dockerd-rootless-setuptool.sh`), liga
+o *linger* — sem ele, o daemon morre quando a última sessão do usuário fecha — e
+cria o contexto `rootless` como corrente na config do cliente. É o contexto que
+faz o shell, o comando forçado e o cron acharem o daemon certo sem exportar
+nada. Os módulos `community.docker` não leem contexto: o `provisionar.yml` lhes
+passa `DOCKER_HOST` no `environment` da play.
 
 Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — que
 é a prova de que ele descreve a máquina, em vez de só saber construí-la.
@@ -77,14 +94,15 @@ Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — q
 ### 🏠 A casa do stacktrack
 
 ```
-/home/stacktrack/   .env · docker-compose.prod.yml · scripts/ · backups/
-/opt/loadbalancer/  a borda (projeto à parte) — Traefik + socket-proxy
+/home/stacktrack/                 .env · docker-compose.prod.yml · scripts/ · backups/
+/usr/local/bin/stacktrack-release o wrapper da chave de deploy
 ```
 
-O roteamento de `stacktrack.caetasousa.tech` (split `/api` → API, resto → front,
-cabeçalhos, TLS) está nas **labels do Traefik no `docker-compose.prod.yml`** — o
-Traefik as lê pelo Docker, nada é depositado na borda. O contrato está em
-[producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
+O roteamento de `stacktrack.d4ffy.com` (split `/api` → API, resto → front,
+WebSocket, cabeçalhos) está no serviço **`borda`** do `docker-compose.prod.yml`:
+um nginx com a config embutida no próprio compose, publicado em
+`127.0.0.1:8580`. O TLS fica com a Cloudflare. O contrato está em
+[producao.md](producao.md#a-borda-o-que-o-túnel-alcança).
 
 ### 🔑 Uma conta, duas chaves com poderes diferentes
 
@@ -102,8 +120,8 @@ o pedido vai para `SSH_ORIGINAL_COMMAND`, como dado. `restrict` desliga PTY,
 encaminhamento de porta, de agente e X11.
 
 **O que se abriu mão, para não haver conta separada.** Se um dia essa linha
-perder as opções, a chave de deploy passa a dar shell numa conta do grupo
-`docker` — que nesta máquina é root. Uma conta separada faria o mesmo erro
+perder as opções, a chave de deploy passa a dar shell numa conta com sudo — que
+é root. Uma conta separada faria o mesmo erro
 terminar num shell sem poder nenhum: falharia fechado, e esta escolha falha
 aberta. A mitigação é o `authorized_keys` ser escrito pelo playbook, e não à
 mão.
@@ -111,7 +129,7 @@ mão.
 O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende `sync`,
 `release <sha>`, `backup` e `estado`, e recusa o resto. `sync` é o único que
 escreve arquivo — recebe o `docker-compose.prod.yml` pelo stdin e o passa por
-uma allowlist (imagem do projeto ou Postgres; sem `privileged`, namespace do
+uma allowlist (imagem do projeto, Postgres ou o nginx `unprivileged` da borda; sem `privileged`, namespace do
 host, bind mount ou capability nova) antes de instalar. Ele lê
 `SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é dado,
 não código. `scripts/testa-wrapper-de-release.sh` executa o script renderizado
@@ -126,7 +144,7 @@ substituição de comando e SHA malformado — e roda em `make infra-validar`.
 sudo apt install ansible          # Ubuntu 24.04: o PEP 668 bloqueia o pip
 
 make infra-segredos               # UMA vez: gera e cifra a senha do banco
-make infra-preparar               # o que exige privilégio (pede a senha do sudo)
+make infra-preparar               # o que exige privilégio (a 1ª vez por outra conta, ver acima)
 make infra-check                  # mostra o que mudaria, sem tocar em nada
 make infra-apply                  # aplica
 ```
@@ -191,17 +209,18 @@ atualizado, nessa ordem.
 
 ---
 
-## 🤝 A fronteira com o `loadbalancer`
+## 🤝 A fronteira com o servidor
 
-O VPS é compartilhado com a borda Traefik e com os outros sites dela. O playbook
-do stacktrack nunca escreve fora do que é dele:
+O servidor do WSL é compartilhado com o studygo, e o studygo é quem o montou. O
+playbook do stacktrack nunca escreve fora do que é dele:
 
 | | Como |
 |---|---|
-| **roteamento** | nas labels do Traefik em `docker-compose.prod.yml`; nenhum arquivo de config depositado na borda, nenhum reload disparado |
+| **roteamento** | no serviço `borda` do `docker-compose.prod.yml`; nada no nginx nem no `cloudflared` do servidor |
+| **túnel** | a rota `stacktrack.d4ffy.com` → `http://localhost:8580` é do painel da Cloudflare, no túnel com token que já existia |
+| **porta** | só a 8580, em loopback. A 8480 é do studygo; as distros do WSL dividem a rede, então porta nova é decisão, não detalhe |
 | **crontab** | `ansible.builtin.cron` com `name:` gerencia só o bloco marcado — as outras linhas ficam intactas, por desenho e não por sorte |
-| **rede `borda`** | criada pelo `loadbalancer`; o compose só a declara `external`, **nunca** a remove |
-| **Docker / firewall / hardening** | do `loadbalancer` — este repo pressupõe tudo isso pronto |
+| **pacotes, sshd, cloudflared** | do `site.yml` do studygo — este repo pressupõe tudo isso pronto, e o `preparar-host.yml` recusa seguir sem o instalador rootless |
 
 O crontab tem **um dono só**: o Ansible. Antes, quando o deploy também mexia
 nele (um `crontab -l | grep -v … | crontab -`), os dois brigavam: o `grep -v`
@@ -227,14 +246,13 @@ crontab -u stacktrack -l | grep -v stacktrack | crontab -u stacktrack -
 ```
 
 ⚠️ **Isto apaga contas, quadros, comentários e anexos.** Tire um backup antes
-(`~/stacktrack/scripts/backup.sh`) e leve o arquivo para fora do VPS — a cópia
+(`~/scripts/backup.sh`) e leve o arquivo para fora do servidor — a cópia
 remota ainda não existe, ver [producao.md](producao.md).
 
-Três comandos que parecem faxina e derrubam a borda e os vizinhos:
-
-- `docker network rm borda` — o Traefik da borda perde a rota para todos os apps
-- `docker system prune -a` — apaga as imagens deles junto
-- `rm -rf ~/backups` — pode conter cópias de outros serviços do VPS
+O `sudo rm -rf /home/stacktrack` leva junto o Docker rootless da conta (imagens
+e volumes moram em `~/.local/share/docker`); o `make infra-preparar` o recria.
+O que **não** fazer no servidor, por parecer faxina: parar o `cloudflared` ou o
+nginx de sistema, ou mexer no usuário `studygo` — são do outro projeto.
 
 Não há alvo de `make` para isto de propósito: um `make infra-destruir` seria um
 footgun morando no repositório para sempre.
@@ -250,7 +268,7 @@ O critério de aceite é a **reconstrução**, e ele não cabe num teste automat
 3. `make infra-apply` **de novo** → `changed=0`
 4. Criar conta, montar um quadro e dar F5 (exercita o cookie `__Host-`, que
    nenhum `curl` alcança)
-5. `curl -sI https://<outro-site-da-borda>` — os vizinhos continuam no ar
+5. `curl -sI https://studygo.d4ffy.com` — o vizinho continua no ar
 6. `crontab -u stacktrack -l` — a linha do backup do stacktrack
 
 ### Validar o playbook sem a senha do vault
@@ -274,17 +292,18 @@ ambos pelo `make infra-check`.
 
 ## 🧭 O que continua fora
 
-- **O host e a borda** — Docker, rede `borda`, firewall, hardening, o Traefik e
-  o TLS são do projeto [`loadbalancer`](https://github.com/caetasousa/loadbalancer).
-- **O roteamento** está nas labels do `docker-compose.prod.yml`; o contrato está em
-  [producao.md](producao.md#o-que-o-loadbalancer-roteia-para-o-stacktrack).
-- **Criar a máquina** — é Terraform, não Ansible.
-- **Fuso do host** — o `date` do servidor continua como o provedor entregou; o
-  que depende dele (o cron do backup) imprime os dois no `estado`.
-- **DNS** — o registro `A` de `stacktrack.caetasousa.tech` é externo, ver
-  [producao.md](producao.md) §1.
-- **Cópia de backup para fora do VPS** — pendência antiga, entra junto com a
-  chave de escrita no bucket.
+- **O servidor** — a distro `ubuntu-server`, o sshd na 2222, os pacotes do
+  Docker rootless e o `cloudflared` são do `site.yml` do studygo.
+- **A rota do túnel** — `stacktrack.d4ffy.com` → `http://localhost:8580`, criada
+  no painel da Cloudflare (Zero Trust → Networks → Tunnels → Routes). O túnel
+  com token é administrado lá, não por arquivo no servidor.
+- **Ficar no ar** — o servidor só responde com o PC ligado e a distro de pé; a
+  tarefa agendada do Windows que a mantém acordada está em
+  `~/studygo/docs/deploy.md`.
+- **Fuso do host** — o cron do backup roda no fuso do servidor; o `estado`
+  imprime os dois.
+- **Cópia de backup para fora do servidor** — pendência antiga, entra junto com
+  a chave de escrita no bucket.
 
 ---
 

@@ -16,6 +16,7 @@ import (
 
 	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/membro"
+	ucauth "stacktrack/internal/usecase/auth"
 	ucboard "stacktrack/internal/usecase/board"
 )
 
@@ -35,9 +36,11 @@ var explicacaoDoPapel = map[membro.Papel]string{
 
 // Redator escreve os emails do sistema a partir dos modelos versionados.
 type Redator struct {
-	textoDoConvite *ttemplate.Template
-	htmlDoConvite  *htemplate.Template
-	fuso           *time.Location
+	textoDoConvite     *ttemplate.Template
+	htmlDoConvite      *htemplate.Template
+	textoDeRecuperacao *ttemplate.Template
+	htmlDeRecuperacao  *htemplate.Template
+	fuso               *time.Location
 }
 
 // NovoRedator carrega os modelos. Eles vêm embutidos no binário, então um
@@ -48,9 +51,11 @@ func NovoRedator() *Redator {
 		panic(fmt.Sprintf("email: fuso de Brasília indisponível: %v", err))
 	}
 	return &Redator{
-		textoDoConvite: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/convite.txt")),
-		htmlDoConvite:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/convite.html")),
-		fuso:           fuso,
+		textoDoConvite:     ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/convite.txt")),
+		htmlDoConvite:      htemplate.Must(htemplate.ParseFS(modelos, "modelos/convite.html")),
+		textoDeRecuperacao: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/recuperacao.txt")),
+		htmlDeRecuperacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/recuperacao.html")),
+		fuso:               fuso,
 	}
 }
 
@@ -101,6 +106,34 @@ func (r *Redator) Convite(d ucboard.DadosDoEmailDeConvite) (demail.Mensagem, err
 		m.ResponderPara = d.ResponderPara
 	}
 	return m, nil
+}
+
+// Recuperacao redige o email que leva o link de senha nova.
+//
+// Sem Reply-To: do outro lado não há pessoa, e uma resposta iria para o
+// remetente automático, que é o certo. O nome da conta passa pelo escape do
+// html/template no corpo; o assunto é fixo e não leva nada vindo de usuário.
+func (r *Redator) Recuperacao(d ucauth.DadosDoEmailDeRecuperacao) (demail.Mensagem, error) {
+	dados := map[string]any{
+		"Nome":    demail.LimparCabecalho(d.Nome),
+		"Link":    d.Link,
+		"Para":    d.Para,
+		"ValeAte": d.ExpiraEm.In(r.fuso).Format("02/01/2006 às 15h04"),
+	}
+
+	var texto, html bytes.Buffer
+	if err := r.textoDeRecuperacao.Execute(&texto, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o texto da recuperação: %w", err)
+	}
+	if err := r.htmlDeRecuperacao.Execute(&html, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o HTML da recuperação: %w", err)
+	}
+	return demail.Mensagem{
+		Para:    d.Para,
+		Assunto: "Crie uma senha nova no stacktrack",
+		Texto:   texto.String(),
+		HTML:    html.String(),
+	}, nil
 }
 
 func encurtar(texto string, maximo int) string {

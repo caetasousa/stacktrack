@@ -133,3 +133,13 @@ da aplicação, que não a conhece. Nenhum dado é escrito, e os estados
 parcial em `estado = 'pendente'`: o resto da tabela é histórico, que o worker
 não precisa varrer.
 
+## `V20` — a recuperação de senha
+
+Tabela nova, `recuperacoes_senha`: cada "esqueci minha senha" é uma linha, com
+o **hash** do token do link (nunca o token), a validade e o momento em que o
+link deixou de valer (`encerrada_em`). O email com o link vai pelo
+`email_outbox` do `V19`, cifrado.
+
+É **expansiva** e entra num deploy só, pela mesma razão do `V19`. A validade de
+uma hora, o teto de pedidos por conta e o que encerra um link são do domínio
+(`internal/domain/recuperacao`), não de `DEFAULT` nem de `CHECK`.

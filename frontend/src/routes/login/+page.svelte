@@ -63,7 +63,13 @@
 		</div>
 
 		<div>
-			<label class="rotulo" for="senha">Senha</label>
+			<div class="flex items-baseline justify-between">
+				<label class="rotulo" for="senha">Senha</label>
+				<a
+					href={email ? `/recuperar-senha?email=${encodeURIComponent(email)}` : '/recuperar-senha'}
+					class="text-xs text-accent-texto hover:underline">Esqueci minha senha</a
+				>
+			</div>
 			<input
 				id="senha"
 				type="password"

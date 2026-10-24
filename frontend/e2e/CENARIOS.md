@@ -2,7 +2,8 @@
 
 Este catálogo vem ANTES dos testes: cada item é uma maneira concreta de uma
 funcionalidade deixar de funcionar para quem usa. Cada teste em `e2e/` cita no
-título o id que cobre (`[E4] …`), e o relatório de cada execução
+título o id que cobre (`[E4] …`), ou os ids, quando o mesmo percurso prova mais
+de um (`[F2][F3] …`), e o relatório de cada execução
 (`e2e/relatorio/resumo.md`) lista o resultado por id — um item sem teste aparece
 como lacuna declarada, não como esquecimento.
 
@@ -80,3 +81,19 @@ cenários escritos no comentário de cada um.
 | E13 | a tela de membros descreve um caminho que não existe ("quem já tem conta entra na hora") | o dono não entende o que acontece depois de convidar |
 | E14 | a página inicial promete o convite antigo ("quem já tem conta entra direto", "convite por link") | quem vai chamar a equipe espera um atalho que o produto não tem |
 
+## F. Recuperar a senha
+
+| id | Como quebra | O que o usuário vê |
+|---|---|---|
+| F1 | a tela de login não leva a lugar nenhum para quem esqueceu a senha, ou o pedido não manda email | a pessoa fica sem como entrar na própria conta |
+| F2 | o link do email não abre a tela de nova senha (origem errada, token cortado) | "link inválido" para quem acabou de pedir |
+| F3 | a senha nova não passa a valer, ou a antiga continua entrando | a pessoa troca a senha e não entra; ou quem tinha a antiga continua entrando |
+| F4 | o mesmo link redefine a senha duas vezes | um link vazado troca a senha de novo depois da dona |
+| F5 | pedir com um email sem conta responde diferente de pedir com um email que tem conta | dá para descobrir quem tem conta no stacktrack |
+| F6 | redefinir não derruba as sessões abertas em outros aparelhos | quem entrou com a senha antiga continua dentro |
+| F7 | o link inválido ou vencido deixa a pessoa sem saída | tela de erro sem caminho para pedir outro link |
+| F8 | a senha nova aceita o que o cadastro recusaria (curta, comum) | a recuperação vira o atalho para uma senha fraca |
+
+O que não passa pela tela — o token guardado só como hash, a validade de uma
+hora, o teto de pedidos por conta, duas redefinições simultâneas com o mesmo
+link — está em `backend/test/repository/recuperacao_test.go`.

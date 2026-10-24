@@ -128,7 +128,11 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	// Conta e sessão no mesmo commit: sem isto, uma falha entre as duas
 	// escritas deixava conta criada sem sessão, e a segunda tentativa de
 	// cadastro batia no email já em uso.
-	cadastrarUC.ComUnidadeDeTrabalho(repository.NovaUnidadeDeAutenticacao(banco))
+	unidadeDeAuth := repository.NovaUnidadeDeAutenticacao(banco)
+	cadastrarUC.ComUnidadeDeTrabalho(unidadeDeAuth)
+	// A recuperação de senha troca senha, links e sessões na mesma transação, e
+	// manda o email pelo mesmo outbox do convite (ligado em ligarCorreio).
+	recuperarUC := ucauth.NovoRecuperarSenhaUseCase(usuarioRepo, hasher, unidadeDeAuth)
 	loginUC := ucauth.NovoLoginUseCase(usuarioRepo, sessionRepo, hasher)
 	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
 	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
@@ -204,11 +208,11 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		uc.ComEscritaAtomica(unidadeDeTrabalho)
 	}
 
-	// O envio de email dos convites. Ligado só com SMTP configurado; sem ele, o
-	// convite nasce com o link manual e nada mais muda — nenhum fluxo de quadro
-	// depende de email para funcionar.
+	// O envio de email dos convites e da recuperação de senha. Ligado só com
+	// SMTP configurado; sem ele, o convite nasce com o link manual, e a
+	// recuperação responde como sempre, sem mandar nada.
 	membroUC.ComIntervaloDeReenvio(config.IntervaloEntreReenvios())
-	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, membroUC)
+	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, unidadeDeAuth, membroUC, recuperarUC)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -228,6 +232,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		handler.NovoLimitadorPorConta(config.RateLimitLoginPorConta(), config.JanelaLimitePorConta),
 		identidadeDoContexto,
 	)
+	recuperacaoHandler := handler.NovoRecuperacaoHandler(recuperarUC, config.CookieSeguro())
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, atividadeUC, identidadeDoContexto)
@@ -309,6 +314,23 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		})
 
 		r.Post("/logout", authHandler.Logout)
+
+		// A recuperação de senha: três rotas públicas, cada uma com o teto do
+		// que ela se parece. Pedir manda email a um endereço que qualquer um
+		// digita — o teto do cadastro; consultar o link é o mesmo de abrir um
+		// convite; trocar a senha é o mesmo de entrar.
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitCadastroPorMinuto()))
+			r.Post("/recuperacao", recuperacaoHandler.Pedir)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitPublicoPorMinuto()))
+			r.Get("/recuperacao/{token}", recuperacaoHandler.Consultar)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitLoginPorMinuto()))
+			r.Post("/recuperacao/{token}", recuperacaoHandler.Redefinir)
+		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(autenticacao.Autenticar)
@@ -491,7 +513,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		exclusaoRepo, ucboard.CoberturaNegada{}, armazemAnexos, slog.Default(),
 	)
 
-	faxineiros := []manutencao.Faxineiro{sessionRepo, conviteRepo, coletor}
+	faxineiros := []manutencao.Faxineiro{sessionRepo, conviteRepo, repository.NovoRecuperacaoPostgres(banco), coletor}
 	if emailRepo != nil {
 		// A mensagem que venceu sem sair tem o link dentro: a faxina a apaga.
 		faxineiros = append(faxineiros, emailRepo)
@@ -506,17 +528,19 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	return app, nil
 }
 
-// ligarCorreio liga o envio de email dos convites, se o SMTP estiver
-// configurado. Devolve o outbox (nil com o envio desligado), que a faxina
-// também precisa.
+// ligarCorreio liga o envio de email dos convites e da recuperação de senha, se
+// o SMTP estiver configurado. Devolve o outbox (nil com o envio desligado), que
+// a faxina também precisa.
 func ligarCorreio(
 	app *aplicacao,
 	banco repository.Fonte,
 	unidade *repository.UnidadeDeTrabalho,
+	unidadeDeAuth *repository.UnidadeDeAutenticacao,
 	membros *ucboard.MembroUseCase,
+	recuperacao *ucauth.RecuperarSenhaUseCase,
 ) (*repository.EmailPostgres, error) {
 	if !config.EmailLigado() {
-		slog.Warn("envio de email desligado: SMTP_HOST vazio — os convites saem só com o link manual")
+		slog.Warn("envio de email desligado: SMTP_HOST vazio — os convites saem só com o link manual, e a recuperação de senha não manda nada")
 		return nil, nil
 	}
 
@@ -534,6 +558,7 @@ func ligarCorreio(
 
 	emails := repository.NovoEmailPostgres(banco, cifra)
 	unidade.ComCifraDeEmail(cifra)
+	unidadeDeAuth.ComCifraDeEmail(cifra)
 
 	smtp := config.ConfiguracaoSMTP()
 	carteiro := correio.NovoCarteiro(emails, aemail.NovoEnviadorSMTP(aemail.ConfigSMTP{
@@ -541,7 +566,9 @@ func ligarCorreio(
 		STARTTLS: smtp.STARTTLS, Remetente: smtp.Remetente, NomeDoRemetente: smtp.NomeDoRemetente,
 	}), slog.Default()).ComIntervalo(config.IntervaloDoCarteiro())
 
-	membros.ComCorreio(emails, aemail.NovoRedator(), config.OrigemFrontend(), carteiro.Acordar)
+	redator := aemail.NovoRedator()
+	membros.ComCorreio(emails, redator, config.OrigemFrontend(), carteiro.Acordar)
+	recuperacao.ComCorreio(redator, config.OrigemFrontend(), carteiro.Acordar)
 	app.trabalhos = append(app.trabalhos, carteiro.Rodar)
 
 	slog.Info("envio de email ligado",

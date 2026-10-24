@@ -1,9 +1,7 @@
 // Package auth contém os usecases de autenticação: cadastro, login, logout,
-// validação de sessão e consulta do perfil autenticado.
+// validação de sessão, consulta do perfil autenticado e recuperação de senha.
 //
-// Não há confirmação de email nem recuperação de senha: as duas dependem de
-// enviar mensagem, e o envio ainda não existe no projeto. O cadastro desta
-// fase cria a conta já utilizável.
+// Não há confirmação de email: o cadastro cria a conta já utilizável.
 package auth
 
 import (

@@ -1,0 +1,10 @@
+Olá{{with .Nome}}, {{.}}{{end}}.
+
+Alguém pediu para criar uma senha nova para a sua conta no stacktrack ({{.Para}}). Para escolher a senha nova, abra o link:
+{{.Link}}
+
+O link vale até {{.ValeAte}} e funciona uma vez só. Ao trocar a senha, a conta sai de todos os aparelhos em que estava aberta.
+
+Se você não pediu, pode ignorar esta mensagem: sem abrir o link, a sua senha continua a mesma.
+
+— stacktrack

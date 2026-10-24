@@ -228,13 +228,13 @@ configs:
         ''      close;
       }
 
-      # O access log não guarda os tokens de convite e de link público: nesses
-      # caminhos o segmento depois do prefixo É a credencial, e o link do
-      # convite agora viaja por email. Vai ao log trocado por [redigido] — e o
-      # Referer fica de fora, porque ele repetiria a mesma URL.
+      # O access log não guarda os tokens de convite, de link público e de
+      # recuperação de senha: nesses caminhos o segmento depois do prefixo É a
+      # credencial, e os links viajam por email. Vai ao log trocado por
+      # [redigido] — e o Referer fica de fora, porque ele repetiria a mesma URL.
       map $$request_uri $$requisicao_redigida {
         default $$request_uri;
-        "~^(?<prefixo>/(?:api/)?(?:convite|convites|publico))/[^/?]+(?<resto>.*)$$" "$$prefixo/[redigido]$$resto";
+        "~^(?<prefixo>/(?:api/)?(?:convite|convites|publico|redefinir-senha|auth/recuperacao))/[^/?]+(?<resto>.*)$$" "$$prefixo/[redigido]$$resto";
       }
       log_format redigido '$$remote_addr - [$$time_local] "$$request_method $$requisicao_redigida $$server_protocol" '
                           '$$status $$body_bytes_sent "$$http_user_agent"';

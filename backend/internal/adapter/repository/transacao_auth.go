@@ -16,6 +16,9 @@ import (
 // o justifique.
 type UnidadeDeAutenticacao struct {
 	pool Fonte
+	// cifraDeEmail liga o outbox de email à transação — é por ele que sai o
+	// link da recuperação de senha. Nil com o envio desligado.
+	cifraDeEmail cifraDeEmail
 }
 
 // NovaUnidadeDeAutenticacao cria a unidade sobre o pool informado.
@@ -33,11 +36,29 @@ func (u *UnidadeDeAutenticacao) Executar(ctx context.Context, trabalho func(ucau
 	// caminhos de erro — inclusive o panic.
 	defer tx.Rollback(ctx) //nolint:errcheck // sem efeito depois do commit
 
-	if err := trabalho(ucauth.EscritaDeAuth{
-		Usuarios: &UsuarioPostgres{db: tx},
-		Sessoes:  &SessionPostgres{db: tx},
-	}); err != nil {
+	usuarios := &UsuarioPostgres{db: tx}
+	sessoes := &SessionPostgres{db: tx}
+	escrita := ucauth.EscritaDeAuth{
+		Usuarios:       usuarios,
+		Sessoes:        sessoes,
+		Senhas:         usuarios,
+		SessoesDaConta: sessoes,
+		Recuperacoes:   &RecuperacaoPostgres{db: tx},
+	}
+	// Atribuição condicional, e não um *EmailPostgres nil no campo: a interface
+	// com ponteiro nil dentro NÃO é nil, e o caso de uso tentaria enfileirar
+	// sem cifra.
+	if u.cifraDeEmail != nil {
+		escrita.Emails = &EmailPostgres{db: tx, cifra: u.cifraDeEmail}
+	}
+	if err := trabalho(escrita); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// ComCifraDeEmail liga o outbox de email às transações de autenticação.
+func (u *UnidadeDeAutenticacao) ComCifraDeEmail(cifra cifraDeEmail) *UnidadeDeAutenticacao {
+	u.cifraDeEmail = cifra
+	return u
 }

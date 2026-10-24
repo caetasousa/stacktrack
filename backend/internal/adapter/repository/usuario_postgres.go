@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"stacktrack/internal/domain/usuario"
 
@@ -66,4 +67,13 @@ func (r *UsuarioPostgres) buscar(ctx context.Context, filtro string, arg any) (*
 		return nil, err
 	}
 	return &u, nil
+}
+
+// DefinirSenha troca o hash da senha da conta. É o fim da recuperação de
+// senha, e roda dentro da transação dela.
+func (r *UsuarioPostgres) DefinirSenha(ctx context.Context, usuarioID, hash string, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE usuarios SET senha_hash = $2, atualizado_em = $3 WHERE id = $1`, usuarioID, hash, em,
+	)
+	return err
 }

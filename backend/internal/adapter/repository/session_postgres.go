@@ -56,6 +56,14 @@ func (r *SessionPostgres) Remover(ctx context.Context, hash string) error {
 	return err
 }
 
+// RemoverDoUsuario apaga todas as sessões da conta: o "sair de todos os
+// aparelhos" que acompanha a troca de senha. Um WebSocket aberto cai na
+// revalidação seguinte, em até 30 segundos.
+func (r *SessionPostgres) RemoverDoUsuario(ctx context.Context, usuarioID string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM sessions WHERE usuario_id = $1`, usuarioID)
+	return err
+}
+
 // RemoverExpiradas apaga todas as sessões cuja expira_em já passou.
 //
 // ⚠️ Sem limite e sem lote: apaga tudo numa transação só. Continua existindo

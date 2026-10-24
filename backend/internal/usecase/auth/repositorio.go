@@ -2,6 +2,10 @@ package auth
 
 import (
 	"context"
+	"time"
+
+	demail "stacktrack/internal/domain/email"
+	"stacktrack/internal/domain/recuperacao"
 	"stacktrack/internal/domain/session"
 	"stacktrack/internal/domain/usuario"
 )
@@ -43,9 +47,52 @@ type HasherSenha interface {
 
 // EscritaDeAuth são os repositórios de autenticação ligados a uma transação em
 // curso.
+//
+// Os quatro últimos servem à recuperação de senha. São portas à parte, e não
+// métodos a mais em RepositorioUsuario e RepositorioSessao, porque só a
+// recuperação precisa deles — e só dentro da transação dela.
 type EscritaDeAuth struct {
 	Usuarios RepositorioUsuario
 	Sessoes  RepositorioSessao
+
+	Senhas         GravadorDeSenha
+	SessoesDaConta EncerradorDeSessoes
+	Recuperacoes   RepositorioRecuperacao
+	// Emails é nil com o envio de email desligado.
+	Emails FilaDeEmail
+}
+
+// GravadorDeSenha troca o hash da senha de uma conta.
+type GravadorDeSenha interface {
+	DefinirSenha(ctx context.Context, usuarioID, hash string, em time.Time) error
+}
+
+// EncerradorDeSessoes apaga todas as sessões de uma conta — o "sair de todos os
+// aparelhos" que acompanha a troca de senha.
+type EncerradorDeSessoes interface {
+	RemoverDoUsuario(ctx context.Context, usuarioID string) error
+}
+
+// RepositorioRecuperacao guarda os pedidos de recuperação de senha.
+type RepositorioRecuperacao interface {
+	Salvar(ctx context.Context, r *recuperacao.Recuperacao) error
+	// BuscarPorTokenHash devolve (nil, nil) quando não encontra. Dentro da
+	// transação, trava a linha: duas redefinições com o mesmo link esperam uma
+	// pela outra, e a segunda já a encontra encerrada.
+	BuscarPorTokenHash(ctx context.Context, hash string) (*recuperacao.Recuperacao, error)
+	// TravarConta segura a linha da conta até o fim da transação, para que dois
+	// pedidos simultâneos não passem os dois pelo último lugar do teto.
+	TravarConta(ctx context.Context, usuarioID string) error
+	// ContarDoUsuarioDesde é a base do teto: quantos pedidos a conta fez.
+	ContarDoUsuarioDesde(ctx context.Context, usuarioID string, desde time.Time) (int, error)
+	// EncerrarDoUsuario encerra todos os links ainda abertos da conta.
+	EncerrarDoUsuario(ctx context.Context, usuarioID string, em time.Time) error
+}
+
+// FilaDeEmail é o outbox de email, visto pela autenticação: só enfileirar. A
+// mensagem entra em claro, e é o adaptador que a cifra.
+type FilaDeEmail interface {
+	Enfileirar(ctx context.Context, e *demail.Envio, m demail.Mensagem) error
 }
 
 // UnidadeDeAutenticacao executa um trabalho com conta e sessão na MESMA

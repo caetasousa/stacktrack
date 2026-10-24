@@ -40,3 +40,31 @@ export function sair(): Promise<void> {
 export function me(): Promise<SessaoResponse> {
 	return apiGet<SessaoResponse>('/auth/me');
 }
+
+// --- recuperação de senha ---------------------------------------------------
+
+export interface RecuperacaoAberta {
+	emailMascarado: string;
+	expiraEm: string;
+}
+
+/**
+ * pedirRecuperacao manda o link de senha nova. A resposta é a mesma para email
+ * com conta e sem conta — a tela não tem como saber, e é de propósito.
+ */
+export function pedirRecuperacao(email: string): Promise<{ mensagem: string }> {
+	return apiPost<{ email: string }, { mensagem: string }>('/auth/recuperacao', { email });
+}
+
+/** consultarRecuperacao diz de qual conta é o link; 404 quando ele não vale. */
+export function consultarRecuperacao(token: string): Promise<RecuperacaoAberta> {
+	return apiGet<RecuperacaoAberta>(`/auth/recuperacao/${encodeURIComponent(token)}`);
+}
+
+/** redefinirSenha troca a senha e já devolve a conta autenticada. */
+export function redefinirSenha(token: string, senha: string): Promise<SessaoResponse> {
+	return apiPost<{ senha: string }, SessaoResponse>(
+		`/auth/recuperacao/${encodeURIComponent(token)}`,
+		{ senha }
+	);
+}

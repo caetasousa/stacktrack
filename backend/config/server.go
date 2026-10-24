@@ -77,8 +77,9 @@ func RateLimitLoginPorConta() int {
 
 // RateLimitPublicoPorMinuto é o teto por IP por minuto das rotas que respondem
 // a quem não se identificou (env RATE_LIMIT_PUBLICO_POR_MINUTO; 0 desliga).
-// Hoje é só o detalhe do convite — e é justamente onde um teto importa, porque
-// sem ele daria para varrer tokens à vontade.
+// São o detalhe do convite, o quadro publicado e a conferência do link de senha
+// nova — e é justamente onde um teto importa, porque sem ele daria para varrer
+// tokens à vontade.
 func RateLimitPublicoPorMinuto() int {
 	return intDoAmbiente("RATE_LIMIT_PUBLICO_POR_MINUTO", 30)
 }

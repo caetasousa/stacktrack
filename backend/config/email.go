@@ -24,7 +24,8 @@ type SMTP struct {
 //
 // Desligado é um estado legítimo, e não um erro: o convite nasce com o link
 // manual e o resto do sistema não muda. Nenhum fluxo de quadro pode exigir
-// email para funcionar.
+// email para funcionar. A recuperação de senha é a exceção que não tem como
+// não ser: sem email ela responde como sempre, mas não manda nada.
 func EmailLigado() bool {
 	return strings.TrimSpace(os.Getenv("SMTP_HOST")) != ""
 }

@@ -6,7 +6,7 @@
 	// Só o que o produto FAZ HOJE. A versão anterior desta lista trazia selos de
 	// "fase 4", "fase 5" e "fase 6" em recursos que já estavam no ar havia muito
 	// tempo — o roteiro interno vazando para a página e vendendo o produto por
-	// menos do que ele é. Roteiro mora no PLANO.md.
+	// menos do que ele é. O que falta fica em docs/historico-do-projeto.md.
 	const recursos = [
 		{
 			icone: 'tempo-real',
@@ -42,7 +42,7 @@
 			icone: 'papeis',
 			titulo: 'Papéis conferidos no servidor',
 			texto:
-				'Dono, editor e leitor. Convite por link associado ao email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
+				'Dono, editor e leitor. Convite por email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
 		}
 	] as const;
 </script>
@@ -130,8 +130,8 @@
 			Crie um quadro e chame a equipe
 		</h2>
 		<p class="max-w-md text-sm leading-relaxed text-mute">
-			A conta leva menos de um minuto. Quem já tem conta entra direto; para quem ainda não tem, você
-			envia o link do convite por onde preferir.
+			A conta leva menos de um minuto. O convite chega por email: quem ainda não tem conta cria uma
+			pelo próprio link, e quem já tem entra no quadro com a conta de sempre.
 		</p>
 		<a href="/cadastro" class="botao mt-1 w-auto px-6">Criar conta</a>
 	</section>

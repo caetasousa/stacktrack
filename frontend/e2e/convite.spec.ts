@@ -335,3 +335,18 @@ test('[E12] convidar de novo quem já está no quadro, ou já tem convite em abe
 	await pagina.context().close();
 });
 
+// A primeira tela que alguém vê antes de chamar a equipe. Ela descrevia o
+// convite da versão anterior — "quem já tem conta entra direto", "convite por
+// link" —, o mesmo atalho que a E13 tirou da tela de membros: desde que conhecer
+// um email deixou de pôr alguém no quadro, todo mundo entra pelo convite.
+test('[E14] a página inicial descreve o convite como ele é', async ({ browser }) => {
+	const pagina = await abaSemConta(browser);
+	await pagina.goto('/');
+
+	await expect(pagina.getByText('O convite chega por email')).toBeVisible();
+	await expect(pagina.getByText('entra direto')).toHaveCount(0);
+	await expect(pagina.getByText('Convite por link')).toHaveCount(0);
+
+	await printFinal(pagina);
+	await pagina.context().close();
+});

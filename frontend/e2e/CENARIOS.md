@@ -78,4 +78,5 @@ cenários escritos no comentário de cada um.
 | E11 | convidar, reenviar e revogar somem do histórico do quadro | ninguém sabe quem chamou quem |
 | E12 | convidar quem já participa, ou já tem convite em aberto, cria duplicata ou erro genérico | dois convites, ou "erro interno" sem explicação |
 | E13 | a tela de membros descreve um caminho que não existe ("quem já tem conta entra na hora") | o dono não entende o que acontece depois de convidar |
+| E14 | a página inicial promete o convite antigo ("quem já tem conta entra direto", "convite por link") | quem vai chamar a equipe espera um atalho que o produto não tem |
 

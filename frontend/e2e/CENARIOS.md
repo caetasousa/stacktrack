@@ -80,6 +80,7 @@ cenários escritos no comentário de cada um.
 | E12 | convidar quem já participa, ou já tem convite em aberto, cria duplicata ou erro genérico | dois convites, ou "erro interno" sem explicação |
 | E13 | a tela de membros descreve um caminho que não existe ("quem já tem conta entra na hora") | o dono não entende o que acontece depois de convidar |
 | E14 | a página inicial promete o convite antigo ("quem já tem conta entra direto", "convite por link") | quem vai chamar a equipe espera um atalho que o produto não tem |
+| E15 | a lista de convites fica em "email na fila" depois que o email já saiu | o dono acha que o email nunca foi enviado |
 
 ## F. Recuperar a senha
 

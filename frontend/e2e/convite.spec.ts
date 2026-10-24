@@ -350,3 +350,20 @@ test('[E14] a página inicial descreve o convite como ele é', async ({ browser 
 	await printFinal(pagina);
 	await pagina.context().close();
 });
+
+// O email sai segundos DEPOIS de a tela recarregar a lista — quem manda é o
+// worker do outbox, depois do commit. A lista que parava em "email na fila"
+// dizia ao dono que o email nunca tinha saído, quando ele já estava na caixa de
+// entrada da pessoa. A tela precisa chegar a "enviado" sozinha, sem F5.
+test('[E15] a lista de convites mostra que o email saiu, sem recarregar', async ({ browser }) => {
+	const pagina = await telaDeMembros(browser);
+	const ze = novoEmail('ze');
+	await convidarPelaTela(pagina, ze);
+	await expect(pagina.getByText(`Convite enviado para ${ze}`)).toBeVisible();
+
+	const convite = pagina.getByRole('listitem').filter({ hasText: ze });
+	await expect(convite.getByText(/email enviado em/)).toBeVisible({ timeout: 20_000 });
+
+	await printFinal(pagina);
+	await pagina.context().close();
+});

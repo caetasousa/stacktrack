@@ -41,6 +41,28 @@
 		await invalidateAll();
 	}
 
+	// O email sai DEPOIS da resposta do convite: quem manda é o worker do
+	// outbox, segundos após o commit. A lista que a tela recarregou logo em
+	// seguida ainda diz "na fila" — e ficaria dizendo até alguém dar F5,
+	// fazendo o dono achar que o email nunca saiu. Enquanto houver email na
+	// fila, a lista se relê sozinha, com prazo: o worker tenta de novo por até
+	// uma hora, e a tela não precisa acompanhar isso inteiro.
+	const ESPERA_ENTRE_LEITURAS_MS = 3000;
+	const LEITURAS_MAXIMAS = 20;
+	let leiturasDaFila = 0;
+	$effect(() => {
+		// Lê a LISTA, e não um booleano derivado dela: cada releitura traz uma
+		// lista nova, e é isso que agenda a próxima — um "ainda há email na fila"
+		// que continua verdadeiro não faria o efeito rodar de novo.
+		const naFila = data.participacao.convites.some((c) => c.entrega?.estado === 'pendente');
+		if (!naFila || leiturasDaFila >= LEITURAS_MAXIMAS) return;
+		const t = setTimeout(() => {
+			leiturasDaFila++;
+			void invalidateAll();
+		}, ESPERA_ENTRE_LEITURAS_MS);
+		return () => clearTimeout(t);
+	});
+
 	function falhar(e: unknown, padrao: string) {
 		erro = e instanceof ApiError ? e.message : padrao;
 	}
@@ -55,6 +77,7 @@
 			email = '';
 			recemCriado = resultado;
 			foiReenvio = false;
+			leiturasDaFila = 0;
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível convidar');
@@ -70,6 +93,7 @@
 		try {
 			recemCriado = await reenviarConvite(data.quadro.id, convite.id);
 			foiReenvio = true;
+			leiturasDaFila = 0;
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível reenviar o convite');

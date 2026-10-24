@@ -706,6 +706,19 @@ Os comandos e o SQL da conferência estão em
 remover o prefixo e repassar o `Upgrade`. Sem ela, `/api/*` cai no SvelteKit e
 login e WebSocket quebram. Ver "A borda: o que o túnel alcança".
 
+**Mudar a config da borda não recria a borda sozinho.** O nginx mora no
+`configs.content` do compose, e o Compose não recria um serviço quando só esse
+conteúdo muda — o container segue com o arquivo antigo, e o `up` responde que
+está tudo certo. O `make infra-apply` recria a `borda` quando copia um compose
+novo; se ela ficou para trás numa execução anterior, force pelo playbook:
+
+```bash
+cd deploy/ansible && ansible-playbook provisionar.yml --vault-password-file .senha-vault -e recriar_borda=true
+```
+
+Para conferir: o access log tem de mostrar `[redigido]` no lugar dos tokens
+(`dc logs borda | grep redigido`).
+
 **A 8580 é do stacktrack na máquina inteira.** As distros do WSL dividem a
 rede: um `vite`, um `docker run -p 8580` ou qualquer coisa na distro de
 desenvolvimento que ocupe a porta tira o stacktrack do ar.

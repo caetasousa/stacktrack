@@ -129,6 +129,7 @@
     owner: '{{ usuario_app }}'
     group: '{{ grupo_app }}'
     mode: '0644'
+  register: stacktrack_topologia
 
 # Precisa estar no servidor ANTES do incidente que o torna necessário.
 - name: script de backup do banco e dos anexos
@@ -260,3 +261,23 @@
   changed_when: >-
     stacktrack_stack.actions | default([]) | map(attribute='id')
     | reject('search', '-flyway-') | list | length > 0
+
+# A config do nginx mora DENTRO do compose (`configs.content`), e o Compose não
+# recria um serviço quando só esse conteúdo muda: o container segue servindo o
+# arquivo antigo, e o `up` acima responde que está tudo certo. Foi assim que a
+# redação dos tokens no access log ficou fora do ar depois de um apply.
+#
+# `recriar_borda=true` (via -e) força a recriação quando o compose já foi
+# copiado numa execução anterior e a borda ficou para trás.
+- name: recria a borda quando a topologia mudou
+  community.docker.docker_compose_v2:
+    project_src: '{{ pasta_stack }}'
+    files:
+      - docker-compose.prod.yml
+    services:
+      - borda
+    state: present
+    recreate: always
+  when:
+    - not ansible_check_mode
+    - stacktrack_topologia is changed or (recriar_borda | default(false) | bool)

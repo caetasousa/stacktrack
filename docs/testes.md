@@ -301,6 +301,13 @@ de gravação é provocada no próprio banco: um trigger recusa o evento do quad
 **depois** de o convite e o email terem sido gravados, e o teste prova que nenhum
 dos dois sobrou.
 
+`confirmacao_test.go` (C1–C7) cobre a confirmação de email e os convites no
+painel — inclusive o C3, que prova que conta **sem** confirmar não vê convite
+nenhum. O C7 (aceitar e recusar ao mesmo tempo) encontrou um defeito antigo do
+aceite: um `:=` sombreava o erro da transação, e quem perdia a corrida respondia
+sucesso sem ter entrado. O I14, em `convite_email_test.go`, guarda o mesmo caso
+pelo link.
+
 `recuperacao_test.go` (R1–R8) segue o mesmo molde com o
 `RecuperarSenhaUseCase` e a `UnidadeDeAutenticacao` de verdade. O R6 — duas
 redefinições simultâneas com o mesmo link — falha se o `FOR UPDATE` da busca

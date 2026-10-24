@@ -22,7 +22,9 @@ do Bruno também.
 Em volta disso:
 
 - **convidar pessoas por email**, cada uma com um papel — **dono**, **editor**
-  ou **leitor**. Quem não tem conta cria uma pelo próprio convite;
+  ou **leitor**. Quem não tem conta cria uma pelo próprio convite; quem
+  confirmou o email da conta encontra o convite também no painel, e aceita ou
+  recusa por lá;
 - cada card guarda **conversa, checklists, anexos, prazo, etiquetas,
   responsáveis** e o **histórico** do que aconteceu com ele;
 - o **histórico do quadro** responde "quem mexeu nisso, e quando?";
@@ -60,7 +62,7 @@ sozinhos, o tempo todo:
 - o **carteiro**: leva os emails da fila aos correios — e, se os correios
   estiverem fechados, tenta de novo mais tarde;
 - a **faxina**: de hora em hora, joga fora o que venceu — sessões, links de
-  senha nova, convites velhos, emails que ficaram na fila.
+  senha nova e de confirmação, convites velhos, emails que ficaram na fila.
 
 ```
 Você → tela (web) → portaria (borda) → secretaria (API) → livro (PostgreSQL)
@@ -129,6 +131,10 @@ não tem permissão" já confirmaria que ali há um quadro.
 
 E participar de um quadro dá acesso **só a ele**: ser convidado para o quadro
 da Ana não abre os outros quadros dela.
+
+O convite que aparece no painel segue a mesma régua: ele só aparece para a conta
+que **confirmou** o email — senão bastaria criar uma conta com o email de outra
+pessoa para ver, e aceitar, os convites dela.
 
 ### 5. O que sai para fora é anotado antes
 

@@ -470,10 +470,12 @@ senão quem invadir o servidor apaga os backups junto.
 
 ## 📧 Email dos convites
 
-O convite e o link de recuperação de senha vão por email pelo **Brevo**, em
+O convite, o link de recuperação de senha e o de confirmação de conta vão por
+email pelo **Brevo**, em
 `smtp-relay.brevo.com:587` com STARTTLS — pelo mesmo outbox, que distingue os
-dois pela coluna `modelo` (`convite.v2`, `recuperacao.v2`; o `v1` era o HTML com
-botão e cabeçalho, que o Gmail punha em Promoções). Em produção o TLS é obrigatório: a API recusa subir com
+três pela coluna `modelo` (`convite.v2`, `recuperacao.v2`, `confirmacao.v1`; o
+`v1` dos dois primeiros era o HTML com botão e cabeçalho, que o Gmail punha em
+Promoções). Em produção o TLS é obrigatório: a API recusa subir com
 `SMTP_STARTTLS=false`, sem `EMAIL_CHAVE` válida ou com usuário sem senha
 (`config.Validar`).
 

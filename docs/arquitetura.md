@@ -83,7 +83,7 @@ adaptador: o caso de uso não sabe que existe Postgres, WebSocket ou SMTP.
 
 | | Pasta | Responsabilidade |
 |---|---|---|
-| 🧭 | `routes/` | as telas: início, `cadastro`, `login`, `recuperar-senha`, `redefinir-senha/[token]`, `painel`, `painel/quadros/[id]` (o quadro), `…/membros`, `…/historico`, `convite/[token]`, `publico/[token]` |
+| 🧭 | `routes/` | as telas: início, `cadastro`, `login`, `recuperar-senha`, `redefinir-senha/[token]`, `confirmar-email/[token]`, `painel`, `painel/quadros/[id]` (o quadro), `…/membros`, `…/historico`, `convite/[token]`, `publico/[token]` |
 | 🔌 | `lib/api/` | o cliente HTTP e os tipos que espelham os DTOs do backend |
 | 📡 | `lib/realtime/` | a conexão de WebSocket e a reconciliação por revisão |
 | 🧩 | `lib/components/` | o card, a coluna, o modal do card, os diálogos |
@@ -103,7 +103,8 @@ Antes das decisões, as regras que valem para **toda** mudança — cada uma
 explicada nas seções abaixo ou no documento indicado:
 
 1. Conhecer um email nunca dá acesso a um quadro: o acesso nasce de uma sessão
-   e de uma autorização comprovável (o convite aceito pela conta do email).
+   e de uma autorização comprovável — o link do convite aceito pela conta do
+   email, ou o convite no painel de uma conta que **confirmou** o email.
 2. Todo quadro tem ao menos um dono válido durante qualquer transição.
 3. Uma mutação observável e o evento dela caem na mesma transação.
 4. O cliente só confirma uma revisão que aplicou, ou que substituiu por um
@@ -265,6 +266,7 @@ quadro).
 erDiagram
     usuarios ||--o{ sessions : "abre"
     usuarios ||--o{ recuperacoes_senha : "pede"
+    usuarios ||--o{ confirmacoes_email : "confirma"
     usuarios ||--o{ board_membros : "participa"
     boards ||--o{ board_membros : "tem"
     boards ||--o{ colunas : "tem"
@@ -292,6 +294,7 @@ erDiagram
 ```
 usuarios ──┬── sessions
            ├── recuperacoes_senha  (o hash do link de senha nova)
+           ├── confirmacoes_email  (o hash do link de confirmação)
            ├── board_membros ◄── boards
            ├── card_responsaveis ◄── cards
            ├── comentarios ◄── cards
@@ -318,12 +321,14 @@ Regras que o schema carrega:
 - **Apagar é em cascata**: quadro leva colunas, colunas levam cards, cards levam
   etiquetas aplicadas, checklists, responsáveis, comentários e anexos. O log de
   eventos vai junto com o quadro.
-- **Tokens só em hash**: `sessions.token_hash`, `convites_board.token_hash` e
-  `recuperacoes_senha.token_hash` guardam o SHA-256 — um vazamento do banco não
+- **Tokens só em hash**: `sessions.token_hash`, `convites_board.token_hash`,
+  `recuperacoes_senha.token_hash` e `confirmacoes_email.token_hash` guardam o
+  SHA-256 — um vazamento do banco não
   devolve sessão, convite nem link de senha nova utilizável. A exceção é `board_publicacoes.token`, em claro porque o dono
   precisa ver o link de novo; ele só dá **leitura** de um recorte do quadro.
-- **O convite vira histórico**: aceitar e revogar **marcam** (`aceito_em`,
-  `revogado_em`) em vez de apagar; a faxina remove o terminal depois de 90
+- **O convite vira histórico**: aceitar, revogar e recusar **marcam**
+  (`aceito_em`, `revogado_em`, `recusado_em`) em vez de apagar — a recusa grava
+  também `revogado_em`, que é o que a tira das pendências; a faxina remove o terminal depois de 90
   dias. A unicidade de "um convite em aberto por email por quadro" é um índice
   parcial.
 - **O log é append-only**: o evento guarda **nomes**, além de ids, porque
@@ -344,6 +349,7 @@ Regras que o schema carrega:
 |---|---|---|
 | 🔐 | `CadastrarUseCase`, `LoginUseCase`, `LogoutUseCase` | conta e sessão (conta e primeira sessão no mesmo commit) |
 | 🔐 | `ValidarSessaoUseCase`, `PerfilUseCase` | a sessão de cada requisição e o `/auth/me` |
+| 📬 | `ConfirmarEmailUseCase` | mandar o link de confirmação (logo depois do cadastro, ou de novo pelo painel, com teto) e confirmar a conta com ele |
 | 🔑 | `RecuperarSenhaUseCase` | pedir o link (com teto, sem revelar quem tem conta), conferi-lo e trocar a senha — encerrando os links e as sessões da conta no mesmo commit |
 | 🗂️ | `QuadroUseCase` | listar, criar, detalhar (no instantâneo), renomear, trocar o fundo, apagar |
 | 🧱 | `ColunaUseCase` | criar, renomear (título e cor), mover pelos vizinhos, apagar |
@@ -353,7 +359,7 @@ Regras que o schema carrega:
 | 📎 | `AnexoUseCase` | link e arquivo, com as cotas conferidas na transação; download |
 | 🙋 | `ResponsavelUseCase` | quem responde pelo card (só quem participa) |
 | 💬 | `ComentarioUseCase` | a conversa do card, com as regras de quem edita e apaga |
-| 👥 | `MembroUseCase` | membros, papéis, convites (por email), aceite, reenvio, revogação |
+| 👥 | `MembroUseCase` | membros, papéis, convites (por email), aceite, reenvio, revogação; os convites da conta no painel — listar, aceitar e recusar, só com o email confirmado |
 | 🔗 | `PublicacaoUseCase` | o link público: ligar, consultar, revogar, ler a projeção |
 | 📜 | `AtividadeUseCase` | o histórico do card e do quadro (read model sobre o log) |
 | 🔧 | `ReparoDeOrdenacao` | o comando `reparar-ordenacao`, um quadro por transação |
@@ -373,7 +379,7 @@ Todos rodam dentro da API, como goroutines, e param quando o processo recebe
 |---|---|---|---|
 | 📡 | despachante | entrega os eventos lendo `board_events`, em ordem de revisão | acordado no commit; polling de 1 s |
 | ✉️ | carteiro | entrega o `email_outbox`, com retentativa e desistência em 5xx | acordado no commit; olha a fila a cada 5 s |
-| 🧹 | faxina | apaga sessões vencidas, links de recuperação vencidos e convites terminais antigos, purga o email vencido e roda o coletor | a cada 60 min, com orçamento de tempo |
+| 🧹 | faxina | apaga sessões vencidas, links de recuperação e de confirmação vencidos e convites terminais antigos, purga o email vencido e roda o coletor | a cada 60 min, com orçamento de tempo |
 | 🗑️ | coletor | remove do disco os anexos apagados **já cobertos por backup** | dentro da faxina; hoje não remove nada (fail-closed) |
 
 ---
@@ -413,7 +419,7 @@ Todos rodam dentro da API, como goroutines, e param quando o processo recebe
 | login e troca de senha pelo link | 10 / min | IP |
 | login por conta | 5 falhas / 5 min | email |
 | rotas autenticadas | 120 / min | sessão |
-| rotas públicas (convite, link público, conferir o link de senha nova) | 30 / min | IP |
+| rotas públicas (convite, link público, conferir o link de senha nova, confirmar o email) | 30 / min | IP |
 | cookies de sessão desconhecidos | 30 | IP, conferido antes do banco |
 | WebSocket | 5 conexões por conta, 100 no total, 10 handshakes / min por IP | — |
 
@@ -444,6 +450,7 @@ requisições em segundos. O IP que conta é o do visitante, lido do `X-Real-IP`
 | `POST` | `/auth/recuperacao` | O "esqueci minha senha": manda o link por email. **202** com a **mesma** mensagem para email com conta, sem conta e com o teto de 3 pedidos por hora atingido — a diferença revelaria quem tem conta. **400** só para email malformado. |
 | `GET` | `/auth/recuperacao/{token}` | Confere o link: `emailMascarado` e `expiraEm`. **404** para link inexistente, vencido ou já usado — os três iguais. |
 | `POST` | `/auth/recuperacao/{token}` | Troca a senha e já abre a sessão (200 + cookie). No mesmo commit, encerra os outros links abertos da conta e apaga **todas** as sessões dela. **400** para senha que o cadastro recusaria — sem gastar o link; **404** como acima. |
+| `POST` | `/auth/confirmacao/{token}` | Confirma o email da conta do link (204), **sem sessão** — quem abre o link prova a caixa de entrada. **404** para link inexistente, vencido ou já usado. |
 | `GET` | `/auth/me` | Devolve a conta autenticada. **401** sem sessão válida; **429** com `Retry-After` quando o mesmo IP apresenta cookies desconhecidos demais — o teto é conferido **antes** da consulta ao banco, e vale para toda rota autenticada. |
 | `GET` | `/convites/{token}` | Detalhes do convite, **sem sessão** — é o que a tela do link mostra: quadro, papel, quem convidou e até quando vale (`expiraEm`). O email vem **mascarado** (`a***@exemplo.com`) no campo `emailMascarado`: quem tem o link não é necessariamente quem foi convidado. Responde `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. |
 | `GET` | `/publico/{token}` | O quadro de um link de acompanhamento, **sem sessão**: colunas, cards, descrições, etiquetas, prazos e checklists. Sem responsáveis, comentários, anexos, histórico nem ids. **404** para token inventado, revogado ou de quadro apagado — os três iguais. Responde `Cache-Control: no-store` e `X-Robots-Tag: noindex`. |
@@ -471,6 +478,10 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
 | `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204), e tira da fila o email que ainda não saiu. **Marca** como revogado em vez de apagar — a linha ainda responde "quem convidou quem, e quando". **404** para convite já aceito, já revogado ou inexistente: os três iguais. |
 | `POST` | `/boards/{id}/convites/{conviteId}/reenviar` | Dá ao convite um link novo, com a validade inteira de novo (também ao vencido), e o manda outra vez por email. O link anterior — inclusive o do email anterior — deixa de valer. Responde como o convidar (`link`, `entrega`). **429** com `Retry-After` se o último email desse convite saiu há menos de 2 minutos; **404** para convite já aceito, revogado, de outro quadro ou de quem não administra. |
+| `POST` | `/auth/confirmacao` | Reenvia o link de confirmação para a conta logada (202). A mesma resposta com o teto de 3 por hora atingido e para conta já confirmada. |
+| `GET` | `/meus-convites` | Os convites em aberto e válidos para o email da conta, de qualquer quadro: `quadro`, `convidadoPor`, `papel`, `expiraEm`. **403** para conta sem email confirmado. |
+| `POST` | `/meus-convites/{conviteId}/aceitar` | Aceita pelo painel e devolve o quadro — o mesmo aceite do link, com a confirmação de email no lugar do token. **403** sem email confirmado; **404** para convite de outro email, vencido ou já resolvido. |
+| `POST` | `/meus-convites/{conviteId}/recusar` | Recusa (204): encerra o convite e o link do email, tira da fila o email que não saiu e registra `convite.recusado` no histórico do quadro. Mesmos códigos do aceite. |
 | `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro, no **mesmo commit**. **403** quando a sessão é de outro email — e o convite **não** é consumido. **404** para token inválido, vencido ou já usado, inclusive quando outra requisição venceu a corrida. |
 | `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
@@ -507,6 +518,8 @@ Conceitos de negócio em português, sem acento nos identificadores:
 | Papel | `membro.Papel` | `board_membros.papel` | `papel` (`dono`, `editor`, `leitor`) |
 | Convite | `convite.Convite` | `convites_board` | `convite`, `convites` |
 | Recuperação de senha | `recuperacao.Recuperacao` | `recuperacoes_senha` | `emailMascarado`, `expiraEm` |
+| Confirmação de email | `confirmacao.Confirmacao` | `confirmacoes_email`, `usuarios.email_confirmado_em` | `emailConfirmado` (em `/auth/me`) |
+| Convite recebido | `board.ConviteRecebido` | `convites_board` | `convites` de `GET /meus-convites` |
 | Etiqueta | `etiqueta.Etiqueta` | `etiquetas`, `card_etiquetas` | `etiquetas` (do quadro), `etiquetas` do card (só os ids) |
 | Checklist | `checklist.Checklist` | `checklists`, `checklist_itens` | `checklists`, `itens`; no card, o progresso em `checklist` |
 | Anexo | `anexo.Anexo` | `anexos` | `anexos`; no card, `qtdAnexos` |

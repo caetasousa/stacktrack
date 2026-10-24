@@ -39,7 +39,8 @@ está em [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
   **editor** ou **leitor**). Quem não tem conta cria uma pelo próprio convite;
   quem tem entra com a conta de sempre, e o quadro aparece em "Compartilhados
   com você" — só ele, e não os outros quadros do dono. A tela mostra se o email
-  saiu, e o convite se reenvia ou revoga.
+  saiu, e o convite se reenvia ou revoga. Quem confirmou o email da conta vê o
+  convite também no painel, e aceita ou recusa por lá.
 - **Histórico do quadro** — quem criou, moveu, renomeou, apagou, comentou,
   entrou ou saiu, com filtro por pessoa. Todo card movido mostra "movido por Ana
   há 5 min".

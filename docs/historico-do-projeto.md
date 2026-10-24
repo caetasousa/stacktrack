@@ -273,7 +273,8 @@ preservar.
 
 O roadmap de produção tinha doze etapas. A1–A4 (autorização, atomicidade,
 tempo real por revisão, limites) estão concluídas; A12 entrou com o convite por
-email e a recuperação de senha. O resto, na ordem em que fazia sentido:
+email, a recuperação de senha e a confirmação de email — que liberou os convites
+no painel. O resto, na ordem em que fazia sentido:
 
 | Etapa | O que falta | Por que importa |
 |---|---|---|
@@ -284,7 +285,7 @@ email e a recuperação de senha. O resto, na ordem em que fazia sentido:
 | A9 | contrato de API verificado entre backend e frontend; acessibilidade dos fluxos críticos | erro previsível no cliente, e tela usável sem mouse |
 | A10 | medir a capacidade (25 conexões, 1.000 cards) e aplicar eventos sem recarregar o quadro | recarregar é correto, mas custa uma requisição por evento |
 | A11 | privacidade e ciclo de dados: exportar, apagar, reter | o que acontece com os dados de quem sai |
-| A12 | confirmar a conta por email; trocar nome, email e senha estando logado | hoje o email do cadastro não é verificado |
+| A12 | trocar nome, email e senha estando logado | hoje a troca de senha passa pela recuperação, e email e nome não mudam |
 
 E duas melhorias conhecidas, que não são critério de nada:
 

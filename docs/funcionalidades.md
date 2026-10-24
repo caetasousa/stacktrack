@@ -18,6 +18,7 @@ Cada seção segue o mesmo roteiro:
 |---|---|
 | 👤 | [Conta e sessão](#-conta-e-sessão) |
 | 🔑 | [Recuperar a senha](#-recuperar-a-senha) |
+| 📬 | [Confirmar o email](#-confirmar-o-email) |
 | 🗂️ | [Painel: seus quadros e os compartilhados](#️-painel-seus-quadros-e-os-compartilhados) |
 | 🧱 | [O quadro](#-o-quadro) |
 | 🧩 | [Colunas](#-colunas) |
@@ -70,13 +71,14 @@ Cada seção segue o mesmo roteiro:
   revelam quem tem conta.
 - Tetos: 5 cadastros e 10 logins por minuto por IP; 5 falhas de login por conta
   em 5 minutos.
-- O cadastro já sai **logado**: não há confirmação de email para esperar, e
-  pedir as mesmas credenciais na tela seguinte seria cerimônia.
+- O cadastro já sai **logado**, e a conta funciona inteira sem confirmar o
+  email — só os convites no painel esperam a confirmação
+  ([Confirmar o email](#-confirmar-o-email)).
 - Esqueceu a senha? Ver [Recuperar a senha](#-recuperar-a-senha).
 
-**O que ainda não existe**: confirmar a conta por email e trocar nome, email ou
-senha estando logado. Quem quer trocar a senha usa a
-[recuperação](#-recuperar-a-senha), que funciona logado ou não.
+**O que ainda não existe**: trocar nome, email ou senha estando logado. Quem quer
+trocar a senha usa a [recuperação](#-recuperar-a-senha), que funciona logado ou
+não.
 
 **No código**: `backend/internal/usecase/auth`, `domain/usuario`,
 `adapter/http/handler/auth.go`; no frontend, `routes/cadastro`, `routes/login`
@@ -124,6 +126,8 @@ sequenceDiagram
   convite: não existe link gravado sem email na fila.
 - O banco guarda só o **hash** do token. O link é credencial — quem o tem troca
   a senha.
+- Trocar a senha pelo link também **confirma o email** da conta: o link chegou
+  pela caixa de entrada, que é a mesma prova do link de confirmação.
 - Trocar a senha **encerra todos os links abertos da conta** e **apaga todas as
   sessões** dela, em qualquer aparelho: quem pede recuperação pode estar fazendo
   isso porque a senha vazou. Um WebSocket aberto cai na revalidação seguinte,
@@ -154,10 +158,53 @@ sequenceDiagram
 
 ---
 
+## 📬 Confirmar o email
+
+**Na tela**
+
+1. Logo depois do cadastro chega um email **"Confirme seu email no stacktrack"**,
+   com o link.
+2. Até confirmar, o painel mostra o aviso **"Confirme seu email."**, com
+   **Reenviar o email de confirmação**.
+3. O link abre **"Email confirmado"** e o botão **Ir para o painel** — de qualquer
+   aparelho, logado ou não.
+
+**Por baixo**: o cadastro enfileira a confirmação logo depois do commit da conta
+(`confirmacoes_email`, só o hash do token, e o email pelo mesmo outbox cifrado
+do convite). `POST /auth/confirmacao/{token}` confirma; `POST /auth/confirmacao`
+reenvia para a conta logada. O `/auth/me` diz `emailConfirmado`.
+
+**Regras**
+
+- **Para que serve**: liberar os [convites no painel](#️-painel-seus-quadros-e-os-compartilhados).
+  Sem a prova, qualquer pessoa cadastraria o email de outra e veria — e
+  aceitaria — os convites dela sem nunca ter recebido o link. A conta funciona
+  inteira sem confirmar; o convite pelo link do email também.
+- O link vale **7 dias** e **uma vez**; confirmar encerra os outros links abertos
+  da conta.
+- **3 envios por conta por hora**; para conta já confirmada, reenviar não manda
+  nada.
+- A confirmação sai **fora** da transação do cadastro, de propósito: uma falha ao
+  enfileirar não pode desfazer a conta de quem já preencheu o formulário — quem
+  não recebeu pede de novo.
+- Trocar a senha pelo link do email também confirma.
+- As contas criadas antes da confirmação existir começam **não confirmadas**:
+  nenhuma provou nada ainda, e o aviso no painel oferece o envio.
+
+**No código**: `usecase/auth/confirmacao.go`, `domain/confirmacao`,
+`adapter/http/handler/confirmacao.go`; no frontend,
+`routes/confirmar-email/[token]` e o aviso em `routes/painel/+page.svelte`.
+
+---
+
 ## 🗂️ Painel: seus quadros e os compartilhados
 
 **Na tela**
 
+- **Convites para você**: os convites em aberto para o email da conta, de
+  qualquer quadro — com o quadro, **"de Ana"**, o papel e até quando valem, e os
+  botões **Aceitar** (abre o quadro) e **Recusar** (com confirmação). Só aparece
+  para conta com o email confirmado.
 - **Seus quadros**: os quadros em que você é dona ou dono, com a data de
   criação e o botão **Apagar**.
 - **Compartilhados com você**: os quadros de outras pessoas em que você entrou
@@ -178,6 +225,19 @@ sequenceDiagram
 
 **Regras**
 
+- **Convites para você** existem só para conta com o email **confirmado**. O
+  convite no painel dispensa o link, e o que prova que a pessoa é dona do email,
+  no lugar dele, é a confirmação. Para conta sem confirmar, `GET /meus-convites`
+  responde **403**.
+- Aceitar pelo painel é o **mesmo aceite** do link — mesma transação, mesmo
+  evento. Saber o id de um convite não vale nada: convite de outro email,
+  vencido ou já resolvido responde **404**.
+- **Recusar** encerra o convite (o link do email morre junto), tira da fila o
+  email que ainda não saiu e registra **"recusou o convite"** no histórico do
+  quadro — é por ali que quem convidou fica sabendo. A vaga fica livre: dá para
+  convidar de novo.
+- O convite no painel **vence junto** com o do email (7 dias): a validade é do
+  convite, não do canal. Revogado, aceito ou vencido, ele some.
 - Quem foi convidado como **dono** divide o quadro de verdade, e ele aparece em
   "Seus quadros".
 - Participar de um quadro dá acesso **só a ele** — nunca aos outros quadros do
@@ -509,6 +569,8 @@ link do convite, apresentado por quem está logado na conta daquele email.
    Trocar entre as duas telas no meio do caminho não perde o convite.
 4. **Aceitar convite** — e o quadro abre. No painel, ele passa a aparecer em
    **"Compartilhados com você"**, com o nome do dono.
+   - Com o email da conta **confirmado**, nem precisa do link: o convite também
+     está em **"Convites para você"**, no painel, com **Aceitar** e **Recusar**.
 5. Logado na **conta errada**, o convite não é aceito, e a tela oferece **Sair e
    entrar com outra conta**, voltando ao convite.
 
@@ -569,7 +631,7 @@ sequenceDiagram
   | emails por convite | 5 | o reenvio gera o link, sem email |
   | intervalo entre dois emails do mesmo convite | 2 min | o reenvio é recusado (**429**) |
 
-- Convidar, reenviar, revogar e entrar ficam no [histórico](#-histórico-do-quadro),
+- Convidar, reenviar, revogar, recusar e entrar ficam no [histórico](#-histórico-do-quadro),
   com o email mascarado.
 - O email falhou? Falha passageira tenta de novo sozinha, com espera crescente,
   por cerca de uma hora; recusa definitiva do servidor (endereço inexistente)
@@ -630,7 +692,8 @@ Enquanto o link existe, todo membro vê o selo **público** no cabeçalho do qua
 - Tudo o que aconteceu no quadro, do mais recente para o mais antigo: card
   criado, movido, renomeado, apagado; coluna criada, renomeada, reordenada,
   apagada; etiqueta, anexo, checklist, item, responsável, comentário; quadro
-  renomeado, fundo trocado; convites; quem entrou, mudou de papel ou saiu.
+  renomeado, fundo trocado; convites (inclusive a recusa de quem foi
+  convidado); quem entrou, mudou de papel ou saiu.
 - **Filtro por pessoa** — quem participa hoje **e** quem aparece no log, porque
   auditar costuma ser sobre alguém que já saiu — e o recorte **Só movimentações
   de card**. A tela abre mostrando tudo: quem chega ali está investigando, e um
@@ -751,6 +814,8 @@ eventos que o tempo real já usa.
 | senha | 15 caracteres ou mais |
 | sessão | 7 dias |
 | link de recuperação de senha | 1 hora, uma vez |
+| link de confirmação de email | 7 dias, uma vez |
+| envios de confirmação por conta | 3 por hora |
 | pedidos de recuperação por conta | 3 por hora |
 | convite | 7 dias, uma vez |
 | convites em aberto por quadro | 50 |

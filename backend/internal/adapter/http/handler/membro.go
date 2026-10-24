@@ -209,6 +209,59 @@ func (h *MembroHandler) AceitarConvite(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListarRecebidos devolve os convites em aberto para o email da conta. Responde
+// 403 para conta que ainda não confirmou o email.
+func (h *MembroHandler) ListarRecebidos(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	recebidos, err := h.membros.ListarRecebidos(r.Context(), usuarioID)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao listar os convites recebidos", err)
+		return
+	}
+	lista := make([]dto.ConviteRecebidoResponse, 0, len(recebidos))
+	for _, c := range recebidos {
+		lista = append(lista, dto.ConviteRecebidoResponse{
+			ID: c.ID, Quadro: c.TituloQuadro, ConvidadoPor: c.ConvidadoPor,
+			Papel: string(c.Papel), ExpiraEm: c.ExpiraEm,
+		})
+	}
+	responderJSON(w, http.StatusOK, dto.ConvitesRecebidosResponse{Convites: lista})
+}
+
+// AceitarRecebido aceita pelo painel e devolve o quadro, como o aceite pelo
+// link. 403 para conta sem email confirmado; 404 para convite de outro email,
+// vencido ou já resolvido.
+func (h *MembroHandler) AceitarRecebido(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	b, papel, err := h.membros.AceitarRecebido(r.Context(), chi.URLParam(r, "conviteID"), usuarioID)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao aceitar convite", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.BoardResponse{
+		ID: b.ID, Titulo: b.Titulo, Papel: string(papel), CriadoEm: b.CriadoEm,
+	})
+}
+
+// RecusarRecebido é o "não" pelo painel (204). Mesmos códigos do aceite.
+func (h *MembroHandler) RecusarRecebido(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	if err := h.membros.RecusarRecebido(r.Context(), chi.URLParam(r, "conviteID"), usuarioID); err != nil {
+		responderErroDeMembro(w, r, "erro ao recusar convite", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *MembroHandler) usuario(w http.ResponseWriter, r *http.Request) (string, bool) {
 	identidade, ok := h.identidadeDoContexto(r)
 	if !ok {
@@ -265,7 +318,8 @@ func responderErroDeMembro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, membro.ErrNaoEMembro):
 		responderErro(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, dconvite.ErrOutroDestinatario):
+	case errors.Is(err, dconvite.ErrOutroDestinatario),
+		errors.Is(err, dconvite.ErrEmailNaoConfirmado):
 		responderErro(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, dconvite.ErrJaEMembro),
 		errors.Is(err, dconvite.ErrJaConvidado),

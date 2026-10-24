@@ -272,6 +272,9 @@ export function fraseNoQuadro(a: Atividade): string {
 			return `reenviou o convite de ${d.email}`;
 		case 'convite.revogado':
 			return `revogou o convite de ${d.email}`;
+		// O autor é quem foi convidado: o histórico diz que a pessoa disse não.
+		case 'convite.recusado':
+			return d.papel ? `recusou o convite como ${d.papel}` : 'recusou o convite';
 
 		// Tipos que o log guarda de ANTES da separação por ação. Não há como
 		// dizer o que mudou — o payload deles era vazio —, mas some-los seria

@@ -144,3 +144,17 @@ link deixou de valer (`encerrada_em`). O email com o link vai pelo
 É **expansiva** e entra num deploy só, pela mesma razão do `V19`. A validade de
 uma hora, o teto de pedidos por conta e o que encerra um link são do domínio
 (`internal/domain/recuperacao`), não de `DEFAULT` nem de `CHECK`.
+
+## `V21` — confirmação de email e recusa de convite
+
+Três mudanças **expansivas**, num deploy só:
+
+- `usuarios.email_confirmado_em`, anulável: o painel só mostra convites para a
+  conta que provou que o email é dela. As contas antigas ficam nulas — nenhuma
+  provou nada ainda —, e não há backfill: quem confirma é o domínio, pelo link
+  do email ou pela troca de senha por ele.
+- `confirmacoes_email`: o **hash** do token do link de confirmação, a validade
+  e quando foi usado, como na `recuperacoes_senha` do `V20`.
+- `convites_board.recusado_em`: o "não" de quem foi convidado. A recusa grava
+  também `revogado_em`, e por isso nenhuma consulta de pendentes nem o índice de
+  "um convite em aberto por email" precisou mudar.

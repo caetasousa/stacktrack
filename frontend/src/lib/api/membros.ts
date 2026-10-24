@@ -1,7 +1,7 @@
 // Tipos e chamadas da API de participação e convites.
 // Espelham backend/internal/adapter/http/dto/membro.go
 
-import { apiDelete, apiGet, apiPatch, apiPost } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostVazio } from './client';
 import type { Board, Papel } from './boards';
 
 export interface Membro {
@@ -104,4 +104,33 @@ export function aceitarConvite(token: string): Promise<Board> {
 		`/convites/${encodeURIComponent(token)}/aceitar`,
 		{}
 	);
+}
+
+// --- convites para a conta ------------------------------------------------
+
+/** ConviteRecebido é um convite em aberto para o email da conta logada. */
+export interface ConviteRecebido {
+	id: string;
+	quadro: string;
+	convidadoPor?: string;
+	papel: Papel;
+	expiraEm: string;
+}
+
+/** listarRecebidos devolve os convites para o email da conta; 403 sem email confirmado. */
+export async function listarRecebidos(): Promise<ConviteRecebido[]> {
+	return (await apiGet<{ convites: ConviteRecebido[] }>('/meus-convites')).convites;
+}
+
+/** aceitarRecebido aceita pelo painel e devolve o quadro para onde levar a pessoa. */
+export function aceitarRecebido(conviteId: string): Promise<Board> {
+	return apiPost<Record<string, never>, Board>(
+		`/meus-convites/${encodeURIComponent(conviteId)}/aceitar`,
+		{}
+	);
+}
+
+/** recusarRecebido é o "não" pelo painel. */
+export function recusarRecebido(conviteId: string): Promise<void> {
+	return apiPostVazio(`/meus-convites/${encodeURIComponent(conviteId)}/recusar`);
 }

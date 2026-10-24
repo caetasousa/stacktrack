@@ -575,7 +575,121 @@ func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID strin
 	if err != nil {
 		return nil, "", err
 	}
+	return uc.aceitar(ctx, c, usuarioID)
+}
 
+// ConviteRecebido é um convite em aberto para o email da conta, como o painel
+// o mostra em "Convites para você".
+type ConviteRecebido struct {
+	ID           string
+	TituloQuadro string
+	ConvidadoPor string
+	Papel        membro.Papel
+	ExpiraEm     time.Time
+}
+
+// ListarRecebidos devolve os convites em aberto e válidos para o email da conta.
+//
+// Só para conta confirmada (dconvite.ErrEmailNaoConfirmado nas outras): o
+// convite no painel dispensa o link, e sem o link o que prova que a pessoa é
+// dona daquele email é a confirmação. Sem ela, cadastrar o email de alguém
+// bastaria para ver os convites dele.
+func (uc *MembroUseCase) ListarRecebidos(ctx context.Context, usuarioID string) ([]ConviteRecebido, error) {
+	u, err := uc.contaConfirmada(ctx, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	convites, err := uc.convites.PendentesDoEmail(ctx, u.Email, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	recebidos := make([]ConviteRecebido, 0, len(convites))
+	for _, c := range convites {
+		b, err := uc.boards.BuscarPorID(ctx, c.BoardID)
+		if err != nil {
+			return nil, err
+		}
+		if b == nil {
+			continue
+		}
+		r := ConviteRecebido{ID: c.ID, TituloQuadro: b.Titulo, Papel: c.Papel, ExpiraEm: c.ExpiraEm}
+		if autor, err := uc.usuarios.BuscarPorID(ctx, c.CriadoPor); err == nil && autor != nil {
+			r.ConvidadoPor = autor.Nome
+		}
+		recebidos = append(recebidos, r)
+	}
+	return recebidos, nil
+}
+
+// AceitarRecebido aceita, pelo painel, um convite para o email da conta. É o
+// mesmo aceite do link — mesma transação, mesmo evento —, com a confirmação de
+// email no lugar do token. Convite de outro email, vencido ou já resolvido
+// responde dconvite.ErrInvalido: saber o id de um convite não vale nada.
+func (uc *MembroUseCase) AceitarRecebido(ctx context.Context, conviteID, usuarioID string) (*dboard.Board, membro.Papel, error) {
+	c, err := uc.recebidoPendente(ctx, conviteID, usuarioID)
+	if err != nil {
+		return nil, "", err
+	}
+	return uc.aceitar(ctx, c, usuarioID)
+}
+
+// RecusarRecebido é o "não" de quem foi convidado: encerra o convite (o link
+// do email morre junto), tira da fila o email que ainda não saiu e registra
+// convite.recusado no histórico do quadro — é assim que quem convidou fica
+// sabendo. A vaga é liberada: o dono pode convidar de novo.
+func (uc *MembroUseCase) RecusarRecebido(ctx context.Context, conviteID, usuarioID string) error {
+	c, err := uc.recebidoPendente(ctx, conviteID, usuarioID)
+	if err != nil {
+		return err
+	}
+	agora := time.Now()
+	err = uc.escreverEPublicar(ctx, evento.ConviteRecusado, c.BoardID, usuarioID,
+		DadosDoMembro{Email: dusuario.MascararEmail(c.Email), Papel: string(c.Papel)},
+		uc.escrita(), func(e Escrita) error {
+			if err := e.Convites.Recusar(ctx, c.ID, agora); err != nil {
+				return err
+			}
+			return cancelarEmailsDoConvite(ctx, e, c.ID, agora)
+		})
+	if errors.Is(err, dconvite.ErrJaResolvido) {
+		return dconvite.ErrInvalido
+	}
+	return err
+}
+
+// contaConfirmada busca a conta e exige o email confirmado.
+func (uc *MembroUseCase) contaConfirmada(ctx context.Context, usuarioID string) (*dusuario.Usuario, error) {
+	u, err := uc.usuarios.BuscarPorID(ctx, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil || !u.EmailConfirmado() {
+		return nil, dconvite.ErrEmailNaoConfirmado
+	}
+	return u, nil
+}
+
+// recebidoPendente resolve um convite do painel: conta confirmada, convite em
+// aberto e para o email dela. Todo o resto é dconvite.ErrInvalido.
+func (uc *MembroUseCase) recebidoPendente(ctx context.Context, conviteID, usuarioID string) (*dconvite.Convite, error) {
+	u, err := uc.contaConfirmada(ctx, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	c, err := uc.convites.BuscarPorID(ctx, conviteID)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil || !c.Pendente(time.Now()) ||
+		dusuario.NormalizarEmail(c.Email) != dusuario.NormalizarEmail(u.Email) {
+		return nil, dconvite.ErrInvalido
+	}
+	return c, nil
+}
+
+// aceitar é o aceite em si, depois de o convite ter sido resolvido — pelo
+// token do link ou pelo id no painel.
+func (uc *MembroUseCase) aceitar(ctx context.Context, c *dconvite.Convite, usuarioID string) (*dboard.Board, membro.Papel, error) {
 	u, err := uc.usuarios.BuscarPorID(ctx, usuarioID)
 	if err != nil {
 		return nil, "", err

@@ -280,6 +280,12 @@ type RepositorioConvite interface {
 	// muda — outra requisição chegou primeiro.
 	Aceitar(ctx context.Context, id string, em time.Time) error
 	Revogar(ctx context.Context, id string, em time.Time) error
+	// Recusar encerra o convite pelo "não" do convidado, com a mesma régua de
+	// Aceitar e Revogar.
+	Recusar(ctx context.Context, id string, em time.Time) error
+	// PendentesDoEmail são os convites em aberto e válidos para o email, de
+	// todos os quadros.
+	PendentesDoEmail(ctx context.Context, email string, agora time.Time) ([]convite.Convite, error)
 	// Renovar troca o hash do token e a validade, só se o convite continua sem
 	// aceite nem revogação. Devolve convite.ErrJaResolvido se não continua.
 	Renovar(ctx context.Context, id, tokenHash string, expiraEm time.Time) error

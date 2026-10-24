@@ -17,7 +17,9 @@
 //	H4 sem SMTP configurado, o servidor não sobe, ou o convite volta sem link;
 //	H5 reenviar cedo demais vira 500 em vez de 429 com a explicação;
 //	H6 o quadro aceito não aparece na listagem de quem foi convidado, ou aparece
-//	   sem dizer de quem é.
+//	   sem dizer de quem é;
+//	H7 a montagem não liga a confirmação de email ao cadastro, ou as rotas de
+//	   "Convites para você" deixam passar conta sem email confirmado.
 package main
 
 import (
@@ -235,6 +237,33 @@ func emailUnico(nome string) string {
 
 var tokenNoLink = regexp.MustCompile(`http://localhost:5173/convite/([A-Za-z0-9_-]+)`)
 
+// emailsPara são as mensagens que chegaram para o endereço. Filtra porque o
+// cadastro também manda email — o de confirmação da conta —, e contar "o
+// primeiro email que chegou" leria o da pessoa errada.
+func emailsPara(smtp *smtpfalso.Servidor, para string) []smtpfalso.Recebida {
+	var delas []smtpfalso.Recebida
+	for _, r := range smtp.Recebidas() {
+		if len(r.Para) > 0 && r.Para[0] == para {
+			delas = append(delas, r)
+		}
+	}
+	return delas
+}
+
+// esperarEmailPara aguarda a primeira mensagem para o endereço.
+func esperarEmailPara(t *testing.T, smtp *smtpfalso.Servidor, para string) smtpfalso.Recebida {
+	t.Helper()
+	fim := time.Now().Add(10 * time.Second)
+	for time.Now().Before(fim) {
+		if delas := emailsPara(smtp, para); len(delas) > 0 {
+			return delas[0]
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("nenhum email chegou para %s", para)
+	return smtpfalso.Recebida{}
+}
+
 // H1, H2, H3 e H6
 func TestConvitePorEmailDeUmaPontaAOutra(t *testing.T) {
 	smtp := smtpfalso.Iniciar(t)
@@ -263,11 +292,7 @@ func TestConvitePorEmailDeUmaPontaAOutra(t *testing.T) {
 	}
 
 	// H1: o worker da montagem de produção entrega sem ninguém o chamar.
-	recebida := smtp.Esperar(t, 1, 10*time.Second)[0]
-	if recebida.Para[0] != emailDaBia {
-		t.Fatalf("o email foi para %v", recebida.Para)
-	}
-	lida := recebida.Ler(t)
+	lida := esperarEmailPara(t, smtp, emailDaBia).Ler(t)
 	achado := tokenNoLink.FindStringSubmatch(lida.Texto)
 	if achado == nil {
 		t.Fatalf("o email não traz o link do convite:\n%s", lida.Texto)
@@ -328,10 +353,11 @@ func TestReenviarCedoDemaisExplicaEmVezDeQuebrar(t *testing.T) {
 	ana.cadastrar("Ana", emailUnico("ana"))
 	_, quadro, _ := ana.pedir(http.MethodPost, "/boards", map[string]string{"titulo": "Reenvio"})
 	boardID := quadro["id"].(string)
+	emailDaBia := emailUnico("bia")
 	_, convite, _ := ana.pedir(http.MethodPost, "/boards/"+boardID+"/membros",
-		map[string]string{"email": emailUnico("bia"), "papel": "editor"})
+		map[string]string{"email": emailDaBia, "papel": "editor"})
 	conviteID := convite["convite"].(map[string]any)["id"].(string)
-	smtp.Esperar(t, 1, 10*time.Second)
+	esperarEmailPara(t, smtp, emailDaBia)
 
 	status, corpo, _ := ana.pedir(http.MethodPost,
 		"/boards/"+boardID+"/convites/"+conviteID+"/reenviar", map[string]string{})
@@ -341,7 +367,53 @@ func TestReenviarCedoDemaisExplicaEmVezDeQuebrar(t *testing.T) {
 	if msg, _ := corpo["erro"].(string); !strings.Contains(msg, "espere") {
 		t.Errorf("mensagem do 429 = %q, esperado explicar a espera", msg)
 	}
-	if n := len(smtp.Recebidas()); n != 1 {
-		t.Fatalf("%d emails recebidos, esperado só o do convite", n)
+	if n := len(emailsPara(smtp, emailDaBia)); n != 1 {
+		t.Fatalf("%d emails para a Bia, esperado só o do convite", n)
+	}
+}
+
+var tokenDeConfirmacao = regexp.MustCompile(`http://localhost:5173/confirmar-email/([A-Za-z0-9_-]+)`)
+
+// H7
+func TestConvitesNaContaSoDepoisDeConfirmarOEmail(t *testing.T) {
+	smtp := smtpfalso.Iniciar(t)
+	srv := subirServidor(t, smtp)
+
+	ana := novaPessoa(t, srv)
+	ana.cadastrar("Ana", emailUnico("ana"))
+	_, quadro, _ := ana.pedir(http.MethodPost, "/boards", map[string]string{"titulo": "Na conta"})
+
+	emailDaBia := emailUnico("bia")
+	bia := novaPessoa(t, srv)
+	bia.cadastrar("Bia", emailDaBia)
+	ana.pedir(http.MethodPost, "/boards/"+quadro["id"].(string)+"/membros",
+		map[string]string{"email": emailDaBia, "papel": "editor"})
+
+	if status, corpo, _ := bia.pedir(http.MethodGet, "/meus-convites", nil); status != http.StatusForbidden {
+		t.Fatalf("conta sem email confirmado listou os convites: %d %v", status, corpo)
+	}
+
+	// O cadastro mandou a confirmação; o link a confirma sem sessão.
+	confirmacao := esperarEmailPara(t, smtp, emailDaBia)
+	achado := tokenDeConfirmacao.FindStringSubmatch(confirmacao.Ler(t).Texto)
+	if achado == nil {
+		t.Fatalf("o primeiro email da Bia não é a confirmação:\n%s", confirmacao.Ler(t).Texto)
+	}
+	anonimo := novaPessoa(t, srv)
+	if status, corpo, _ := anonimo.pedir(http.MethodPost, "/auth/confirmacao/"+achado[1], nil); status != http.StatusNoContent {
+		t.Fatalf("confirmar pelo link: %d %v", status, corpo)
+	}
+
+	status, corpo, _ := bia.pedir(http.MethodGet, "/meus-convites", nil)
+	if status != http.StatusOK {
+		t.Fatalf("listar depois de confirmar: %d %v", status, corpo)
+	}
+	convites := corpo["convites"].([]any)
+	if len(convites) != 1 || convites[0].(map[string]any)["quadro"] != "Na conta" {
+		t.Fatalf("convites da Bia = %v", convites)
+	}
+	id := convites[0].(map[string]any)["id"].(string)
+	if status, aceito, _ := bia.pedir(http.MethodPost, "/meus-convites/"+id+"/aceitar", map[string]string{}); status != http.StatusOK || aceito["id"] != quadro["id"] {
+		t.Fatalf("aceitar pelo painel: %d %v", status, aceito)
 	}
 }

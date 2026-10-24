@@ -162,3 +162,27 @@ func (r *Convites) Renovar(ctx context.Context, id, tokenHash string, expiraEm t
 	c.TokenHash, c.ExpiraEm = tokenHash, expiraEm
 	return nil
 }
+
+// Recusar e PendentesDoEmail existem só para o fake continuar satisfazendo a
+// porta, pelo mesmo motivo de ContarPendentes e Renovar.
+
+// Recusar marca recusado e revogado, se o convite continua pendente.
+func (r *Convites) Recusar(ctx context.Context, id string, em time.Time) error {
+	c, ok := r.porID[id]
+	if !ok || c.AceitoEm != nil || c.RevogadoEm != nil {
+		return convite.ErrJaResolvido
+	}
+	c.RecusadoEm, c.RevogadoEm = &em, &em
+	return nil
+}
+
+// PendentesDoEmail devolve os convites em aberto e válidos para o email.
+func (r *Convites) PendentesDoEmail(ctx context.Context, email string, agora time.Time) ([]convite.Convite, error) {
+	var lista []convite.Convite
+	for _, c := range r.porID {
+		if c.Email == email && c.AceitoEm == nil && c.RevogadoEm == nil && c.ExpiraEm.After(agora) {
+			lista = append(lista, *c)
+		}
+	}
+	return lista, nil
+}

@@ -29,9 +29,15 @@ func TestOsEmailsTemFormatoDeMensagemPessoalENaoDePromocao(t *testing.T) {
 		t.Fatalf("redigir recuperação: %v", err)
 	}
 
+	confirmacao, err := redator.Confirmacao(dadosDeConfirmacao())
+	if err != nil {
+		t.Fatalf("redigir confirmação: %v", err)
+	}
+
 	casos := map[string]struct{ html, link string }{
 		"convite":     {convite.HTML, dadosDeConvite().Link},
 		"recuperação": {recuperacao.HTML, dadosDeRecuperacao().Link},
+		"confirmação": {confirmacao.HTML, dadosDeConfirmacao().Link},
 	}
 	// O que transforma uma mensagem em "newsletter" aos olhos do classificador.
 	marcasDePromocao := []string{"<table", "<img", "<h1", "background", "border-radius", "text-transform", "letter-spacing"}

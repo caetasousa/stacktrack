@@ -28,6 +28,9 @@ func sessaoAberta(s *session.Session, tokenPuro string, u *usuario.Usuario) *Ses
 		UsuarioID: u.ID,
 		Nome:      u.Nome,
 		Email:     u.Email,
+		// Calculado da conta, e não guardado na sessão: confirmar o email muda
+		// o que a conta vê sem precisar entrar de novo.
+		EmailConfirmado: u.EmailConfirmado(),
 	}
 }
 

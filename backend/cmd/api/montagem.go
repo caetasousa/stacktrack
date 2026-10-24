@@ -133,6 +133,15 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	// A recuperação de senha troca senha, links e sessões na mesma transação, e
 	// manda o email pelo mesmo outbox do convite (ligado em ligarCorreio).
 	recuperarUC := ucauth.NovoRecuperarSenhaUseCase(usuarioRepo, hasher, unidadeDeAuth)
+	// A confirmação de email sai logo depois do cadastro, fora da transação
+	// dele: a conta funciona sem ela, e uma falha ao enfileirar não pode
+	// desfazer o cadastro. Quem não recebeu pede de novo no painel.
+	confirmarUC := ucauth.NovoConfirmarEmailUseCase(usuarioRepo, unidadeDeAuth)
+	cadastrarUC.AoCadastrar(func(ctx context.Context, usuarioID string) {
+		if err := confirmarUC.Enviar(ctx, usuarioID); err != nil {
+			slog.Error("não foi possível enfileirar a confirmação de email", slog.String("erro", err.Error()))
+		}
+	})
 	loginUC := ucauth.NovoLoginUseCase(usuarioRepo, sessionRepo, hasher)
 	logoutUC := ucauth.NovoLogoutUseCase(sessionRepo)
 	validarSessaoUC := ucauth.NovoValidarSessaoUseCase(sessionRepo)
@@ -212,7 +221,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	// SMTP configurado; sem ele, o convite nasce com o link manual, e a
 	// recuperação responde como sempre, sem mandar nada.
 	membroUC.ComIntervaloDeReenvio(config.IntervaloEntreReenvios())
-	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, unidadeDeAuth, membroUC, recuperarUC)
+	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, unidadeDeAuth, membroUC, recuperarUC, confirmarUC)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -233,6 +242,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		identidadeDoContexto,
 	)
 	recuperacaoHandler := handler.NovoRecuperacaoHandler(recuperarUC, config.CookieSeguro())
+	confirmacaoHandler := handler.NovoConfirmacaoHandler(confirmarUC, identidadeDoContexto)
 	boardHandler := handler.NovoBoardHandler(quadroUC, colunaUC, cardUC, identidadeDoContexto)
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, atividadeUC, identidadeDoContexto)
@@ -330,6 +340,19 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		r.Group(func(r chi.Router) {
 			r.Use(limitePorIP(config.RateLimitLoginPorMinuto()))
 			r.Post("/recuperacao/{token}", recuperacaoHandler.Redefinir)
+		})
+
+		// Confirmar o email pelo link não exige sessão — quem abre o link prova
+		// a caixa de entrada, logado ou não — e tem o teto das rotas públicas.
+		// Reenviar o link é da conta logada.
+		r.Group(func(r chi.Router) {
+			r.Use(limitePorIP(config.RateLimitPublicoPorMinuto()))
+			r.Post("/confirmacao/{token}", confirmacaoHandler.Confirmar)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(autenticacao.Autenticar)
+			r.Use(limitePorSessao(config.RateLimitAutenticadoPorMinuto(), config.CookieSeguro()))
+			r.Post("/confirmacao", confirmacaoHandler.Reenviar)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -458,6 +481,16 @@ func montar(ctx context.Context) (*aplicacao, error) {
 
 		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
 
+		// Os convites para o email da conta, no painel. Prefixo próprio, e não
+		// `/convites/{id}`: lá o segmento é o TOKEN do link, aqui é o id — e o
+		// aceite daqui exige o email confirmado no lugar do token.
+		r.Get("/meus-convites", membroHandler.ListarRecebidos)
+		r.Route("/meus-convites/{conviteID}", func(r chi.Router) {
+			r.Use(middleware.IDsDaURLValidos)
+			r.Post("/aceitar", membroHandler.AceitarRecebido)
+			r.Post("/recusar", membroHandler.RecusarRecebido)
+		})
+
 		// Coluna e card são endereçados pelo próprio id, e não sob o caminho
 		// do quadro: o servidor descobre a que quadro pertencem para autorizar
 		// (card → coluna → quadro). Aceitar o quadro pela URL deixaria alguém
@@ -513,7 +546,11 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		exclusaoRepo, ucboard.CoberturaNegada{}, armazemAnexos, slog.Default(),
 	)
 
-	faxineiros := []manutencao.Faxineiro{sessionRepo, conviteRepo, repository.NovoRecuperacaoPostgres(banco), coletor}
+	faxineiros := []manutencao.Faxineiro{
+		sessionRepo, conviteRepo,
+		repository.NovoRecuperacaoPostgres(banco), repository.NovoConfirmacaoPostgres(banco),
+		coletor,
+	}
 	if emailRepo != nil {
 		// A mensagem que venceu sem sair tem o link dentro: a faxina a apaga.
 		faxineiros = append(faxineiros, emailRepo)
@@ -528,9 +565,9 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	return app, nil
 }
 
-// ligarCorreio liga o envio de email dos convites e da recuperação de senha, se
-// o SMTP estiver configurado. Devolve o outbox (nil com o envio desligado), que
-// a faxina também precisa.
+// ligarCorreio liga o envio de email dos convites, da recuperação de senha e da
+// confirmação de conta, se o SMTP estiver configurado. Devolve o outbox (nil
+// com o envio desligado), que a faxina também precisa.
 func ligarCorreio(
 	app *aplicacao,
 	banco repository.Fonte,
@@ -538,6 +575,7 @@ func ligarCorreio(
 	unidadeDeAuth *repository.UnidadeDeAutenticacao,
 	membros *ucboard.MembroUseCase,
 	recuperacao *ucauth.RecuperarSenhaUseCase,
+	confirmacao *ucauth.ConfirmarEmailUseCase,
 ) (*repository.EmailPostgres, error) {
 	if !config.EmailLigado() {
 		slog.Warn("envio de email desligado: SMTP_HOST vazio — os convites saem só com o link manual, e a recuperação de senha não manda nada")
@@ -569,6 +607,7 @@ func ligarCorreio(
 	redator := aemail.NovoRedator()
 	membros.ComCorreio(emails, redator, config.OrigemFrontend(), carteiro.Acordar)
 	recuperacao.ComCorreio(redator, config.OrigemFrontend(), carteiro.Acordar)
+	confirmacao.ComCorreio(redator, config.OrigemFrontend(), carteiro.Acordar)
 	app.trabalhos = append(app.trabalhos, carteiro.Rodar)
 
 	slog.Info("envio de email ligado",

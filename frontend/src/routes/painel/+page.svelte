@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { confirmar } from '$lib/confirmar.svelte';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { reenviarConfirmacao } from '$lib/api/auth';
 	import { apagarBoard, criarBoard } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
+	import { aceitarRecebido, recusarRecebido, type ConviteRecebido } from '$lib/api/membros';
 
 	let { data } = $props();
 
@@ -41,6 +43,57 @@
 			await invalidateAll();
 		} catch (e) {
 			erro = e instanceof ApiError ? e.message : 'não foi possível apagar o quadro';
+		}
+	}
+
+	// --- convites para a conta -------------------------------------------------
+	//
+	// O convite deixa de existir só no email: quem confirmou o email da conta o
+	// encontra aqui, e aceita ou recusa sem o link. A confirmação é o que torna
+	// isso seguro — sem ela, cadastrar o email de outra pessoa bastaria para ver
+	// os convites dela.
+	let respondendo = $state('');
+	let confirmacaoPedida = $state('');
+
+	async function aceitar(c: ConviteRecebido) {
+		erro = '';
+		respondendo = c.id;
+		try {
+			const quadro = await aceitarRecebido(c.id);
+			await goto(`/painel/quadros/${quadro.id}`);
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível aceitar o convite';
+			await invalidateAll();
+		} finally {
+			respondendo = '';
+		}
+	}
+
+	async function recusar(c: ConviteRecebido) {
+		const ok = await confirmar({
+			titulo: `Recusar o convite para "${c.quadro}"?`,
+			detalhe: `${c.convidadoPor ?? 'Quem convidou'} fica sabendo pelo histórico do quadro, e o link do email deixa de valer.`,
+			acao: 'Recusar o convite'
+		});
+		if (!ok) return;
+		erro = '';
+		respondendo = c.id;
+		try {
+			await recusarRecebido(c.id);
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível recusar o convite';
+		} finally {
+			respondendo = '';
+			await invalidateAll();
+		}
+	}
+
+	async function pedirConfirmacao() {
+		erro = '';
+		try {
+			confirmacaoPedida = (await reenviarConfirmacao()).mensagem;
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível reenviar a confirmação';
 		}
 	}
 
@@ -87,6 +140,66 @@
 
 {#if erro}
 	<p class="erro-form mt-4">{erro}</p>
+{/if}
+
+{#if !data.usuario.emailConfirmado}
+	<div class="mt-6 rounded-md border border-accent bg-accent-suave p-4 text-sm text-body">
+		<b class="font-semibold text-accent-texto">Confirme seu email.</b>
+		Com ele confirmado, os convites para os quadros de outras pessoas aparecem aqui, e não só por email.
+		Mandamos o link para {data.usuario.email} quando a conta foi criada.
+		{#if confirmacaoPedida}
+			<p class="mt-2 text-mute">{confirmacaoPedida}</p>
+		{:else}
+			<button
+				type="button"
+				onclick={pedirConfirmacao}
+				class="mt-2 block cursor-pointer font-semibold text-accent-texto hover:underline"
+			>
+				Reenviar o email de confirmação
+			</button>
+		{/if}
+	</div>
+{/if}
+
+{#if data.recebidos.length > 0}
+	<section class="mt-8" aria-labelledby="titulo-recebidos">
+		<h2 id="titulo-recebidos" class="text-xs font-semibold tracking-widest text-mute uppercase">
+			Convites para você
+		</h2>
+		<ul class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			{#each data.recebidos as convite (convite.id)}
+				<li
+					class="flex flex-col justify-between gap-4 rounded-lg border border-accent bg-surface p-5 shadow-ficha"
+				>
+					<div>
+						<b class="text-sm font-semibold text-ink">{convite.quadro}</b>
+						<p class="mt-1 text-xs text-mute">
+							{convite.convidadoPor ? `de ${convite.convidadoPor}` : 'de outra pessoa'} · como {convite.papel}
+							· vale até {formatarData(convite.expiraEm)}
+						</p>
+					</div>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							class="botao w-auto px-4 py-1 text-xs"
+							disabled={respondendo === convite.id}
+							onclick={() => aceitar(convite)}
+						>
+							Aceitar
+						</button>
+						<button
+							type="button"
+							class="cursor-pointer px-2 text-xs text-mute hover:text-negativo"
+							disabled={respondendo === convite.id}
+							onclick={() => recusar(convite)}
+						>
+							Recusar
+						</button>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	</section>
 {/if}
 
 <section class="mt-8" aria-labelledby="titulo-seus">

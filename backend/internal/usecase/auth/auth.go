@@ -43,6 +43,8 @@ type SessaoAberta struct {
 	UsuarioID string
 	Nome      string
 	Email     string
+	// EmailConfirmado diz se a conta já provou que o email é dela.
+	EmailConfirmado bool
 }
 
 // Identidade representa o usuário autenticado em uma requisição.

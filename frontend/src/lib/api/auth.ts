@@ -23,6 +23,8 @@ export interface SessaoResponse {
 	id: string;
 	nome: string;
 	email: string;
+	// Se a conta já provou que o email é dela — o que libera os convites no painel.
+	emailConfirmado: boolean;
 }
 
 export function cadastrar(dados: CadastroRequest): Promise<SessaoResponse> {
@@ -67,4 +69,16 @@ export function redefinirSenha(token: string, senha: string): Promise<SessaoResp
 		`/auth/recuperacao/${encodeURIComponent(token)}`,
 		{ senha }
 	);
+}
+
+// --- confirmação de email ---------------------------------------------------
+
+/** reenviarConfirmacao manda de novo o link de confirmação para a conta logada. */
+export function reenviarConfirmacao(): Promise<{ mensagem: string }> {
+	return apiPost<Record<string, never>, { mensagem: string }>('/auth/confirmacao', {});
+}
+
+/** confirmarEmail confirma a conta do link; 404 quando ele não vale. */
+export function confirmarEmail(token: string): Promise<void> {
+	return apiPostVazio(`/auth/confirmacao/${encodeURIComponent(token)}`);
 }

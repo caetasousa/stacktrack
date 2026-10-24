@@ -10,6 +10,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import {
 	APP,
+	ASSUNTO,
 	abaDe,
 	convidar,
 	convidarPelaApi,
@@ -89,7 +90,7 @@ test.describe.serial('quem ainda não tem conta', () => {
 		await expect(pagina.getByText(`Convite enviado para ${bia.email}`)).toBeVisible();
 
 		const req = await playwright.request.newContext();
-		const [email] = await emailsPara(req, bia.email);
+		const [email] = await emailsPara(req, bia.email, ASSUNTO.convite);
 		await req.dispose();
 
 		// O assunto é o que decide se a pessoa abre o email: quem chama e para quê.
@@ -142,7 +143,9 @@ test.describe.serial('quem ainda não tem conta', () => {
 		await pagina.context().close();
 	});
 
-	test('[E3] quem não tem conta cria a conta pelo convite e volta a ele', async ({ browser }) => {
+	test('[E3][G8] quem não tem conta cria a conta pelo convite e volta a ele', async ({
+		browser
+	}) => {
 		const pagina = await abaSemConta(browser);
 		await pagina.goto(link);
 
@@ -206,7 +209,7 @@ test('[E4] quem já tem conta vai do cadastro para o login e volta ao convite', 
 	const req = await playwright.request.newContext();
 	const carlos = await criarConta(req, 'Carlos');
 	await convidarPelaApi(req, ana, quadroId, carlos.email);
-	const [email] = await emailsPara(req, carlos.email);
+	const [email] = await emailsPara(req, carlos.email, ASSUNTO.convite);
 	await req.dispose();
 
 	const pagina = await abaSemConta(browser);
@@ -257,7 +260,7 @@ test('[E7] revogar derruba o link que já foi por email', async ({ browser, play
 	const fabio = novoEmail('fabio');
 	const req = await playwright.request.newContext();
 	await convidarPelaApi(req, ana, quadroId, fabio);
-	const [email] = await emailsPara(req, fabio);
+	const [email] = await emailsPara(req, fabio, ASSUNTO.convite);
 	await req.dispose();
 
 	const pagina = await telaDeMembros(browser);
@@ -283,7 +286,7 @@ test('[E8] reenviar manda email novo, e o link anterior deixa de valer', async (
 	const gabi = novoEmail('gabi');
 	const req = await playwright.request.newContext();
 	await convidarPelaApi(req, ana, quadroId, gabi);
-	const [primeiro] = await emailsPara(req, gabi);
+	const [primeiro] = await emailsPara(req, gabi, ASSUNTO.convite);
 
 	const pagina = await telaDeMembros(browser);
 	const convite = pagina.getByRole('listitem').filter({ hasText: gabi });
@@ -292,7 +295,7 @@ test('[E8] reenviar manda email novo, e o link anterior deixa de valer', async (
 	await expect(pagina.getByText('O link anterior deixou de valer')).toBeVisible();
 	await pagina.context().close();
 
-	const [, segundo] = await emailsPara(req, gabi, 2);
+	const [, segundo] = await emailsPara(req, gabi, ASSUNTO.convite, 2);
 	await req.dispose();
 	const linkAntigo = linkDoConvite(primeiro);
 	const linkNovo = linkDoConvite(segundo);

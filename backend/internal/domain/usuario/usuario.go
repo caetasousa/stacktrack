@@ -18,7 +18,14 @@ type Usuario struct {
 	SenhaHash    string
 	CriadoEm     time.Time
 	AtualizadoEm time.Time
+	// EmailConfirmadoEm é quando a conta provou que o email é dela — abrindo o
+	// link de confirmação, ou trocando a senha pelo link do email. Nil enquanto
+	// não provou: aí ela funciona, mas não vê os convites para aquele email.
+	EmailConfirmadoEm *time.Time
 }
+
+// EmailConfirmado informa se a conta já provou que o email é dela.
+func (u *Usuario) EmailConfirmado() bool { return u.EmailConfirmadoEm != nil }
 
 var (
 	// ErrNomeObrigatorio é retornado quando o nome está vazio ou só com espaços.

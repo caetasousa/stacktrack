@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"stacktrack/internal/domain/confirmacao"
 	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/recuperacao"
 	"stacktrack/internal/domain/session"
@@ -48,23 +49,40 @@ type HasherSenha interface {
 // EscritaDeAuth são os repositórios de autenticação ligados a uma transação em
 // curso.
 //
-// Os quatro últimos servem à recuperação de senha. São portas à parte, e não
-// métodos a mais em RepositorioUsuario e RepositorioSessao, porque só a
-// recuperação precisa deles — e só dentro da transação dela.
+// Os campos depois dos dois primeiros servem à recuperação de senha e à
+// confirmação de email. São portas à parte, e não métodos a mais em
+// RepositorioUsuario e RepositorioSessao, porque só esses fluxos precisam
+// deles — e só dentro da transação.
 type EscritaDeAuth struct {
 	Usuarios RepositorioUsuario
 	Sessoes  RepositorioSessao
 
-	Senhas         GravadorDeSenha
+	Contas         ContaDaTransacao
 	SessoesDaConta EncerradorDeSessoes
 	Recuperacoes   RepositorioRecuperacao
+	Confirmacoes   RepositorioConfirmacao
 	// Emails é nil com o envio de email desligado.
 	Emails FilaDeEmail
 }
 
-// GravadorDeSenha troca o hash da senha de uma conta.
-type GravadorDeSenha interface {
+// ContaDaTransacao é o que se escreve numa conta fora do cadastro: a senha e a
+// prova de que o email é dela.
+type ContaDaTransacao interface {
 	DefinirSenha(ctx context.Context, usuarioID, hash string, em time.Time) error
+	// ConfirmarEmail marca a conta como dona do email. Não é erro confirmar de
+	// novo: a primeira data é a que fica.
+	ConfirmarEmail(ctx context.Context, usuarioID string, em time.Time) error
+}
+
+// RepositorioConfirmacao guarda os links de confirmação de email.
+type RepositorioConfirmacao interface {
+	Salvar(ctx context.Context, c *confirmacao.Confirmacao) error
+	// BuscarPorTokenHash devolve (nil, nil) quando não encontra e, numa
+	// transação, trava a linha.
+	BuscarPorTokenHash(ctx context.Context, hash string) (*confirmacao.Confirmacao, error)
+	ContarDoUsuarioDesde(ctx context.Context, usuarioID string, desde time.Time) (int, error)
+	// EncerrarDoUsuario marca como usados todos os links ainda abertos da conta.
+	EncerrarDoUsuario(ctx context.Context, usuarioID string, em time.Time) error
 }
 
 // EncerradorDeSessoes apaga todas as sessões de uma conta — o "sair de todos os

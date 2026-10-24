@@ -170,8 +170,8 @@ func (uc *RecuperarSenhaUseCase) Consultar(ctx context.Context, tokenPuro string
 
 // Redefinir troca a senha da conta do link e abre uma sessão nova.
 //
-// Na mesma transação: grava a senha, encerra TODOS os links abertos da conta e
-// apaga TODAS as sessões dela. Quem pede recuperação pode estar fazendo isso
+// Na mesma transação: grava a senha, confirma o email (o link chegou por ele),
+// encerra TODOS os links abertos da conta e apaga TODAS as sessões dela. Quem pede recuperação pode estar fazendo isso
 // porque a senha vazou — e aí o que importa é que quem entrou com a senha
 // antiga saia junto, em qualquer aparelho.
 //
@@ -195,7 +195,12 @@ func (uc *RecuperarSenhaUseCase) Redefinir(ctx context.Context, tokenPuro, senha
 			return err
 		}
 		agora := uc.agora()
-		if err := e.Senhas.DefinirSenha(ctx, u.ID, hash, agora); err != nil {
+		if err := e.Contas.DefinirSenha(ctx, u.ID, hash, agora); err != nil {
+			return err
+		}
+		// O link chegou pelo email da conta: trocar a senha por ele prova a
+		// caixa de entrada tanto quanto o link de confirmação.
+		if err := e.Contas.ConfirmarEmail(ctx, u.ID, agora); err != nil {
 			return err
 		}
 		if err := e.Recuperacoes.EncerrarDoUsuario(ctx, u.ID, agora); err != nil {

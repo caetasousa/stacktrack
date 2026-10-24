@@ -1,0 +1,10 @@
+Olá{{with .Nome}}, {{.}}{{end}}.
+
+Para confirmar que este email ({{.Para}}) é seu, abra o link:
+{{.Link}}
+
+Com o email confirmado, os convites para os quadros de outras pessoas passam a aparecer também no seu painel do stacktrack, e não só por email. O link vale até {{.ValeAte}}.
+
+Se você não criou uma conta no stacktrack, pode ignorar esta mensagem: sem abrir o link, nada acontece.
+
+— stacktrack

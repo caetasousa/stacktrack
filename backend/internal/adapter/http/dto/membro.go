@@ -92,3 +92,18 @@ type ConviteDetalheResponse struct {
 	ConvidadoPor   string    `json:"convidadoPor,omitempty"`
 	ExpiraEm       time.Time `json:"expiraEm"`
 }
+
+// ConviteRecebidoResponse é um convite em aberto para o email da conta, em
+// "Convites para você". Sem o id do quadro: ele só sai depois do aceite.
+type ConviteRecebidoResponse struct {
+	ID           string    `json:"id"`
+	Quadro       string    `json:"quadro"`
+	ConvidadoPor string    `json:"convidadoPor,omitempty"`
+	Papel        string    `json:"papel"`
+	ExpiraEm     time.Time `json:"expiraEm"`
+}
+
+// ConvitesRecebidosResponse é a lista de "Convites para você".
+type ConvitesRecebidosResponse struct {
+	Convites []ConviteRecebidoResponse `json:"convites"`
+}

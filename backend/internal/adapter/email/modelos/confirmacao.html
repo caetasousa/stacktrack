@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Confirme seu email no stacktrack</title>
+</head>
+<body style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1d2939;">
+<p>Olá{{with .Nome}}, {{.}}{{end}}.</p>
+<p>Para confirmar que este email ({{.Para}}) é seu, abra o link:<br><a href="{{.Link}}">{{.Link}}</a></p>
+<p>Com o email confirmado, os convites para os quadros de outras pessoas passam a aparecer também no seu painel do stacktrack, e não só por email. O link vale até {{.ValeAte}}.</p>
+<p>Se você não criou uma conta no stacktrack, pode ignorar esta mensagem: sem abrir o link, nada acontece.</p>
+<p>— stacktrack</p>
+</body>
+</html>

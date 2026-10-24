@@ -99,6 +99,10 @@ const (
 	// email, ou para o dono copiar. O link anterior deixou de valer no mesmo
 	// commit, e é isso que a auditoria precisa registrar.
 	ConviteReenviado Tipo = "convite.reenviado"
+	// ConviteRecusado é o "não" de quem foi convidado. O autor é a própria
+	// pessoa convidada, que não participa do quadro: é assim que quem convidou
+	// fica sabendo pelo histórico.
+	ConviteRecusado Tipo = "convite.recusado"
 
 	// OrdenacaoReparada é emitido pelo comando de manutenção que redistribui
 	// chaves de ordenação duplicadas (ver usecase/board/reparo.go).

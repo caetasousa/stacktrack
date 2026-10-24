@@ -172,9 +172,20 @@ export interface EmailRecebido {
 	html: string;
 }
 
+/** Os assuntos dos emails do sistema, para cada teste ler só o que é dele. */
+export const ASSUNTO = {
+	convite: 'convidou você',
+	recuperacao: 'senha nova',
+	confirmacao: 'Confirme seu email'
+} as const;
+
 /**
- * emailsPara espera até chegarem `quantidade` mensagens para o endereço e as
- * devolve da mais antiga para a mais nova.
+ * emailsPara espera até chegarem `quantidade` mensagens para o endereço — com o
+ * assunto informado — e as devolve da mais antiga para a mais nova.
+ *
+ * O assunto filtra porque uma conta recebe mais de um tipo de email: o cadastro
+ * já manda o de confirmação, e um teste de convite que contasse "o primeiro
+ * email da Bia" leria o errado.
  *
  * Espera, e não lê uma vez só: quem manda o email é o worker do outbox, depois
  * do commit — a resposta do convite volta antes de a mensagem sair, e é assim
@@ -183,13 +194,14 @@ export interface EmailRecebido {
 export async function emailsPara(
 	req: APIRequestContext,
 	endereco: string,
+	assunto: string,
 	quantidade = 1,
 	prazoMs = 30_000
 ): Promise<EmailRecebido[]> {
 	const fim = Date.now() + prazoMs;
 	for (;;) {
 		const busca = await req.get(`${MAILPIT}/api/v1/search`, {
-			params: { query: `to:"${endereco}"` }
+			params: { query: `to:"${endereco}" subject:"${assunto}"` }
 		});
 		if (!busca.ok()) {
 			throw new Error(`Mailpit respondeu ${busca.status()} — a stack subiu o serviço mailpit?`);
@@ -212,6 +224,26 @@ export async function emailsPara(
 		}
 		await new Promise((resolver) => setTimeout(resolver, 500));
 	}
+}
+
+/** linkDeConfirmacao tira do texto do email o link que confirma a conta. */
+export function linkDeConfirmacao(email: EmailRecebido): string {
+	const achado = /https?:\/\/\S+?\/confirmar-email\/[A-Za-z0-9_-]+/.exec(email.texto);
+	if (!achado) throw new Error(`o email "${email.assunto}" não traz link de confirmação`);
+	return achado[0];
+}
+
+/**
+ * confirmarConta confirma o email da conta pelo link que o cadastro mandou —
+ * pela API, porque o assunto dos testes que a usam é o que vem DEPOIS de a
+ * conta estar confirmada.
+ */
+export async function confirmarConta(req: APIRequestContext, conta: Conta): Promise<void> {
+	const [email] = await emailsPara(req, conta.email, ASSUNTO.confirmacao);
+	const token = linkDeConfirmacao(email).split('/').pop();
+	const resp = await req.post(`${API}/auth/confirmacao/${token}`);
+	if (!resp.ok())
+		throw new Error(`confirmar ${conta.email}: ${resp.status()} ${await resp.text()}`);
 }
 
 /** linkDoConvite tira do texto do email o link que abre o convite. */

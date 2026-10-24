@@ -30,9 +30,9 @@ func NovoUsuarioPostgres(pool Fonte) *UsuarioPostgres {
 // checagem prévia do usecase.
 func (r *UsuarioPostgres) Salvar(ctx context.Context, u *usuario.Usuario) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO usuarios (id, nome, email, senha_hash, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		u.ID, u.Nome, u.Email, u.SenhaHash, u.CriadoEm, u.AtualizadoEm,
+		`INSERT INTO usuarios (id, nome, email, senha_hash, criado_em, atualizado_em, email_confirmado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		u.ID, u.Nome, u.Email, u.SenhaHash, u.CriadoEm, u.AtualizadoEm, u.EmailConfirmadoEm,
 	)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacaoUnique {
@@ -57,9 +57,9 @@ func (r *UsuarioPostgres) BuscarPorEmail(ctx context.Context, email string) (*us
 func (r *UsuarioPostgres) buscar(ctx context.Context, filtro string, arg any) (*usuario.Usuario, error) {
 	var u usuario.Usuario
 	err := r.db.QueryRow(ctx,
-		`SELECT id, nome, email, senha_hash, criado_em, atualizado_em
+		`SELECT id, nome, email, senha_hash, criado_em, atualizado_em, email_confirmado_em
 		 FROM usuarios `+filtro, arg,
-	).Scan(&u.ID, &u.Nome, &u.Email, &u.SenhaHash, &u.CriadoEm, &u.AtualizadoEm)
+	).Scan(&u.ID, &u.Nome, &u.Email, &u.SenhaHash, &u.CriadoEm, &u.AtualizadoEm, &u.EmailConfirmadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -74,6 +74,16 @@ func (r *UsuarioPostgres) buscar(ctx context.Context, filtro string, arg any) (*
 func (r *UsuarioPostgres) DefinirSenha(ctx context.Context, usuarioID, hash string, em time.Time) error {
 	_, err := r.db.Exec(ctx,
 		`UPDATE usuarios SET senha_hash = $2, atualizado_em = $3 WHERE id = $1`, usuarioID, hash, em,
+	)
+	return err
+}
+
+// ConfirmarEmail marca a conta como dona do email. Confirmar de novo não muda a
+// data: a primeira prova é a que vale.
+func (r *UsuarioPostgres) ConfirmarEmail(ctx context.Context, usuarioID string, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE usuarios SET email_confirmado_em = $2, atualizado_em = $2
+		  WHERE id = $1 AND email_confirmado_em IS NULL`, usuarioID, em,
 	)
 	return err
 }

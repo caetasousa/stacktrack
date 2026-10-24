@@ -13,6 +13,19 @@ type CadastrarUseCase struct {
 	sessoes  RepositorioSessao
 	hasher   HasherSenha
 	unidade  UnidadeDeAutenticacao
+	// aoCadastrar roda depois do commit da conta — é por ele que sai o email
+	// de confirmação. Nil não faz nada.
+	aoCadastrar func(ctx context.Context, usuarioID string)
+}
+
+// AoCadastrar liga o que acontece depois de a conta existir.
+//
+// Fora da transação do cadastro, de propósito: a conta funciona sem o email
+// confirmado, e uma falha ao enfileirar a confirmação não pode desfazer o
+// cadastro de quem já preencheu o formulário. Quem não recebeu pede de novo no
+// painel.
+func (uc *CadastrarUseCase) AoCadastrar(f func(ctx context.Context, usuarioID string)) {
+	uc.aoCadastrar = f
 }
 
 // NovoCadastrarUseCase cria uma instância de CadastrarUseCase com as dependências injetadas.
@@ -87,5 +100,8 @@ func (uc *CadastrarUseCase) Executar(ctx context.Context, input CadastroInput) (
 		return nil, err
 	}
 
+	if uc.aoCadastrar != nil {
+		uc.aoCadastrar(ctx, u.ID)
+	}
 	return sessaoAberta(s, t, u), nil
 }

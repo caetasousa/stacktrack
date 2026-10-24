@@ -23,7 +23,7 @@ func NovoConvitePostgres(pool Fonte) *ConvitePostgres {
 	return &ConvitePostgres{db: pool}
 }
 
-const camposConvite = `id, board_id, email, papel, token_hash, criado_por, criado_em, expira_em, aceito_em, revogado_em`
+const camposConvite = `id, board_id, email, papel, token_hash, criado_por, criado_em, expira_em, aceito_em, revogado_em, recusado_em`
 
 // Salvar persiste um convite novo. Traduz a violação do índice único parcial em
 // convite.ErrJaConvidado: entre a checagem do usecase e o INSERT cabe outro
@@ -31,9 +31,9 @@ const camposConvite = `id, board_id, email, papel, token_hash, criado_por, criad
 func (r *ConvitePostgres) Salvar(ctx context.Context, c *convite.Convite) error {
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO convites_board (`+camposConvite+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		c.ID, c.BoardID, c.Email, string(c.Papel), c.TokenHash, c.CriadoPor,
-		c.CriadoEm, c.ExpiraEm, c.AceitoEm, c.RevogadoEm,
+		c.CriadoEm, c.ExpiraEm, c.AceitoEm, c.RevogadoEm, c.RecusadoEm,
 	)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacaoUnique {
@@ -157,7 +157,7 @@ func (r *ConvitePostgres) BuscarPendentePorEmail(ctx context.Context, boardID, e
 		 WHERE board_id = $1 AND email = $2 AND aceito_em IS NULL AND revogado_em IS NULL`,
 		boardID, usuario.NormalizarEmail(email),
 	).Scan(&c.ID, &c.BoardID, &c.Email, &papel, &c.TokenHash, &c.CriadoPor,
-		&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm)
+		&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm, &c.RecusadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -187,7 +187,56 @@ func (r *ConvitePostgres) ListarPendentes(ctx context.Context, boardID string) (
 		var c convite.Convite
 		var papel string
 		if err := linhas.Scan(&c.ID, &c.BoardID, &c.Email, &papel, &c.TokenHash, &c.CriadoPor,
-			&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm); err != nil {
+			&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm, &c.RecusadoEm); err != nil {
+			return nil, err
+		}
+		c.Papel = membro.Papel(papel)
+		convites = append(convites, c)
+	}
+	return convites, linhas.Err()
+}
+
+// Recusar encerra o convite pelo "não" de quem foi convidado: grava recusado_em
+// e revogado_em — este último é o que tira o convite de toda consulta de
+// pendentes e libera a vaga do índice. Como Aceitar e Revogar, só vale se o
+// convite ainda estiver pendente naquele instante; senão, convite.ErrJaResolvido.
+func (r *ConvitePostgres) Recusar(ctx context.Context, id string, em time.Time) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE convites_board SET recusado_em = $2, revogado_em = $2
+		  WHERE id = $1
+		    AND aceito_em IS NULL
+		    AND revogado_em IS NULL`,
+		id, em,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return convite.ErrJaResolvido
+	}
+	return nil
+}
+
+// PendentesDoEmail devolve os convites em aberto e ainda válidos para o email,
+// de qualquer quadro, do mais recente para o mais antigo. É a lista de
+// "Convites para você" — e quem a pede precisa ter provado que o email é seu.
+func (r *ConvitePostgres) PendentesDoEmail(ctx context.Context, email string, agora time.Time) ([]convite.Convite, error) {
+	linhas, err := r.db.Query(ctx,
+		`SELECT `+camposConvite+` FROM convites_board
+		 WHERE email = $1 AND aceito_em IS NULL AND revogado_em IS NULL AND expira_em > $2
+		 ORDER BY criado_em DESC`, usuario.NormalizarEmail(email), agora,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer linhas.Close()
+
+	convites := make([]convite.Convite, 0)
+	for linhas.Next() {
+		var c convite.Convite
+		var papel string
+		if err := linhas.Scan(&c.ID, &c.BoardID, &c.Email, &papel, &c.TokenHash, &c.CriadoPor,
+			&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm, &c.RecusadoEm); err != nil {
 			return nil, err
 		}
 		c.Papel = membro.Papel(papel)
@@ -237,7 +286,7 @@ func (r *ConvitePostgres) buscar(ctx context.Context, filtro string, arg any) (*
 	err := r.db.QueryRow(ctx,
 		`SELECT `+camposConvite+` FROM convites_board `+filtro, arg,
 	).Scan(&c.ID, &c.BoardID, &c.Email, &papel, &c.TokenHash, &c.CriadoPor,
-		&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm)
+		&c.CriadoEm, &c.ExpiraEm, &c.AceitoEm, &c.RevogadoEm, &c.RecusadoEm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

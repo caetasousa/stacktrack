@@ -68,7 +68,7 @@ func (h *RecuperacaoHandler) Redefinir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, novoCookieSessao(out.Token, out.ExpiraEm, h.cookieSeguro))
-	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email})
+	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email, EmailConfirmado: out.EmailConfirmado})
 }
 
 func (h *RecuperacaoHandler) responderErro(w http.ResponseWriter, r *http.Request, err error) {

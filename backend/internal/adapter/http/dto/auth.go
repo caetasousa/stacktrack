@@ -39,6 +39,9 @@ type SessaoResponse struct {
 	ID    string `json:"id"`
 	Nome  string `json:"nome"`
 	Email string `json:"email"`
+	// EmailConfirmado diz se a conta já provou que o email é dela — o que
+	// libera "Convites para você" no painel.
+	EmailConfirmado bool `json:"emailConfirmado"`
 }
 
 // PedidoDeRecuperacaoRequest é o "esqueci minha senha": só o email.
@@ -72,4 +75,9 @@ type RedefinirSenhaRequest struct {
 // Validar checa o formato dos campos informados.
 func (r RedefinirSenhaRequest) Validar() error {
 	return validate.Struct(r)
+}
+
+// ConfirmacaoPedidaResponse é a resposta do reenvio da confirmação.
+type ConfirmacaoPedidaResponse struct {
+	Mensagem string `json:"mensagem"`
 }

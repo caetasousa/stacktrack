@@ -184,6 +184,13 @@ describe('fraseNoQuadro', () => {
 			'convite.revogado',
 			{ email: 'b***@exemplo.com', papel: 'editor' },
 			'revogou o convite de b***@exemplo.com'
+		],
+		// Quem recusa é o autor do evento — a própria pessoa convidada —, e a
+		// frase é sobre o "não" dela.
+		[
+			'convite.recusado',
+			{ email: 'b***@exemplo.com', papel: 'editor' },
+			'recusou o convite como editor'
 		]
 	])('descreve %s', (tipo, dados, esperado) => {
 		expect(fraseNoQuadro(entrada({ tipo, dados }))).toBe(esperado);

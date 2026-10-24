@@ -74,6 +74,10 @@ var (
 	// de "já foi usado". Este aqui não vai para a borda pública: ele descreve
 	// uma corrida entre duas escritas, e quem o lê é o usecase.
 	ErrJaResolvido = errors.New("este convite já foi aceito ou revogado")
+	// ErrEmailNaoConfirmado é retornado quando uma conta que ainda não provou
+	// que o email é dela pede os convites para aquele email. Sem a prova,
+	// cadastrar o email de outra pessoa bastaria para ver os convites dela.
+	ErrEmailNaoConfirmado = errors.New("confirme seu email para ver os convites que chegam para você")
 	// ErrPendentesDemais é retornado quando o quadro já tem
 	// MaximoDePendentesPorQuadro convites em aberto.
 	ErrPendentesDemais = errors.New("este quadro já tem convites demais em aberto — revogue os que não vão ser usados")
@@ -100,6 +104,11 @@ type Convite struct {
 	// para "quem convidou quem, e quando" — e, pior, liberava a vaga do índice
 	// de forma indistinguível de um convite que nunca existiu.
 	RevogadoEm *time.Time
+	// RecusadoEm é quando quem foi convidado disse não. A recusa grava também
+	// RevogadoEm, que é o que tira o convite das pendências; este campo é o que
+	// distingue, no convite encerrado, o "não" do convidado do cancelamento por
+	// quem convidou.
+	RecusadoEm *time.Time
 }
 
 // Estado é o resultado terminal (ou não) de um convite.
@@ -112,6 +121,8 @@ const (
 	EstadoAceito Estado = "aceito"
 	// EstadoRevogado é terminal.
 	EstadoRevogado Estado = "revogado"
+	// EstadoRecusado é terminal: quem foi convidado disse não.
+	EstadoRecusado Estado = "recusado"
 	// EstadoExpirado é o convite que passou da validade sem ser resolvido. Não
 	// é terminal no banco — é uma leitura do relógio —, e é o domínio que o
 	// transforma em revogado quando precisa liberar a vaga.
@@ -128,6 +139,8 @@ func (c *Convite) EstadoEm(agora time.Time) Estado {
 	switch {
 	case c.AceitoEm != nil:
 		return EstadoAceito
+	case c.RecusadoEm != nil:
+		return EstadoRecusado
 	case c.RevogadoEm != nil:
 		return EstadoRevogado
 	case agora.After(c.ExpiraEm):

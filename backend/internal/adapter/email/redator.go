@@ -40,6 +40,8 @@ type Redator struct {
 	htmlDoConvite      *htemplate.Template
 	textoDeRecuperacao *ttemplate.Template
 	htmlDeRecuperacao  *htemplate.Template
+	textoDeConfirmacao *ttemplate.Template
+	htmlDeConfirmacao  *htemplate.Template
 	fuso               *time.Location
 }
 
@@ -55,6 +57,8 @@ func NovoRedator() *Redator {
 		htmlDoConvite:      htemplate.Must(htemplate.ParseFS(modelos, "modelos/convite.html")),
 		textoDeRecuperacao: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/recuperacao.txt")),
 		htmlDeRecuperacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/recuperacao.html")),
+		textoDeConfirmacao: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/confirmacao.txt")),
+		htmlDeConfirmacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/confirmacao.html")),
 		fuso:               fuso,
 	}
 }
@@ -131,6 +135,30 @@ func (r *Redator) Recuperacao(d ucauth.DadosDoEmailDeRecuperacao) (demail.Mensag
 	return demail.Mensagem{
 		Para:    d.Para,
 		Assunto: "Crie uma senha nova no stacktrack",
+		Texto:   texto.String(),
+		HTML:    html.String(),
+	}, nil
+}
+
+// Confirmacao redige o email que leva o link de confirmação da conta. Como o da
+// recuperação, sem Reply-To e com assunto fixo.
+func (r *Redator) Confirmacao(d ucauth.DadosDoEmailDeConfirmacao) (demail.Mensagem, error) {
+	dados := map[string]any{
+		"Nome":    demail.LimparCabecalho(d.Nome),
+		"Link":    d.Link,
+		"Para":    d.Para,
+		"ValeAte": d.ExpiraEm.In(r.fuso).Format("02/01/2006 às 15h04"),
+	}
+	var texto, html bytes.Buffer
+	if err := r.textoDeConfirmacao.Execute(&texto, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o texto da confirmação: %w", err)
+	}
+	if err := r.htmlDeConfirmacao.Execute(&html, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o HTML da confirmação: %w", err)
+	}
+	return demail.Mensagem{
+		Para:    d.Para,
+		Assunto: "Confirme seu email no stacktrack",
 		Texto:   texto.String(),
 		HTML:    html.String(),
 	}, nil

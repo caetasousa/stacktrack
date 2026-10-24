@@ -41,9 +41,10 @@ func (u *UnidadeDeAutenticacao) Executar(ctx context.Context, trabalho func(ucau
 	escrita := ucauth.EscritaDeAuth{
 		Usuarios:       usuarios,
 		Sessoes:        sessoes,
-		Senhas:         usuarios,
+		Contas:         usuarios,
 		SessoesDaConta: sessoes,
 		Recuperacoes:   &RecuperacaoPostgres{db: tx},
+		Confirmacoes:   &ConfirmacaoPostgres{db: tx},
 	}
 	// Atribuição condicional, e não um *EmailPostgres nil no campo: a interface
 	// com ponteiro nil dentro NÃO é nil, e o caso de uso tentaria enfileirar

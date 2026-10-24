@@ -79,7 +79,7 @@ func (h *AuthHandler) Cadastrar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, novoCookieSessao(out.Token, out.ExpiraEm, h.cookieSeguro))
-	responderJSON(w, http.StatusCreated, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email})
+	responderJSON(w, http.StatusCreated, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email, EmailConfirmado: out.EmailConfirmado})
 }
 
 // Login autentica e abre uma sessão, respondendo 200 com o cookie de sessão.
@@ -129,7 +129,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, novoCookieSessao(out.Token, out.ExpiraEm, h.cookieSeguro))
-	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email})
+	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: out.UsuarioID, Nome: out.Nome, Email: out.Email, EmailConfirmado: out.EmailConfirmado})
 }
 
 // Logout encerra a sessão atual e apaga o cookie. Responde 204 mesmo sem
@@ -163,7 +163,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: u.ID, Nome: u.Nome, Email: u.Email})
+	responderJSON(w, http.StatusOK, dto.SessaoResponse{ID: u.ID, Nome: u.Nome, Email: u.Email, EmailConfirmado: u.EmailConfirmado()})
 }
 
 // erroDeValidacaoDoDominio informa se o erro veio das regras do domínio de

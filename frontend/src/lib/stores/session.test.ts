@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { Sessao } from './session.svelte';
 import { ApiError } from '$lib/api/client';
 
-const conta = { id: '1', nome: 'Ana', email: 'ana@exemplo.com' };
+const conta = { id: '1', nome: 'Ana', email: 'ana@exemplo.com', emailConfirmado: false };
 
 const api = vi.hoisted(() => ({
 	me: vi.fn(),

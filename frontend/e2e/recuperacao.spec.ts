@@ -9,6 +9,7 @@
 import { test, expect, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 import {
 	API,
+	ASSUNTO,
 	APP,
 	abaDe,
 	criarConta,
@@ -81,7 +82,7 @@ test.describe.serial('quem esqueceu a senha', () => {
 		await expect(pagina.getByText('Se existe uma conta com esse email')).toBeVisible();
 
 		const req = await playwright.request.newContext();
-		const [email] = await emailsPara(req, carla.email);
+		const [email] = await emailsPara(req, carla.email, ASSUNTO.recuperacao);
 		await req.dispose();
 		expect(email.assunto).toContain('senha');
 		link = linkDeRecuperacao(email);
@@ -164,7 +165,7 @@ test('[F5] pedir com um email sem conta responde igual, e nenhum email sai', asy
 	expect(comConta.status).toBe(202);
 
 	// O da Dani chega; esperado ele, o do endereço sem conta já teria chegado.
-	await emailsPara(req, dani.email);
+	await emailsPara(req, dani.email, ASSUNTO.recuperacao);
 	const busca = await req.get(`${MAILPIT}/api/v1/search`, {
 		params: { query: `to:"${ninguem}"` }
 	});

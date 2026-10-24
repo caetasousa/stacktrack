@@ -26,7 +26,9 @@
 //	I10 um quadro acumula convites em aberto sem limite;
 //	I11 apagar o quadro deixa na fila o email de um convite que não existe mais;
 //	I12 o mesmo email sai duas vezes numa operação normal;
-//	I13 o email que nunca saiu continua com o link no banco depois de vencer.
+//	I13 o email que nunca saiu continua com o link no banco depois de vencer;
+//	I14 aceitar pelo link enquanto o dono revoga: quem perde a corrida responde
+//	    sucesso sem ter entrado no quadro.
 package repository_test
 
 import (
@@ -39,6 +41,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -576,5 +579,43 @@ func TestOEmailQueVenceuSemSairPerdeOLink(t *testing.T) {
 	}
 	if l := linhasDoConvite(t, res.Convite.ID)[0]; l.estado != "expirado" || l.payload != nil {
 		t.Fatalf("depois da faxina: %v, esperado expirado e sem payload", l)
+	}
+}
+
+// I14
+//
+// O aceite guardava o resultado da transação numa variável que um `:=` dentro
+// do laço de tentativas sombreava: quando o convite já tinha sido resolvido por
+// outra escrita, ele respondia sucesso, e a pessoa ia para um quadro de que
+// não participava. Rodado várias vezes porque a ordem das duas é sorteada.
+func TestI14AceitarPeloLinkEnquantoODonoRevogaNaoMenteSobreQuemVenceu(t *testing.T) {
+	for rodada := 0; rodada < 10; rodada++ {
+		a := novoAmbienteDeConvite(t)
+		ctx := context.Background()
+		convidadoID, email := contaDeTeste(t, "Bia")
+		r, err := a.uc.Convidar(ctx, a.boardID, a.dona, email, membro.PapelEditor)
+		if err != nil {
+			t.Fatalf("convidar: %v", err)
+		}
+
+		var wg sync.WaitGroup
+		var errAceite, errRevoga error
+		wg.Add(2)
+		go func() { defer wg.Done(); _, _, errAceite = a.uc.Aceitar(ctx, r.Token, convidadoID) }()
+		go func() { defer wg.Done(); errRevoga = a.uc.RevogarConvite(ctx, r.Convite.ID, a.dona) }()
+		wg.Wait()
+
+		m, err := repository.NovoMembroPostgres(pool).Buscar(ctx, a.boardID, convidadoID)
+		if err != nil {
+			t.Fatalf("buscar membro: %v", err)
+		}
+		entrou := m != nil
+		if (errAceite == nil) != entrou {
+			t.Fatalf("rodada %d: o aceite respondeu %v, e a pessoa %s no quadro (revogar: %v)",
+				rodada, errAceite, map[bool]string{true: "está", false: "não está"}[entrou], errRevoga)
+		}
+		if (errAceite == nil) == (errRevoga == nil) {
+			t.Fatalf("rodada %d: aceitar (%v) e revogar (%v) não podem ter o mesmo desfecho", rodada, errAceite, errRevoga)
+		}
 	}
 }

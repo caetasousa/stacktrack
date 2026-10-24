@@ -620,9 +620,13 @@ func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID strin
 	// a unidade de trabalho entrar. Fazemos uma leitura otimista e, caso ela não
 	// confira com a leitura transacional, abortamos sem efeitos e repetimos.
 	for tentativa := 0; tentativa < 2; tentativa++ {
-		existenteAntes, err := uc.membros.Buscar(ctx, c.BoardID, usuarioID)
-		if err != nil {
-			return nil, "", err
+		// `errBusca`, e não `err`: um `:=` com `err` aqui criaria uma variável
+		// nova dentro do laço, o resultado da transação iria para ela, e o `err`
+		// conferido depois do laço continuaria nil — o aceite que perdeu a
+		// corrida respondia sucesso sem ter feito nada.
+		existenteAntes, errBusca := uc.membros.Buscar(ctx, c.BoardID, usuarioID)
+		if errBusca != nil {
+			return nil, "", errBusca
 		}
 		jaEraMembro := existenteAntes != nil
 		tipo := evento.MembroEntrou

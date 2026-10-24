@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,7 +54,9 @@ type pessoa struct {
 func criarPessoa(t *testing.T, nome string) pessoa {
 	t.Helper()
 	email := fmt.Sprintf("%s-%d@teste.dev", nome, time.Now().UnixNano())
-	senha := "Senha!12345"
+	// Quinze caracteres ou mais: é a regra do cadastro desde a A1, e uma senha
+	// mais curta faz o cenário inteiro não montar.
+	senha := "uma senha de teste comprida"
 
 	corpo := fmt.Sprintf(`{"nome":%q,"email":%q,"senha":%q}`, nome, email, senha)
 	status, resposta, err := pedir(t, "POST", "/auth/cadastro", "", corpo)
@@ -159,10 +162,23 @@ func montarCenario(t *testing.T) {
 		t.Fatalf("resposta do quadro: %v", err)
 	}
 
-	status, _, err = pedir(t, "POST", "/boards/"+quadro.ID+"/membros", ana.cookie,
+	// Convidar não põe ninguém no quadro: o acesso nasce do link aceito pela
+	// conta do email convidado. O link vem na resposta, que é a entrega manual.
+	status, corpo, err = pedir(t, "POST", "/boards/"+quadro.ID+"/membros", ana.cookie,
 		fmt.Sprintf(`{"email":%q,"papel":"editor"}`, bruno.email))
 	if err != nil || status != http.StatusCreated {
 		t.Fatalf("convidar bruno: %v (status %d)", err, status)
+	}
+	var convite struct {
+		Link string `json:"link"`
+	}
+	if err := json.Unmarshal(corpo, &convite); err != nil || !strings.Contains(convite.Link, "/convite/") {
+		t.Fatalf("o convite não trouxe o link: %v — %s", err, corpo)
+	}
+	token := convite.Link[strings.LastIndex(convite.Link, "/")+1:]
+	status, _, err = pedir(t, "POST", "/convites/"+token+"/aceitar", bruno.cookie, "")
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("bruno aceitar o convite: %v (status %d)", err, status)
 	}
 
 	cenario.ana, cenario.bruno, cenario.boardID = ana, bruno, quadro.ID
@@ -293,9 +309,11 @@ func TestUmAgeEOOutroVe(t *testing.T) {
 	}
 }
 
-// Quem age não recebe o próprio eco: a tela dele já mudou quando ele agiu, e
-// reaplicar causaria um solavanco no que ele acabou de fazer.
-func TestOAutorNaoRecebeOProprioEco(t *testing.T) {
+// Quem age TAMBÉM recebe o evento — com a revisão. Antes o autor não recebia o
+// próprio eco, e era um defeito: as OUTRAS abas da mesma conta ficavam sem saber
+// da mudança. Agora todas recebem, e a revisão é o que deixa a aba que fez a
+// mudança dispensar a recarga, porque a resposta da mutação já a cobriu.
+func TestOAutorTambemRecebeOEventoComARevisao(t *testing.T) {
 	ana, _, boardID := quadroCompartilhado(t)
 
 	ctx, cancelar := context.WithTimeout(context.Background(), 15*time.Second)
@@ -312,7 +330,16 @@ func TestOAutorNaoRecebeOProprioEco(t *testing.T) {
 		t.Fatalf("ana não criou: %v", err)
 	}
 
-	semEvento(t, ctx, conexao, 2*time.Second)
+	var m struct {
+		Tipo    string `json:"tipo"`
+		Revisao int64  `json:"revisao"`
+	}
+	if err := json.Unmarshal(lerEvento(t, ctx, conexao), &m); err != nil {
+		t.Fatalf("evento ilegível: %v", err)
+	}
+	if m.Tipo != "coluna.criada" || m.Revisao == 0 {
+		t.Errorf("recebeu %s com revisão %d, esperado coluna.criada com revisão", m.Tipo, m.Revisao)
+	}
 }
 
 // A sala é fronteira de acesso: quem não participa do quadro nem chega a
@@ -372,7 +399,7 @@ func TestSemSessaoNaoConecta(t *testing.T) {
 // O caso que a fase 7 existe para resolver.
 //
 // Bruno cai. Enquanto está fora, ana mexe no quadro. Ao voltar, bruno pergunta
-// "o que houve desde o 41?" e recebe o intervalo — em vez de fingir que nada
+// "o que houve depois da revisão 41?" e recebe o intervalo — em vez de fingir que nada
 // aconteceu, que é o que uma reconexão ingênua faz.
 func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
 	ana, bruno, boardID := quadroCompartilhado(t)
@@ -390,8 +417,8 @@ func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
 		t.Fatalf("bruno não recebeu a sincronização: %v", err)
 	}
 	var sinc struct {
-		Tipo string `json:"tipo"`
-		Seq  int64  `json:"seq"`
+		Tipo    string `json:"tipo"`
+		Revisao int64  `json:"revisao"`
 	}
 	if err := json.Unmarshal(dados, &sinc); err != nil || sinc.Tipo != "sincronizado" {
 		t.Fatalf("primeira mensagem = %s (esperado sincronizado)", dados)
@@ -408,7 +435,7 @@ func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
 
 	// Bruno volta, dizendo até onde tinha aplicado.
 	segunda, _, err := websocket.Dial(ctx,
-		wsURL(boardID)+"&desde="+strconv.FormatInt(sinc.Seq, 10),
+		wsURL(boardID)+"&revisao="+strconv.FormatInt(sinc.Revisao, 10),
 		&websocket.DialOptions{HTTPHeader: http.Header{
 			"Cookie": {bruno.cookie}, "Origin": {origemAceita()},
 		}})
@@ -417,14 +444,11 @@ func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
 	}
 	defer segunda.CloseNow()
 
-	_, dados, err = segunda.Read(ctx)
-	if err != nil {
-		t.Fatalf("o histórico não veio: %v", err)
-	}
+	dados = lerEvento(t, ctx, segunda)
 	var reposto struct {
-		Tipo  string `json:"tipo"`
-		Seq   int64  `json:"seq"`
-		Dados struct {
+		Tipo    string `json:"tipo"`
+		Revisao int64  `json:"revisao"`
+		Dados   struct {
 			Titulo string
 		} `json:"dados"`
 	}
@@ -434,8 +458,8 @@ func TestQuemVoltaRecebeOQuePerdeu(t *testing.T) {
 	if reposto.Tipo != "coluna.criada" {
 		t.Errorf("tipo = %q, esperado coluna.criada reposta", reposto.Tipo)
 	}
-	if reposto.Seq <= sinc.Seq {
-		t.Errorf("seq = %d, devia ser maior que o último aplicado (%d)", reposto.Seq, sinc.Seq)
+	if reposto.Revisao <= sinc.Revisao {
+		t.Errorf("revisão = %d, devia ser maior que a última aplicada (%d)", reposto.Revisao, sinc.Revisao)
 	}
 	if reposto.Dados.Titulo != "Feita enquanto bruno estava fora" {
 		t.Errorf("o payload não sobreviveu ao log: %+v", reposto.Dados)
@@ -467,20 +491,20 @@ func TestQuemEstaEmDiaNaoRecebeHistorico(t *testing.T) {
 		t.Fatalf("nada chegou: %v", err)
 	}
 	var m struct {
-		Tipo string `json:"tipo"`
-		Seq  int64  `json:"seq"`
+		Tipo    string `json:"tipo"`
+		Revisao int64  `json:"revisao"`
 	}
 	_ = json.Unmarshal(dados, &m)
 	if m.Tipo != "sincronizado" {
 		t.Errorf("tipo = %q, esperado sincronizado", m.Tipo)
 	}
-	if m.Seq == 0 {
+	if m.Revisao == 0 {
 		t.Error("a posição atual veio zerada; o cliente não teria de onde partir")
 	}
 
 	// E reconectando a partir dela, nada é reposto.
 	segunda, _, err := websocket.Dial(ctx,
-		wsURL(boardID)+"&desde="+strconv.FormatInt(m.Seq, 10),
+		wsURL(boardID)+"&revisao="+strconv.FormatInt(m.Revisao, 10),
 		&websocket.DialOptions{HTTPHeader: http.Header{
 			"Cookie": {bruno.cookie}, "Origin": {origemAceita()},
 		}})

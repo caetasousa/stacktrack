@@ -86,18 +86,6 @@ fi
 cat >"$trabalho/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "docker $*" >>"$REGISTRO"
-# `docker compose ... config --format json` alimenta a allowlist do verbo `sync`.
-# O stub devolve o JSON que o teste pôs em STUB_COMPOSE_JSON (ou um válido).
-case " $* " in
-	*" config "*)
-		if [ -n "${STUB_COMPOSE_JSON:-}" ] && [ -f "$STUB_COMPOSE_JSON" ]; then
-			cat "$STUB_COMPOSE_JSON"
-		else
-			echo '{"services":{"api":{"image":"ghcr.io/caetasousa/stacktrack-api:latest"}}}'
-		fi
-		exit 0
-		;;
-esac
 # `docker version` precisa responder 0 para o pré-voo achar o daemon.
 exit 0
 STUB
@@ -186,60 +174,9 @@ recusa "release sem referência" "release"
 recusa "argumento a mais" "release latest extra"
 recusa "backup com argumento" "backup agora"
 recusa "linha vazia" ""
-
-echo
-echo "sync: a allowlist do compose"
-if command -v python3 >/dev/null; then
-	# roda_stdin manda o SSH_ORIGINAL_COMMAND e alimenta o stdin do wrapper com
-	# um compose (o que o `sync` recebe). STUB_COMPOSE_JSON é a forma canônica
-	# que o `docker compose config` do stub devolve.
-	roda_stdin() {
-		: >"$REGISTRO"
-		STUB_COMPOSE_JSON="$1" SSH_ORIGINAL_COMMAND="sync" "$wrapper" \
-			<<<"services: {}" >"$trabalho/saida" 2>&1
-	}
-	sync_aceita() {
-		printf '%s' "$2" >"$trabalho/canon.json"
-		if roda_stdin "$trabalho/canon.json"; then
-			echo "  ok   aceita: $1"
-		else
-			echo "  FALHA: sync devia aceitar ($1):"; sed 's/^/         /' "$trabalho/saida"
-			falhas=$((falhas + 1))
-		fi
-	}
-	sync_recusa() {
-		printf '%s' "$2" >"$trabalho/canon.json"
-		if roda_stdin "$trabalho/canon.json"; then
-			echo "  FALHA: sync devia RECUSAR ($1) e aceitou"
-			falhas=$((falhas + 1))
-		else
-			echo "  ok   recusa: $1"
-		fi
-	}
-	ok='{"services":{"api":{"image":"ghcr.io/caetasousa/stacktrack-api:latest"},"postgres":{"image":"postgres:16-alpine","cap_add":["CHOWN","DAC_OVERRIDE","FOWNER","SETGID","SETUID"]},"borda":{"image":"nginxinc/nginx-unprivileged:1.28-alpine"}}}'
-	sync_aceita "compose do projeto (imagens do projeto, Postgres com as caps do initdb, nginx da borda)" "$ok"
-	sync_recusa "imagem de fora"        '{"services":{"x":{"image":"evilcorp/miner:latest"}}}'
-	sync_recusa "nginx que não é o unprivileged" '{"services":{"x":{"image":"nginx:1.28-alpine"}}}'
-	sync_recusa "privileged"            '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","privileged":true}}}'
-	sync_recusa "namespace do host"     '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","network_mode":"host"}}}'
-	sync_recusa "bind mount do host"    '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","volumes":[{"type":"bind","source":"/","target":"/host"}]}}}'
-	sync_recusa "capability nova"       '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","cap_add":["SYS_ADMIN"]}}}'
-	sync_recusa "devices"              '{"services":{"x":{"image":"ghcr.io/caetasousa/stacktrack-api","devices":["/dev/sda:/dev/sda"]}}}'
-	# stdin vazio e argumento a mais não passam nem da porta.
-	: >"$REGISTRO"
-	if SSH_ORIGINAL_COMMAND="sync" "$wrapper" </dev/null >"$trabalho/saida" 2>&1; then
-		echo "  FALHA: sync com stdin vazio foi aceito"; falhas=$((falhas + 1))
-	else
-		echo "  ok   recusa: stdin vazio"
-	fi
-	if SSH_ORIGINAL_COMMAND="sync agora" "$wrapper" <<<"x" >"$trabalho/saida" 2>&1; then
-		echo "  FALHA: 'sync agora' foi aceito"; falhas=$((falhas + 1))
-	else
-		echo "  ok   recusa: sync com argumento"
-	fi
-else
-	echo "  aviso: python3 ausente — a allowlist do sync não foi verificada"
-fi
+# O verbo da esteira, que reescrevia o compose — e com ele a borda. Saiu: nenhum
+# verbo que a chave de deploy alcança escreve arquivo no servidor.
+recusa "sync, o verbo que escrevia o compose" "sync"
 
 echo
 echo "o release faz o que promete"

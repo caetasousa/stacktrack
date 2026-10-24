@@ -29,6 +29,5 @@ producao:
       ansible_user: stacktrack
 
       # A chave do OPERADOR. É um caminho, não um segredo. A chave de deploy tem
-      # par próprio e não passa por aqui. (Nome de arquivo herdado — é a mesma
-      # pessoa que opera os outros projetos.)
-      ansible_ssh_private_key_file: ~/.ssh/agendago_deploy
+      # par próprio (~/.ssh/stacktrack_release) e não passa por aqui.
+      ansible_ssh_private_key_file: ~/.ssh/stacktrack_servidor

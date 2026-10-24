@@ -19,33 +19,45 @@ dominio: stacktrack.d4ffy.com
 usuario_app: stacktrack
 grupo_app: stacktrack
 
-# Chave PÚBLICA do OPERADOR — a sua. É ela que autoriza você (e o Ansible, que
-# entra com ela) no usuário da aplicação. Não é segredo: chave pública é feita
-# para ser publicada, por isso fica aqui e não no vault.
+# Chave PÚBLICA do OPERADOR — a sua (~/.ssh/stacktrack_servidor). É ela que
+# autoriza você (e o Ansible, que entra com ela) no usuário da aplicação, com
+# shell e sudo. Não é segredo: chave pública é feita para ser publicada, por
+# isso fica aqui e não no vault.
 #
-# O que NÃO se reaproveita é a chave de DEPLOY, que tem par próprio
-# (`esteira_chave_publica`, abaixo — nome herdado).
+# Par próprio do stacktrack, e de nenhum outro lugar: a anterior era a chave da
+# esteira do agendaGo, reaproveitada como chave de operador — quem tivesse
+# acesso ao que guardava a metade privada dela tinha sudo neste servidor.
 operador_chave_publica: >-
   ssh-ed25519
-  AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv
-  github-actions-agendago
+  AAAAC3NzaC1lZDI1NTE5AAAAIJGCLXklZ5tnKmetteODsdPNeYaneAXayi7CtUbrtT72
+  operador-stacktrack
 
 # --- a chave de deploy -----------------------------------------------------
 #
-# Opcional. Se você quiser implantar de um script ou de outra máquina sem dar a
-# chave do operador (que abre shell), gere um par dedicado e ponha a pública
-# aqui: a role `usuario_app` a instala presa a um comando forçado que só entende
-# quatro verbos (sync/release/backup/estado). Vazia, o deploy é só com a chave
-# do operador.
+# Opcional. Para implantar sem usar a chave do operador (que abre shell), um par
+# dedicado (~/.ssh/stacktrack_release): a role `usuario_app` o instala preso a
+# um comando forçado que só entende três verbos (release/backup/estado). Vazia,
+# o deploy é só com a chave do operador.
 #
-#   ssh-keygen -t ed25519 -C deploy-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
+#   ssh-keygen -t ed25519 -C release-stacktrack -f ~/.ssh/stacktrack_release -N ""
 #
-# A pública vai aqui; guarde a privada. Sem passphrase, porque um script não
-# digita uma — o que limita o estrago é o comando forçado, não a senha da chave.
-esteira_chave_publica: >-
+# Sem passphrase, porque um script não digita uma — o que limita o estrago é o
+# comando forçado, não a senha da chave.
+chave_deploy_publica: >-
   ssh-ed25519
-  AAAAC3NzaC1lZDI1NTE5AAAAIO8mNIDKQwLDbQJVreykGeb1G7luPfawEHCezTeSyHaM
-  deploy-stacktrack
+  AAAAC3NzaC1lZDI1NTE5AAAAIF4lB2lSjWxVtRs+2g23ff0JSNOdi7Ul8j7l7mYeYHnf
+  release-stacktrack
+
+# Chaves que NÃO podem entrar no servidor, e que a role mantém ausentes do
+# authorized_keys. Trocar a chave acima não bastaria: com `exclusive: false`, a
+# antiga ficaria lá, valendo.
+#
+# As duas são da época da esteira (GitHub Actions, removida em ago/2026): a de
+# deploy teve a metade privada guardada nos segredos do repositório no GitHub,
+# e a de operador era a chave da esteira do agendaGo.
+chaves_revogadas:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbDwWFfvgEOm5ILKWlDTdXmgT32NoTyKchYIM7AMGXv github-actions-agendago
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO8mNIDKQwLDbQJVreykGeb1G7luPfawEHCezTeSyHaM github-actions-stacktrack
 
 pasta_base: /home/{{ usuario_app }}
 # A stack fica na RAIZ do home, e não num `stacktrack/` dentro dele: a conta já

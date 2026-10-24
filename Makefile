@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: run test test-backend test-frontend test-e2e
+.PHONY: run ajuda test test-backend test-frontend test-integracao test-tempo-real test-e2e verificar
 
 # Sobe a stack inteira: Postgres, migrations (Flyway), API, frontend e Mailpit.
 # Roda em primeiro plano — os logs dos cinco serviços saem juntos e Ctrl+C
@@ -12,7 +12,7 @@ SHELL := /bin/bash
 # O 130 tratado no fim é 128+SIGINT — o Ctrl+C que encerra a stack de propósito.
 # Sem isso o make fecha toda sessão normal de desenvolvimento com um "Error 130"
 # vermelho, que parece defeito e não é.
-run: .env frontend/.env frontend/node_modules
+run: .env frontend/.env frontend/node_modules ## sobe a stack de desenvolvimento (Ctrl+C encerra)
 	@echo "frontend  http://localhost:5173"
 	@echo "api       http://localhost:8080"
 	@echo "mailpit   http://localhost:8025"
@@ -20,6 +20,13 @@ run: .env frontend/.env frontend/node_modules
 	@docker compose up; codigo=$$?; \
 	if [ $$codigo -eq 130 ]; then exit 0; fi; \
 	exit $$codigo
+
+# Lista os alvos que têm descrição (o texto depois de `##` na linha do alvo).
+# Não é o alvo padrão de propósito: `make` sozinho continua sendo o `run`.
+ajuda: ## lista estes comandos
+	@grep -E '^[a-z0-9-]+:.*## ' $(firstword $(MAKEFILE_LIST)) \
+		| sed -E 's/^([a-z0-9-]+):.*## (.*)/  \1\t\2/' \
+		| expand -t 20
 
 
 # Senha aleatória em vez do placeholder do exemplo: este .env vira as
@@ -47,24 +54,55 @@ frontend/node_modules: frontend/package.json frontend/package-lock.json
 
 # Roda os testes rápidos de backend e frontend (sem Docker, sem browsers).
 # É o alvo padrão para checar o projeto antes de commitar.
-test: test-backend test-frontend
+test: test-backend test-frontend ## testes rápidos de backend e frontend
+
+# O que a esteira conferia sozinha, reunido num comando só — e que agora só
+# acontece se alguém rodar. Sem Docker: formatação, vet, a regra de que migration
+# não escreve dado, os testes com -race, o Prettier, o svelte-check e os testes
+# de unidade do frontend. A integração (Testcontainers) e o E2E continuam à
+# parte, porque exigem Docker e a stack no ar — ver docs/testes.md.
+verificar: ## o que a esteira conferia: formato, vet, migrations, -race, lint, svelte-check, Vitest
+	@cd backend && formatar=$$(gofmt -l .); \
+	if [ -n "$$formatar" ]; then echo "gofmt — arquivos fora do formato:"; echo "$$formatar"; exit 1; fi
+	@cd backend && go vet ./...
+	@if grep -rniE '^[[:space:]]*(INSERT|UPDATE|DELETE)[[:space:]]' backend/migrations/; then \
+		echo "migration não escreve dado — mova o backfill para um comando do domínio"; exit 1; fi
+	@$(MAKE) --no-print-directory -C backend test
+	@cd frontend && npm run --silent lint && npm run --silent check && npm run --silent test:unit
+	@echo "verificar: tudo certo"
 
 # Testes rápidos do backend (domínio, usecases, handlers — em memória).
-test-backend:
+test-backend: ## só os testes rápidos do backend
 	@$(MAKE) -C backend test-fast
 
 # Testes unitários do frontend (Vitest).
-test-frontend:
+test-frontend: ## só os testes de unidade do frontend (Vitest)
 	@cd frontend && npm run test:unit
+
+# Integração: casos de uso e o servidor HTTP contra um PostgreSQL de verdade
+# (Testcontainers). Exige Docker, mas não a stack no ar.
+test-integracao: ## integração contra PostgreSQL de verdade (Docker)
+	@$(MAKE) --no-print-directory -C backend test-integracao
+
+# O teste de duas abas do WebSocket. Exige `make run` noutro terminal.
+test-tempo-real: ## duas abas pelo WebSocket, contra a API no ar
+	@$(MAKE) --no-print-directory -C backend test-tempo-real
 
 # Testes de ponta a ponta: navegador de verdade contra a stack inteira.
 #
 # Exige `make run` noutro terminal. Não sobe a stack sozinho de propósito — ela
-# são quatro serviços com dependências na ordem certa, e duplicar isso na
+# são cinco serviços com dependências na ordem certa, e duplicar isso na
 # configuração do Playwright criaria uma segunda forma de subir o projeto, que
 # divergiria da primeira no dia em que alguém mexesse só numa.
-test-e2e:
-	@cd frontend && npx playwright test
+#
+# O resumo por cenário (frontend/e2e/relatorio/resumo.md) é gerado mesmo quando
+# a suíte falha — é justamente aí que ele importa —, e o código de saída
+# continua sendo o do Playwright.
+test-e2e: ## Playwright contra a stack no ar e o relatório em frontend/e2e/relatorio/
+	@cd frontend && npx playwright test; codigo=$$?; \
+	E2E_COMMIT="$$(git rev-parse --short HEAD)$$(git diff --quiet HEAD -- . 2>/dev/null || echo ' (com alterações locais)')" \
+		node e2e/resumo.mjs; \
+	exit $$codigo
 
 
 # --- Infraestrutura (Ansible) ------------------------------------------------
@@ -115,7 +153,7 @@ $(PASTA_ANSIBLE)/.dependencias: $(PASTA_ANSIBLE)/requirements.yml
 	@cd $(PASTA_ANSIBLE) && ansible-galaxy collection install -r requirements.yml
 	@touch $@
 
-infra-segredos: $(PASTA_ANSIBLE)/.dependencias
+infra-segredos: $(PASTA_ANSIBLE)/.dependencias ## cria e cifra os segredos do vault (uma vez)
 	@$(PASTA_ANSIBLE)/segredos.sh
 
 # O que exige privilégio: criar o usuário de deploy, o Docker rootless dele, o
@@ -129,17 +167,17 @@ infra-segredos: $(PASTA_ANSIBLE)/.dependencias
 # Sem $(SENHA_VAULT), e é de propósito: este playbook não lê segredo nenhum, e um
 # playbook que roda com privilégio é o último lugar onde vale abrir os segredos
 # por hábito.
-infra-preparar: $(PASTA_ANSIBLE)/.dependencias
+infra-preparar: $(PASTA_ANSIBLE)/.dependencias ## o que exige privilégio: usuário, chaves, wrapper de release
 	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml --ask-become-pass --diff $(ARGS)
 
 # Passo obrigatório antes do apply. O critério de aceite desta fase é ele sair
 # com `changed=0` numa SEGUNDA execução, depois que o servidor já foi montado —
 # é o que prova que o playbook descreve o host, e não só o constrói uma vez.
-infra-check: $(PASTA_ANSIBLE)/.dependencias
+infra-check: $(PASTA_ANSIBLE)/.dependencias ## mostra o que o infra-apply mudaria, sem tocar em nada
 	$(CONFERE_VAULT)
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --check --diff
 
-infra-apply: $(PASTA_ANSIBLE)/.dependencias
+infra-apply: $(PASTA_ANSIBLE)/.dependencias ## aplica .env, compose, backup, cron e papéis do banco
 	$(CONFERE_VAULT)
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml $(SENHA_VAULT) --diff
 
@@ -148,7 +186,7 @@ infra-apply: $(PASTA_ANSIBLE)/.dependencias
 #
 # Se algum arquivo cifrado voltar a ser carregado por padrão (ver o comentário
 # no ansible.cfg), este alvo passa a falhar — é o que impede aquilo em silêncio.
-infra-validar: $(PASTA_ANSIBLE)/.dependencias
+infra-validar: $(PASTA_ANSIBLE)/.dependencias ## sintaxe e lint dos playbooks e o teste do wrapper
 	@cd $(PASTA_ANSIBLE) && ansible-playbook provisionar.yml --syntax-check
 	@cd $(PASTA_ANSIBLE) && ansible-playbook preparar-host.yml --syntax-check
 	@bash scripts/testa-wrapper-de-release.sh

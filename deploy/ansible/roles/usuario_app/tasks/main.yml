@@ -204,7 +204,7 @@
 - name: chave de deploy presa ao comando forçado
   ansible.posix.authorized_key:
     user: '{{ usuario_app }}'
-    key: '{{ esteira_chave_publica }}'
+    key: '{{ chave_deploy_publica }}'
     state: present
     # `restrict` desliga tudo o que uma chave de deploy não usa: PTY,
     # encaminhamento de porta, de agente e de X11. O `command` a amarra ao
@@ -212,14 +212,27 @@
     # lá dentro.
     key_options: 'restrict,command="/usr/local/bin/stacktrack-release"'
     exclusive: false
-  when: esteira_chave_publica | default('') | length > 0
+  when: chave_deploy_publica | default('') | length > 0
+
+# Por último, depois de as chaves vigentes estarem instaladas: revogar antes
+# poderia trancar do lado de fora a própria execução que está trocando a chave.
+- name: chaves revogadas fora do usuário da aplicação
+  ansible.posix.authorized_key:
+    user: '{{ usuario_app }}'
+    key: '{{ item }}'
+    state: absent
+  loop: '{{ chaves_revogadas | default([]) }}'
+  loop_control:
+    # A chave pública não é segredo, mas a linha inteira no log não ajuda
+    # ninguém: o rótulo basta para saber qual foi.
+    label: "{{ item.split(' ') | last }}"
 
 - name: avisa que não há chave de deploy configurada
   ansible.builtin.debug:
     msg: >-
-      `esteira_chave_publica` está vazia: a chave de deploy NÃO foi instalada
+      `chave_deploy_publica` está vazia: a chave de deploy NÃO foi instalada
       (você continua entrando com a chave do operador). Para automatizar o
       deploy, gere um par dedicado (`ssh-keygen -t ed25519 -C deploy-stacktrack
       -f ~/.ssh/stacktrack_deploy -N ""`), ponha a pública em
       group_vars/producao/vars.yml e guarde a privada.
-  when: esteira_chave_publica | default('') | length == 0
+  when: chave_deploy_publica | default('') | length == 0

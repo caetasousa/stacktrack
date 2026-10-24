@@ -61,6 +61,12 @@ export default defineConfig(({ mode }) => {
 		// para os testes, e `mount()` — que monta o componente de verdade para
 		// conferir o que ele pinta — falha com "not available on the server".
 		resolve: mode === 'test' ? { conditions: ['browser'] } : undefined,
+		// O relatório da suíte E2E é gravado dentro do projeto, e o Vite recarrega a
+		// página a cada arquivo novo que enxerga. Sem isto, cada print que o
+		// Playwright salva no meio da suíte derrubava a página do teste seguinte —
+		// todos falhavam, e nenhum por defeito do produto. (As pastas padrão do
+		// Playwright, test-results e playwright-report, o Vite já ignora sozinho.)
+		server: { watch: { ignored: ['**/e2e/relatorio/**'] } },
 		test: {
 			include: ['src/**/*.test.ts'],
 			// Node é o padrão porque quase todo teste aqui é de função pura; quem

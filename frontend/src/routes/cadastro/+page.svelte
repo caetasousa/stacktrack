@@ -4,7 +4,8 @@
 	import { cadastrar } from '$lib/api/auth';
 	import { ApiError } from '$lib/api/client';
 	import { sessao } from '$lib/stores/session.svelte';
-	import { destinoDeVolta } from '$lib/navegacao';
+	import { conviteEmAndamento, destinoDeVolta } from '$lib/navegacao';
+	import { mascararEmail } from '$lib/email';
 
 	let nome = $state('');
 	let email = $state('');
@@ -12,9 +13,22 @@
 	let erro = $state('');
 	let enviando = $state(false);
 
+	// Vindo de um convite, a tela sabe para qual email ele é (mascarado) e leva
+	// o mesmo contexto ao "Já tem conta? Entrar" — senão quem trocasse de ideia
+	// no meio do caminho perderia o convite.
+	const convite = $derived(conviteEmAndamento(page.url));
+
 	async function enviar(evento: SubmitEvent) {
 		evento.preventDefault();
 		erro = '';
+		// O convite é amarrado ao email: uma conta com outro endereço nasceria e
+		// não conseguiria aceitá-lo. A máscara é uma dica — quem decide é o
+		// servidor no aceite —, mas basta para não deixar a pessoa criar a conta
+		// errada sem saber.
+		if (convite && mascararEmail(email) !== convite.para) {
+			erro = `O convite é para ${convite.para}. Use esse email para criar a conta.`;
+			return;
+		}
 		enviando = true;
 
 		try {
@@ -37,6 +51,14 @@
 >
 	<h1 class="text-xl font-semibold tracking-tight text-ink">Criar conta</h1>
 	<p class="mt-1.5 text-sm text-mute">Leva menos de um minuto.</p>
+
+	{#if convite}
+		<p class="mt-4 rounded-md border border-accent bg-accent-suave p-3 text-xs text-body">
+			<b class="font-semibold text-accent-texto">Você está aceitando um convite.</b>
+			Crie a conta com <b class="text-ink">{convite.para}</b> — o convite é desse email. Depois você volta
+			para ele.
+		</p>
+	{/if}
 
 	<form onsubmit={enviar} class="mt-6 space-y-4">
 		<div>
@@ -82,7 +104,10 @@
 	</form>
 
 	<p class="mt-6 text-center text-sm text-mute">
-		Já tem conta? <a href="/login" class="font-semibold text-accent-texto hover:underline">Entrar</a
+		Já tem conta?
+		<a
+			href={convite ? `/login${page.url.search}` : '/login'}
+			class="font-semibold text-accent-texto hover:underline">Entrar</a
 		>
 	</p>
 </div>

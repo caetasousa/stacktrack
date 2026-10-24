@@ -66,6 +66,23 @@ services:
       RATE_LIMIT_PUBLICO_POR_MINUTO: ${RATE_LIMIT_PUBLICO_POR_MINUTO:-500}
       RATE_LIMIT_SESSAO_DESCONHECIDA: ${RATE_LIMIT_SESSAO_DESCONHECIDA:-500}
       WS_HANDSHAKES_POR_MINUTO: ${WS_HANDSHAKES_POR_MINUTO:-200}
+      # O email de desenvolvimento vai SEMPRE para o Mailpit, e não lê o .env
+      # de propósito: a suíte E2E convida dezenas de endereços inventados por
+      # execução, e com um provedor de verdade cada `make test-e2e` gastaria a
+      # cota e a reputação do remetente mandando email para domínios de
+      # terceiros. As mensagens ficam em http://localhost:8025.
+      #
+      # Sem EMAIL_CHAVE a API usa uma chave efêmera (só fora de produção): a
+      # fila não sobrevive a um reinício, o que aqui não faz falta.
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_STARTTLS: "false"
+      EMAIL_REMETENTE: convites@stacktrack.localhost
+      EMAIL_REMETENTE_NOME: stacktrack (desenvolvimento)
+      # A suíte E2E reenvia convites em sequência; o intervalo de produção (2
+      # minutos) a faria esperar. Zero só é aceito fora de produção.
+      CONVITE_INTERVALO_REENVIO_SEG: 0
+      EMAIL_INTERVALO_MS: 1000
     volumes:
       - ./backend:/app
       # Os arquivos anexados vão para um volume próprio, e NÃO para dentro de
@@ -76,13 +93,17 @@ services:
     depends_on:
       flyway:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
-  # Reservado para quando o produto ganhar envio de email em desenvolvimento.
-  # Hoje cadastro e recuperação não enviam mensagem, e o convite é entregue por
-  # link; nenhum serviço fala com o Mailpit. Mantê-lo na stack evita mudar o
-  # ambiente quando esse canal entrar. UI em http://localhost:8025.
+  # O "provedor de email" do desenvolvimento: recebe por SMTP o que a API manda
+  # e guarda, sem entregar a ninguém. UI em http://localhost:8025; a suíte E2E
+  # lê as mensagens pela API dele (frontend/e2e/apoio.ts).
+  #
+  # Versão FIXA: a API do Mailpit é a que os testes consultam, e uma imagem
+  # sem tag mudaria por baixo deles no próximo pull.
   mailpit:
-    image: axllent/mailpit
+    image: axllent/mailpit:v1.30.6
     container_name: stacktrack_mailpit
     ports:
       - "8025:8025" # UI web

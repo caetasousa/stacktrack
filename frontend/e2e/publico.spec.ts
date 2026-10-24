@@ -85,7 +85,7 @@ test.beforeAll(async ({ playwright }) => {
 	}
 });
 
-test('quem tem o link vê o quadro sem ter conta', async ({ playwright, browser }) => {
+test('[C1] quem tem o link vê o quadro sem ter conta', async ({ playwright, browser }) => {
 	const req = await playwright.request.newContext();
 	const url = await publicar(req, quadroId);
 	await req.dispose();
@@ -104,7 +104,7 @@ test('quem tem o link vê o quadro sem ter conta', async ({ playwright, browser 
 	await contexto.close();
 });
 
-test('a página pública não mostra comentário nem quem trabalha no card', async ({
+test('[C2] a página pública não mostra comentário nem quem trabalha no card', async ({
 	playwright,
 	browser
 }) => {
@@ -128,7 +128,10 @@ test('a página pública não mostra comentário nem quem trabalha no card', asy
 	await contexto.close();
 });
 
-test('revogar derruba o link, e republicar não o ressuscita', async ({ playwright, browser }) => {
+test('[C3] revogar derruba o link, e republicar não o ressuscita', async ({
+	playwright,
+	browser
+}) => {
 	const req = await playwright.request.newContext();
 	const antigo = await publicar(req, quadroId);
 
@@ -157,7 +160,7 @@ test('revogar derruba o link, e republicar não o ressuscita', async ({ playwrig
 	await req.dispose();
 });
 
-test('o dono liga e desliga o compartilhamento pela tela', async ({ playwright, browser }) => {
+test('[C4] o dono liga e desliga o compartilhamento pela tela', async ({ playwright, browser }) => {
 	// Estado conhecido: o teste anterior pode ter deixado o quadro publicado.
 	const req = await playwright.request.newContext();
 	await req.delete(`${API}/boards/${quadroId}/publicacao`, { headers: { Cookie: cookieDaAna } });

@@ -104,6 +104,38 @@ func (r *ConvitePostgres) Revogar(ctx context.Context, id string, em time.Time) 
 	return nil
 }
 
+// Renovar troca o hash do token e a validade do convite — o reenvio. O WHERE
+// repete a condição do domínio (sem aceite, sem revogação), e é ele que decide
+// a corrida: quem chegar depois de um aceite recebe convite.ErrJaResolvido.
+func (r *ConvitePostgres) Renovar(ctx context.Context, id, tokenHash string, expiraEm time.Time) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE convites_board SET token_hash = $2, expira_em = $3
+		  WHERE id = $1
+		    AND aceito_em IS NULL
+		    AND revogado_em IS NULL`,
+		id, tokenHash, expiraEm,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return convite.ErrJaResolvido
+	}
+	return nil
+}
+
+// ContarPendentes conta os convites em aberto do quadro, vencidos inclusive:
+// eles ocupam a vaga até alguém os revogar ou reenviar.
+func (r *ConvitePostgres) ContarPendentes(ctx context.Context, boardID string) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx,
+		`SELECT count(*) FROM convites_board
+		  WHERE board_id = $1 AND aceito_em IS NULL AND revogado_em IS NULL`,
+		boardID,
+	).Scan(&n)
+	return n, err
+}
+
 // BuscarPorID retorna (convite, nil) quando encontra e (nil, nil) quando não existe.
 func (r *ConvitePostgres) BuscarPorID(ctx context.Context, id string) (*convite.Convite, error) {
 	return r.buscar(ctx, `WHERE id = $1`, id)

@@ -167,3 +167,72 @@ func TestProxiesConfiaveisAceitaFaixaEEnderecoSolto(t *testing.T) {
 		t.Errorf("faixa = %q, esperado 10.0.0.7/32", faixas[1])
 	}
 }
+
+// O email em produção. Como quebra:
+//
+//	P1 o SMTP sobe sem TLS e a senha do provedor viaja em claro;
+//	P2 a chave que cifra o link do convite falta ou é curta, e a API sobe
+//	   com uma chave efêmera — a fila se perde a cada reinício;
+//	P3 o remetente está vazio ou torto, e todo email é recusado pelo provedor;
+//	P4 o intervalo entre reenvios vai a zero e um convite vira metralhadora.
+func TestEmailDeProducaoInseguroFalha(t *testing.T) {
+	chave := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=" // 32 bytes em base64
+	casos := []struct {
+		nome     string
+		variavel string
+		valor    string
+		trecho   string
+	}{
+		{"P1 sem TLS", "SMTP_STARTTLS", "false", "SMTP_STARTTLS"},
+		{"P2 sem chave", "EMAIL_CHAVE", "", "EMAIL_CHAVE"},
+		{"P2 chave curta", "EMAIL_CHAVE", "Y3VydGE=", "EMAIL_CHAVE"},
+		{"P3 sem remetente", "EMAIL_REMETENTE", "", "EMAIL_REMETENTE"},
+		{"P3 remetente torto", "EMAIL_REMETENTE", "Stacktrack <nao@x>", "EMAIL_REMETENTE"},
+		{"usuário sem senha", "SMTP_PASSWORD", "", "SMTP_PASSWORD"},
+		{"P4 reenvio sem intervalo", "CONVITE_INTERVALO_REENVIO_SEG", "0", "CONVITE_INTERVALO_REENVIO_SEG"},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			ambienteDeProducao(t)
+			for nome, valor := range map[string]string{
+				"SMTP_HOST": "smtp-relay.exemplo", "SMTP_PORT": "587", "SMTP_STARTTLS": "true",
+				"SMTP_USER": "usuario", "SMTP_PASSWORD": "segredo",
+				"EMAIL_REMETENTE": "convites@stacktrack.exemplo", "EMAIL_CHAVE": chave,
+			} {
+				t.Setenv(nome, valor)
+			}
+			t.Setenv(c.variavel, c.valor)
+			err := config.Validar()
+			if err == nil || !strings.Contains(err.Error(), c.trecho) {
+				t.Errorf("%s=%q: erro = %v, esperado citar %s", c.variavel, c.valor, err, c.trecho)
+			}
+		})
+	}
+}
+
+// Sem SMTP o servidor sobe: o envio desligado é estado legítimo, e o convite
+// sai com o link manual.
+func TestProducaoSemSMTPPassa(t *testing.T) {
+	ambienteDeProducao(t)
+	t.Setenv("SMTP_HOST", "")
+	if err := config.Validar(); err != nil {
+		t.Fatalf("produção sem SMTP devia subir: %v", err)
+	}
+}
+
+// Com SMTP completo e seguro, passa.
+func TestProducaoComSMTPSeguroPassa(t *testing.T) {
+	ambienteDeProducao(t)
+	for nome, valor := range map[string]string{
+		"SMTP_HOST": "smtp-relay.exemplo", "SMTP_PORT": "587", "SMTP_STARTTLS": "true",
+		"SMTP_USER": "usuario", "SMTP_PASSWORD": "segredo",
+		"EMAIL_REMETENTE":               "convites@stacktrack.exemplo",
+		"EMAIL_CHAVE":                   "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+		"CONVITE_INTERVALO_REENVIO_SEG": "120",
+	} {
+		t.Setenv(nome, valor)
+	}
+	if err := config.Validar(); err != nil {
+		t.Fatalf("produção com SMTP seguro devia passar: %v", err)
+	}
+}

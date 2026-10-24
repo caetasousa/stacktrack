@@ -263,6 +263,16 @@ export function fraseNoQuadro(a: Atividade): string {
 		case 'membro.removido':
 			return `removeu ${quem} do quadro`;
 
+		// --- convites --- (o email vem mascarado do servidor: a auditoria é
+		// lida por todo mundo do quadro, e o endereço inteiro de quem talvez
+		// nunca aceite não é da conta de ninguém)
+		case 'convite.criado':
+			return d.papel ? `convidou ${d.email} como ${d.papel}` : `convidou ${d.email}`;
+		case 'convite.reenviado':
+			return `reenviou o convite de ${d.email}`;
+		case 'convite.revogado':
+			return `revogou o convite de ${d.email}`;
+
 		// Tipos que o log guarda de ANTES da separação por ação. Não há como
 		// dizer o que mudou — o payload deles era vazio —, mas some-los seria
 		// pior: a auditoria mostraria um buraco onde houve atividade.

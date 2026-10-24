@@ -13,6 +13,9 @@ export interface Board {
 	papel: Papel;
 	fundo: Fundo;
 	criadoEm: string;
+	// Nome de quem é dono do quadro. Só vem na listagem: é o que deixa o painel
+	// dizer "de Ana" num quadro que outra pessoa compartilhou.
+	dono?: string;
 }
 
 export interface Progresso {

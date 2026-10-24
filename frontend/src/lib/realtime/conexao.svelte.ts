@@ -45,6 +45,7 @@ export type TipoDeEvento =
 	| 'membro.removido'
 	| 'convite.criado'
 	| 'convite.revogado'
+	| 'convite.reenviado'
 	// Manutenção: o comando que redistribui chaves de ordenação duplicadas.
 	// Chega como qualquer mutação e a tela reconcilia — o autor vem vazio
 	// porque não há pessoa por trás dele.

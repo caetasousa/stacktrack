@@ -14,6 +14,7 @@ import (
 	"stacktrack/internal/domain/comentario"
 	"stacktrack/internal/domain/convite"
 	"stacktrack/internal/domain/cor"
+	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/membro"
 	"stacktrack/internal/domain/publicacao"
@@ -272,10 +273,39 @@ type RepositorioConvite interface {
 	// revogá-lo para liberar espaço a um convite novo.
 	BuscarPendentePorEmail(ctx context.Context, boardID, email string) (*convite.Convite, error)
 	ListarPendentes(ctx context.Context, boardID string) ([]convite.Convite, error)
+	// ContarPendentes conta os convites em aberto do quadro — vencidos
+	// inclusive, porque eles ainda ocupam a vaga até alguém os revogar.
+	ContarPendentes(ctx context.Context, boardID string) (int, error)
 	// Aceitar e Revogar devolvem convite.ErrJaResolvido quando nenhuma linha
 	// muda — outra requisição chegou primeiro.
 	Aceitar(ctx context.Context, id string, em time.Time) error
 	Revogar(ctx context.Context, id string, em time.Time) error
+	// Renovar troca o hash do token e a validade, só se o convite continua sem
+	// aceite nem revogação. Devolve convite.ErrJaResolvido se não continua.
+	Renovar(ctx context.Context, id, tokenHash string, expiraEm time.Time) error
+}
+
+// RepositorioEmail é o outbox de email, do ponto de vista de quem PEDE envios.
+//
+// Enfileirar participa da mesma transação do convite: a mensagem existe se, e
+// só se, o convite existe. Quem entrega é outro worker, que enxerga a mesma
+// tabela por outra porta (usecase/correio).
+//
+// A mensagem entra em claro aqui e é o adaptador que a cifra antes de gravar —
+// o caso de uso não sabe, e não precisa saber, que o link é guardado cifrado.
+type RepositorioEmail interface {
+	Enfileirar(ctx context.Context, e *demail.Envio, m demail.Mensagem) error
+	// CancelarDoConvite tira da fila as mensagens ainda não enviadas de um
+	// convite, e apaga o conteúdo delas. Não é erro não haver nenhuma.
+	CancelarDoConvite(ctx context.Context, conviteID string, em time.Time) error
+	// ContarDoAutorDesde é a base da cota diária: quantos envios a conta pediu.
+	ContarDoAutorDesde(ctx context.Context, autorID string, desde time.Time) (int, error)
+	// DoConvite devolve os envios de um convite, do mais recente para o mais
+	// antigo.
+	DoConvite(ctx context.Context, conviteID string) ([]demail.Envio, error)
+	// UltimosDosConvites devolve o envio mais recente de cada convite pedido.
+	// Convite sem envio simplesmente não aparece no mapa.
+	UltimosDosConvites(ctx context.Context, conviteIDs []string) (map[string]demail.Envio, error)
 }
 
 // RepositorioColuna guarda as colunas.

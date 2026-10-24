@@ -95,6 +95,10 @@ const (
 	// nunca aceite não é informação que a auditoria precise carregar.
 	ConviteCriado   Tipo = "convite.criado"
 	ConviteRevogado Tipo = "convite.revogado"
+	// ConviteReenviado é o convite que ganhou link novo e validade nova — por
+	// email, ou para o dono copiar. O link anterior deixou de valer no mesmo
+	// commit, e é isso que a auditoria precisa registrar.
+	ConviteReenviado Tipo = "convite.reenviado"
 
 	// OrdenacaoReparada é emitido pelo comando de manutenção que redistribui
 	// chaves de ordenação duplicadas (ver usecase/board/reparo.go).

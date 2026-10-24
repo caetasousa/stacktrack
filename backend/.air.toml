@@ -2,9 +2,13 @@ root = "."
 tmp_dir = "/tmp/air"
 
 [build]
-  cmd = "go build -o /tmp/air/api ./cmd/api/main.go"
+  # O PACOTE, e não o arquivo main.go: a montagem da aplicação mora em
+  # cmd/api/montagem.go, e compilar só o main.go deixaria a montagem de fora.
+  cmd = "go build -o /tmp/air/api ./cmd/api"
   entrypoint = ["/tmp/air/api"]
-  include_ext = ["go"]
+  # txt e html: os modelos de email são embutidos no binário (go:embed), e
+  # mexer neles precisa recompilar.
+  include_ext = ["go", "txt", "html"]
   exclude_dir = ["test", "migrations"]
   exclude_regex = ["_test.go"]
   delay = 1000

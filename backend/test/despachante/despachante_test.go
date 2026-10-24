@@ -40,17 +40,6 @@ func (l *logFalso) gravar(revisoes ...int64) {
 	}
 }
 
-func (l *logFalso) gravarGrupo(revisao int64, quantidade int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for i := 0; i < quantidade; i++ {
-		l.eventos = append(l.eventos, evento.Evento{
-			Revisao: revisao, Indice: i, Quantidade: quantidade,
-			Tipo: evento.CardMovido, BoardID: quadro,
-		})
-	}
-}
-
 func (l *logFalso) DesdeRevisao(_ context.Context, boardID string, revisao int64, limite int) ([]evento.Evento, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

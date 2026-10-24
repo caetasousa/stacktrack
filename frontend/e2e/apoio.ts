@@ -5,10 +5,19 @@
 // dependente de telas que não são o assunto dele: um teste de tempo real que
 // quebra porque o botão de cadastro mudou de rótulo aponta para o lugar errado.
 
-import type { APIRequestContext, Browser, BrowserContext } from '@playwright/test';
+import {
+	test,
+	type APIRequestContext,
+	type Browser,
+	type BrowserContext,
+	type Page
+} from '@playwright/test';
 
 export const API = process.env.E2E_API_URL ?? 'http://localhost:8080';
 export const APP = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+// O Mailpit da stack de desenvolvimento faz o papel do provedor de email: a API
+// manda por SMTP de verdade, e ele guarda a mensagem em vez de entregá-la.
+export const MAILPIT = process.env.E2E_MAILPIT_URL ?? 'http://localhost:8025';
 
 /**
  * TetoDeRequisicoes é o 429 do rate limiter, e NÃO um defeito do produto: é o
@@ -149,4 +158,97 @@ export async function abaDe(navegador: Browser, conta: Conta): Promise<BrowserCo
 		}
 	]);
 	return contexto;
+}
+
+/** novoEmail devolve um endereço que nenhuma conta usa — o de quem ainda vai ser convidado. */
+export function novoEmail(nome: string): string {
+	return `${nome}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.dev`;
+}
+
+/** Um email como o Mailpit o guardou. */
+export interface EmailRecebido {
+	assunto: string;
+	texto: string;
+	html: string;
+}
+
+/**
+ * emailsPara espera até chegarem `quantidade` mensagens para o endereço e as
+ * devolve da mais antiga para a mais nova.
+ *
+ * Espera, e não lê uma vez só: quem manda o email é o worker do outbox, depois
+ * do commit — a resposta do convite volta antes de a mensagem sair, e é assim
+ * que tem de ser.
+ */
+export async function emailsPara(
+	req: APIRequestContext,
+	endereco: string,
+	quantidade = 1,
+	prazoMs = 30_000
+): Promise<EmailRecebido[]> {
+	const fim = Date.now() + prazoMs;
+	for (;;) {
+		const busca = await req.get(`${MAILPIT}/api/v1/search`, {
+			params: { query: `to:"${endereco}"` }
+		});
+		if (!busca.ok()) {
+			throw new Error(`Mailpit respondeu ${busca.status()} — a stack subiu o serviço mailpit?`);
+		}
+		const { messages } = (await busca.json()) as { messages: { ID: string; Created: string }[] };
+		if (messages.length >= quantidade) {
+			const emOrdem = [...messages].sort((a, b) => a.Created.localeCompare(b.Created));
+			return Promise.all(
+				emOrdem.map(async ({ ID }) => {
+					const resp = await req.get(`${MAILPIT}/api/v1/message/${ID}`);
+					const m = (await resp.json()) as { Subject: string; Text: string; HTML: string };
+					return { assunto: m.Subject, texto: m.Text, html: m.HTML };
+				})
+			);
+		}
+		if (Date.now() > fim) {
+			throw new Error(
+				`chegaram ${messages.length} de ${quantidade} email(s) para ${endereco} em ${prazoMs / 1000}s`
+			);
+		}
+		await new Promise((resolver) => setTimeout(resolver, 500));
+	}
+}
+
+/** linkDoConvite tira do texto do email o link que abre o convite. */
+export function linkDoConvite(email: EmailRecebido): string {
+	const achado = /https?:\/\/\S+?\/convite\/[A-Za-z0-9_-]+/.exec(email.texto);
+	if (!achado) throw new Error(`o email "${email.assunto}" não traz link de convite`);
+	return achado[0];
+}
+
+/**
+ * convidarPelaApi cria o convite SEM aceitá-lo e devolve o link da resposta —
+ * para os testes cujo assunto é o que acontece depois do convite, e não o
+ * formulário de convidar.
+ */
+export async function convidarPelaApi(
+	req: APIRequestContext,
+	dono: Conta,
+	boardId: string,
+	email: string
+): Promise<string> {
+	const resp = await req.post(`${API}/boards/${boardId}/membros`, {
+		data: { email, papel: 'editor' },
+		headers: { Cookie: `${dono.cookie.name}=${dono.cookie.value}` }
+	});
+	if (!resp.ok()) throw new Error(`convidar ${email}: ${resp.status()} ${await resp.text()}`);
+	return ((await resp.json()) as { link: string }).link;
+}
+
+/**
+ * printFinal guarda a tela como está no fim do teste e a anexa ao relatório.
+ *
+ * O `screenshot: 'on'` da configuração só fotografa a página padrão do
+ * Playwright, e estes testes abrem contextos próprios — um por pessoa. Sem isto
+ * o resumo da execução sairia sem o print de quase todos os cenários.
+ */
+export async function printFinal(pagina: Page) {
+	const caminho = test.info().outputPath('final.png');
+	await pagina.screenshot({ path: caminho, fullPage: true });
+	await test.info().attach('screenshot', { path: caminho, contentType: 'image/png' });
 }

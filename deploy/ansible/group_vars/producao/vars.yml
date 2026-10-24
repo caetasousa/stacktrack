@@ -82,6 +82,22 @@ ghcr_usuario: caetasousa
 # no dia em que alguém editasse só uma.
 raiz_repo: '{{ playbook_dir }}/../..'
 
+# --- envio de email (convites) ------------------------------------------------
+#
+# O provedor é o Brevo, o mesmo do agendaGo, por SMTP com STARTTLS (a API recusa
+# subir em produção sem TLS). O usuário e a senha do provedor, e a chave que
+# cifra a fila de emails, ficam no vault: vault_smtp_usuario, vault_smtp_senha e
+# vault_email_chave. Com smtp_host vazio o envio fica desligado, e o convite sai
+# só com o link manual — nada mais muda.
+smtp_host: smtp-relay.brevo.com
+smtp_porta: 587
+# O remetente precisa estar verificado no Brevo. Um endereço @gmail.com funciona,
+# mas o SPF, o DKIM e o DMARC dele são do Google: para a entrega deixar de
+# depender da boa vontade do filtro de spam, o caminho é um remetente num
+# domínio próprio autenticado no Brevo (ver docs/producao.md, "Email").
+email_remetente: sousacaeta@gmail.com
+email_remetente_nome: stacktrack
+
 # O cron do Debian não suporta CRON_TZ — a expressão vale sempre no fuso do
 # HOST, não no seu.
 backup_hora: '3'

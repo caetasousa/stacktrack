@@ -4,12 +4,16 @@
 	import { entrar } from '$lib/api/auth';
 	import { ApiError } from '$lib/api/client';
 	import { sessao } from '$lib/stores/session.svelte';
-	import { destinoDeVolta } from '$lib/navegacao';
+	import { conviteEmAndamento, destinoDeVolta } from '$lib/navegacao';
 
 	let email = $state('');
 	let senha = $state('');
 	let erro = $state('');
 	let enviando = $state(false);
+
+	// Vindo de um convite: diz com qual conta entrar, e leva o contexto ao
+	// "Criar conta" para quem perceber que ainda não tem uma.
+	const convite = $derived(conviteEmAndamento(page.url));
 
 	async function enviar(evento: SubmitEvent) {
 		evento.preventDefault();
@@ -37,6 +41,13 @@
 >
 	<h1 class="text-xl font-semibold tracking-tight text-ink">Entrar</h1>
 	<p class="mt-1.5 text-sm text-mute">Bem-vindo de volta.</p>
+
+	{#if convite}
+		<p class="mt-4 rounded-md border border-accent bg-accent-suave p-3 text-xs text-body">
+			Entre com <b class="text-ink">{convite.para}</b> para aceitar o convite. Depois você volta para
+			ele.
+		</p>
+	{/if}
 
 	<form onsubmit={enviar} class="mt-6 space-y-4">
 		<div>
@@ -74,6 +85,9 @@
 
 	<p class="mt-6 text-center text-sm text-mute">
 		Não tem conta?
-		<a href="/cadastro" class="font-semibold text-accent-texto hover:underline">Criar conta</a>
+		<a
+			href={convite ? `/cadastro${page.url.search}` : '/cadastro'}
+			class="font-semibold text-accent-texto hover:underline">Criar conta</a
+		>
 	</p>
 </div>

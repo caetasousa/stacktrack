@@ -61,6 +61,14 @@ type Escrita struct {
 	// Pode vir nil nos testes de regra, que não têm banco — e aí o arquivo
 	// simplesmente fica no disco, que é o resultado seguro.
 	Exclusoes RepositorioExclusaoDeArquivo
+	// Emails é o outbox de email. Participa da MESMA transação do convite, para
+	// a mensagem existir se e só se o convite existe.
+	//
+	// Nil quando o envio está desligado (sem SMTP configurado): o convite
+	// continua nascendo, com o link manual. Nenhum fluxo de quadro pode exigir
+	// email para funcionar: um provedor fora do ar não pode impedir ninguém de
+	// trabalhar.
+	Emails RepositorioEmail
 }
 
 // EscritaAtomica grava a mudança e o evento que a descreve na MESMA transação.
@@ -173,10 +181,17 @@ func (e *exclusoes) ComExclusoes(r RepositorioExclusaoDeArquivo) {
 }
 
 func (uc *MembroUseCase) escrita() Escrita {
-	return Escrita{
+	e := Escrita{
 		Boards: uc.boards, Usuarios: uc.usuarios, Membros: uc.membros,
 		Convites: uc.convites, Responsaveis: uc.responsaveis,
 	}
+	// Atribuição condicional, e não `Emails: uc.correio.fila`: um ponteiro nil
+	// guardado numa interface deixa a interface NÃO nil, e o fluxo tentaria
+	// enfileirar num repositório que não existe.
+	if uc.correio != nil {
+		e.Emails = uc.correio.fila
+	}
+	return e
 }
 
 func (uc *EtiquetaUseCase) escrita() Escrita {

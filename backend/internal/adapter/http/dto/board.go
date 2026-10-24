@@ -44,6 +44,9 @@ type BoardResponse struct {
 	Papel    string    `json:"papel"`
 	Fundo    string    `json:"fundo"`
 	CriadoEm time.Time `json:"criadoEm"`
+	// Dono é o nome de quem é dono do quadro. Só vem na listagem, que é onde
+	// o painel separa os quadros da pessoa dos que outra pessoa compartilhou.
+	Dono string `json:"dono,omitempty"`
 }
 
 // ListaBoardsResponse envelopa a listagem num objeto em vez de devolver um

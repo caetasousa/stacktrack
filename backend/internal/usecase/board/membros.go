@@ -7,6 +7,7 @@ import (
 
 	dboard "stacktrack/internal/domain/board"
 	dconvite "stacktrack/internal/domain/convite"
+	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
 	dusuario "stacktrack/internal/domain/usuario"
@@ -29,6 +30,11 @@ type MembroUseCase struct {
 	usuarios     buscadorUsuario
 	boards       RepositorioBoard
 	responsaveis RepositorioResponsavel
+	// correio é a entrega por email; nil significa envio desligado, e o
+	// convite nasce só com o link manual. Ver ComCorreio.
+	correio *correioDeConvite
+	// intervaloDeReenvio é o mínimo entre dois emails do mesmo convite.
+	intervaloDeReenvio time.Duration
 }
 
 // NovoMembroUseCase cria uma instância de MembroUseCase com as dependências injetadas.
@@ -42,7 +48,15 @@ func NovoMembroUseCase(
 	return &MembroUseCase{
 		membros: membros, convites: convites, usuarios: usuarios,
 		boards: boards, responsaveis: responsaveis,
+		intervaloDeReenvio: dconvite.IntervaloEntreReenvios,
 	}
+}
+
+// ComIntervaloDeReenvio troca o mínimo entre dois emails do mesmo convite. Zero
+// desliga a espera — o que a suíte E2E precisa para reenviar sem esperar dois
+// minutos; em produção, config.Validar exige um intervalo.
+func (uc *MembroUseCase) ComIntervaloDeReenvio(intervalo time.Duration) {
+	uc.intervaloDeReenvio = intervalo
 }
 
 // ResultadoConvite é o que sai de Convidar: sempre um convite pendente e o
@@ -54,11 +68,13 @@ func NovoMembroUseCase(
 // ficasse sabendo. Agora todo acesso nasce de um token que a pessoa certa
 // precisa apresentar estando logada na conta daquele email.
 type ResultadoConvite struct {
-	// Convite e Token descrevem o convite recém-criado. O token em texto puro
-	// aparece NESTA resposta e em nenhuma outra: o banco guarda só o hash,
-	// então quem não copiar o link agora precisa gerar outro.
+	// Convite e Token descrevem o convite recém-criado (ou renovado). O token
+	// em texto puro aparece NESTA resposta e no email, e em nenhum outro lugar:
+	// o banco guarda só o hash — quem perder o link reenvia, e ganha outro.
 	Convite *dconvite.Convite
 	Token   string
+	// Entrega diz se o convite vai por email ou se o link é tudo o que há.
+	Entrega Entrega
 }
 
 // DetalheConvite é o que um convite mostra antes de ser aceito, para quem tem o
@@ -73,6 +89,9 @@ type DetalheConvite struct {
 	EmailMascarado string
 	Papel          membro.Papel
 	ConvidadoPor   string
+	// ExpiraEm é até quando o convite pode ser aceito: quem chega pelo email
+	// precisa saber quanto tempo tem para decidir.
+	ExpiraEm time.Time
 }
 
 // Listar devolve quem participa do quadro. Qualquer membro pode ver — inclusive
@@ -84,13 +103,37 @@ func (uc *MembroUseCase) Listar(ctx context.Context, boardID, usuarioID string) 
 	return uc.membros.Participantes(ctx, boardID)
 }
 
-// ListarConvites devolve os convites ainda pendentes. Só o dono: a lista diz
-// para quem o quadro foi oferecido, o que não é da conta de quem só participa.
-func (uc *MembroUseCase) ListarConvites(ctx context.Context, boardID, usuarioID string) ([]dconvite.Convite, error) {
+// ListarConvites devolve os convites ainda pendentes, cada um com o último
+// envio por email. Só o dono: a lista diz para quem o quadro foi oferecido, o
+// que não é da conta de quem só participa.
+func (uc *MembroUseCase) ListarConvites(ctx context.Context, boardID, usuarioID string) ([]ConviteComEntrega, error) {
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return nil, err
 	}
-	return uc.convites.ListarPendentes(ctx, boardID)
+	convites, err := uc.convites.ListarPendentes(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+
+	lista := make([]ConviteComEntrega, 0, len(convites))
+	ultimos := map[string]demail.Envio{}
+	if uc.correio != nil && len(convites) > 0 {
+		ids := make([]string, 0, len(convites))
+		for _, c := range convites {
+			ids = append(ids, c.ID)
+		}
+		if ultimos, err = uc.correio.fila.UltimosDosConvites(ctx, ids); err != nil {
+			return nil, err
+		}
+	}
+	for _, c := range convites {
+		item := ConviteComEntrega{Convite: c}
+		if envio, ok := ultimos[c.ID]; ok {
+			item.Entrega = &envio
+		}
+		lista = append(lista, item)
+	}
+	return lista, nil
 }
 
 // Convidar cria um convite pendente para o email e devolve o token que vira
@@ -152,11 +195,22 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 		return nil, err
 	}
 
+	// O email é redigido ANTES da transação: redigir não depende de lock, e a
+	// transação do quadro precisa ser curta. Ele só entra na fila lá dentro,
+	// junto com o convite.
+	agora := time.Now()
+	var mensagem *emailDoConvite
+	if uc.correio != nil {
+		if mensagem, err = uc.redigirConvite(ctx, c, t, usuarioID, agora); err != nil {
+			return nil, err
+		}
+	}
+
 	// A checagem de duplicidade e o INSERT ficam DENTRO da unidade de trabalho,
 	// sob o lock do quadro. Fora dela, entre "não há convite pendente" e o
 	// INSERT cabia outro convite para o mesmo email — e quem perdesse a corrida
 	// levava a violação do índice único como erro cru.
-	agora := time.Now()
+	entrega := EntregaManual
 	if err := uc.escreverEPublicar(ctx, evento.ConviteCriado, boardID, usuarioID,
 		DadosDoMembro{Email: dusuario.MascararEmail(email), Papel: string(papel)},
 		uc.escrita(), func(e Escrita) error {
@@ -203,12 +257,111 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 				if err := e.Convites.Revogar(ctx, pendente.ID, agora); err != nil {
 					return err
 				}
+				if err := cancelarEmailsDoConvite(ctx, e, pendente.ID, agora); err != nil {
+					return err
+				}
 			}
-			return e.Convites.Salvar(ctx, c)
+
+			// O teto do quadro é contado aqui, sob o lock e depois de o vencido
+			// ter liberado a vaga: contado antes, dois convites simultâneos
+			// ocupariam juntos o último lugar.
+			pendentes, err := e.Convites.ContarPendentes(ctx, boardID)
+			if err != nil {
+				return err
+			}
+			if pendentes >= dconvite.MaximoDePendentesPorQuadro {
+				return dconvite.ErrPendentesDemais
+			}
+			if err := e.Convites.Salvar(ctx, c); err != nil {
+				return err
+			}
+			entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora)
+			return err
 		}); err != nil {
 		return nil, err
 	}
-	return &ResultadoConvite{Convite: c, Token: t}, nil
+	uc.avisarCorreio(entrega)
+	return &ResultadoConvite{Convite: c, Token: t, Entrega: entrega}, nil
+}
+
+// ReenviarConvite dá ao convite um link novo, com a validade inteira de novo, e
+// o manda por email quando o envio está ligado. O link anterior — inclusive o
+// do email anterior — deixa de valer no mesmo commit.
+//
+// Vale também para o convite vencido: reenviar é o caminho natural de quem
+// descobre que o convite expirou sem ser visto.
+//
+// Retorna dconvite.ErrInvalido para convite desconhecido, de outro quadro, já
+// aceito ou revogado, e para quem não administra o quadro — os casos não se
+// distinguem, como em RevogarConvite. Retorna dconvite.ErrReenvioCedoDemais
+// quando o último email do convite saiu há menos do intervalo mínimo.
+func (uc *MembroUseCase) ReenviarConvite(ctx context.Context, boardID, conviteID, usuarioID string) (*ResultadoConvite, error) {
+	c, err := uc.convites.BuscarPorID(ctx, conviteID)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil || c.BoardID != boardID {
+		return nil, dconvite.ErrInvalido
+	}
+	if _, err := acessoDeAdministracao(ctx, uc.membros, c.BoardID, usuarioID); err != nil {
+		return nil, dconvite.ErrInvalido
+	}
+
+	t, err := token.Gerar()
+	if err != nil {
+		return nil, err
+	}
+	agora := time.Now()
+	if err := c.Renovar(token.Hash(t), agora); err != nil {
+		return nil, dconvite.ErrInvalido
+	}
+
+	var mensagem *emailDoConvite
+	if uc.correio != nil {
+		if mensagem, err = uc.redigirConvite(ctx, c, t, usuarioID, agora); err != nil {
+			return nil, err
+		}
+	}
+
+	entrega := EntregaManual
+	err = uc.escreverEPublicar(ctx, evento.ConviteReenviado, c.BoardID, usuarioID,
+		DadosDoMembro{Email: dusuario.MascararEmail(c.Email), Papel: string(c.Papel)},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, c.BoardID, usuarioID); err != nil {
+				return dconvite.ErrInvalido
+			}
+			// O intervalo é conferido sob o lock do quadro: duas abas
+			// reenviando juntas passariam as duas por uma leitura feita antes,
+			// e cada uma trocaria o link da outra.
+			if e.Emails != nil && uc.intervaloDeReenvio > 0 {
+				anteriores, err := e.Emails.DoConvite(ctx, c.ID)
+				if err != nil {
+					return err
+				}
+				if len(anteriores) > 0 && agora.Sub(anteriores[0].CriadoEm) < uc.intervaloDeReenvio {
+					return dconvite.ErrReenvioCedoDemais
+				}
+			}
+			if err := e.Convites.Renovar(ctx, c.ID, c.TokenHash, c.ExpiraEm); err != nil {
+				return err
+			}
+			// O email anterior que ainda não saiu levaria o link que acabou de
+			// morrer.
+			if err := cancelarEmailsDoConvite(ctx, e, c.ID, agora); err != nil {
+				return err
+			}
+			var err error
+			entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora)
+			return err
+		})
+	if errors.Is(err, dconvite.ErrJaResolvido) {
+		return nil, dconvite.ErrInvalido
+	}
+	if err != nil {
+		return nil, err
+	}
+	uc.avisarCorreio(entrega)
+	return &ResultadoConvite{Convite: c, Token: t, Entrega: entrega}, nil
 }
 
 // AlterarPapel troca o papel de quem participa. Só o dono, e nunca deixando o
@@ -366,7 +519,11 @@ func (uc *MembroUseCase) RevogarConvite(ctx context.Context, conviteID, usuarioI
 			if err := revalidarAdministracao(ctx, e, c.BoardID, usuarioID); err != nil {
 				return dconvite.ErrInvalido
 			}
-			return e.Convites.Revogar(ctx, conviteID, agora)
+			if err := e.Convites.Revogar(ctx, conviteID, agora); err != nil {
+				return err
+			}
+			// O email que ainda não saiu levaria um link que acabou de morrer.
+			return cancelarEmailsDoConvite(ctx, e, conviteID, agora)
 		})
 	if errors.Is(err, dconvite.ErrJaResolvido) {
 		return dconvite.ErrInvalido
@@ -399,6 +556,7 @@ func (uc *MembroUseCase) DetalharConvite(ctx context.Context, tokenPuro string) 
 		TituloQuadro:   b.Titulo,
 		EmailMascarado: dusuario.MascararEmail(c.Email),
 		Papel:          c.Papel,
+		ExpiraEm:       c.ExpiraEm,
 	}
 	if autor, err := uc.usuarios.BuscarPorID(ctx, c.CriadoPor); err == nil && autor != nil {
 		detalhe.ConvidadoPor = autor.Nome
@@ -491,6 +649,11 @@ func (uc *MembroUseCase) Aceitar(ctx context.Context, tokenPuro, usuarioID strin
 					return errParticipacaoMudou
 				}
 
+				// Aceito pelo link manual antes de o email sair: o email ficaria
+				// sem propósito, chegando depois com um link já usado.
+				if err := cancelarEmailsDoConvite(ctx, e, c.ID, agora); err != nil {
+					return err
+				}
 				if existente != nil {
 					papelFinal = existente.Papel
 					return e.Convites.Revogar(ctx, c.ID, agora)

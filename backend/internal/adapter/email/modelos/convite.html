@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Convite para o quadro {{.Titulo}}</title>
+</head>
+<body style="margin:0;padding:24px;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1d2939;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e4e7ec;border-radius:8px;">
+<tr><td style="padding:28px;">
+<p style="margin:0 0 4px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#667085;">stacktrack</p>
+<h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;">{{.Nome}} convidou você</h1>
+<p style="margin:0 0 20px;font-size:15px;line-height:1.5;">para participar do quadro <b>{{.Titulo}}</b> como <b>{{.Papel}}</b> — {{.Explicacao}}.</p>
+<p style="margin:0 0 24px;"><a href="{{.Link}}" style="display:inline-block;padding:12px 20px;background:#3e5bd9;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:15px;">Abrir o convite</a></p>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#475467;">Se você ainda não tem conta, vai poder criar uma conta pelo próprio link, com este mesmo email ({{.Para}}). Se já tem, é só entrar.</p>
+<p style="margin:0 0 16px;font-size:13px;line-height:1.5;color:#667085;">O botão não funciona? Copie este endereço no navegador:<br><a href="{{.Link}}" style="color:#3e5bd9;word-break:break-all;">{{.Link}}</a></p>
+<p style="margin:0;font-size:13px;line-height:1.5;color:#667085;">O convite vale até {{.ValeAte}}. Se você não esperava por ele, pode ignorar esta mensagem: sem abrir o link, nada acontece.</p>
+</td></tr>
+</table>
+</body>
+</html>

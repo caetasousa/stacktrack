@@ -131,6 +131,18 @@ services:
       # o modo "não confia em ninguém" jogaria todos os clientes no balde do
       # IP do proxy e a primeira rajada trancaria todo mundo para fora.
       PROXIES_CONFIAVEIS: 10.89.0.0/24
+      # O envio de email dos convites. Com SMTP_HOST vazio o envio fica
+      # desligado e o convite sai só com o link manual — nada mais muda. A
+      # senha do provedor e a chave que cifra a fila vêm do vault, pelo .env.
+      # config.Validar recusa subir com SMTP sem TLS ou sem a chave.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-}
+      EMAIL_REMETENTE_NOME: ${EMAIL_REMETENTE_NOME:-stacktrack}
+      EMAIL_CHAVE: ${EMAIL_CHAVE:-}
     volumes:
       - anexos:/var/lib/stacktrack/anexos
     # Participa das duas redes: a interna (para falar com o Postgres) e a
@@ -216,9 +228,27 @@ configs:
         ''      close;
       }
 
+      # O access log não guarda os tokens de convite e de link público: nesses
+      # caminhos o segmento depois do prefixo É a credencial, e o link do
+      # convite agora viaja por email. Vai ao log trocado por [redigido] — e o
+      # Referer fica de fora, porque ele repetiria a mesma URL.
+      map $$request_uri $$requisicao_redigida {
+        default $$request_uri;
+        "~^(?<prefixo>/(?:api/)?(?:convite|convites|publico))/[^/?]+(?<resto>.*)$$" "$$prefixo/[redigido]$$resto";
+      }
+      log_format redigido '$$remote_addr - [$$time_local] "$$request_method $$requisicao_redigida $$server_protocol" '
+                          '$$status $$body_bytes_sent "$$http_user_agent"';
+
       server {
         listen 8080;
         server_tokens off;
+        access_log /dev/stdout redigido;
+        # O log de ERRO repete a requisição inteira e o Referer — com o token
+        # dentro —, e o formato dele não se configura. Ele só a escreve em
+        # falha de upstream (nível error), que é o que acontece num release,
+        # com api e web parados. Daí `crit`: o 502 continua no access log, já
+        # redigido, e o token não vai para lugar nenhum.
+        error_log /dev/stderr crit;
 
         # O teto da API é 11 MiB (anexo + envelope multipart). Um pouco acima
         # aqui, para que quem responda o 413 seja a API, com a mensagem dela.

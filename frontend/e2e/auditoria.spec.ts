@@ -71,7 +71,7 @@ async function mover(
 
 // O selo tem de nomear QUEM ARRASTOU, e não quem é dono do quadro nem quem
 // criou o card. As três pessoas são diferentes aqui de propósito.
-test('o card mostra quem o moveu por último, e não quem o criou', async ({
+test('[B1] o card mostra quem o moveu por último, e não quem o criou', async ({
 	playwright,
 	browser
 }) => {
@@ -92,7 +92,7 @@ test('o card mostra quem o moveu por último, e não quem o criou', async ({
 	await contexto.close();
 });
 
-test('o histórico lista quem mexeu em quê', async ({ playwright, browser }) => {
+test('[B2] o histórico lista quem mexeu em quê', async ({ playwright, browser }) => {
 	const req = await playwright.request.newContext();
 	await mover(req, ana, aFazer);
 	await req.dispose();
@@ -112,7 +112,7 @@ test('o histórico lista quem mexeu em quê', async ({ playwright, browser }) =>
 
 // O filtro por pessoa é o que transforma a lista em auditoria: a pergunta não é
 // "o que aconteceu", é "o que ESTA pessoa fez".
-test('o filtro por pessoa isola o que cada uma fez', async ({ browser }) => {
+test('[B3] o filtro por pessoa isola o que cada uma fez', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}/historico`);
@@ -138,7 +138,7 @@ test('o filtro por pessoa isola o que cada uma fez', async ({ browser }) => {
 // Um leitor audita. Acompanhar o que aconteceu é ver, não mexer — e um leitor
 // que não pudesse auditar teria de virar editor para descobrir quem bagunçou,
 // que é o contrário do que se quer.
-test('quem só lê o quadro também consegue auditar', async ({ playwright, browser }) => {
+test('[B4] quem só lê o quadro também consegue auditar', async ({ playwright, browser }) => {
 	const req = await playwright.request.newContext();
 	let carla: Conta;
 	try {
@@ -167,7 +167,7 @@ test('quem só lê o quadro também consegue auditar', async ({ playwright, brow
 // renomear, fundo — chegavam ao log como um "quadro.alterado" sem payload, e a
 // tela as descartava em silêncio. Este teste falha se qualquer uma delas voltar
 // a ser invisível.
-test('o histórico mostra o que aconteceu com tudo, não só com os cards', async ({
+test('[B5] o histórico mostra o que aconteceu com tudo, não só com os cards', async ({
 	playwright,
 	browser
 }) => {
@@ -223,7 +223,10 @@ test('o histórico mostra o que aconteceu com tudo, não só com os cards', asyn
 // Ele confere cada operação pela SUA FRASE, e não pela contagem de linhas: uma
 // regressão que devolvesse qualquer uma ao tipo genérico ainda produziria uma
 // linha ("mexeu no quadro") e passaria por qualquer asserção de quantidade.
-test('o histórico registra o CRUD inteiro de coluna e de card', async ({ playwright, browser }) => {
+test('[B6] o histórico registra o CRUD inteiro de coluna e de card', async ({
+	playwright,
+	browser
+}) => {
 	const req = await playwright.request.newContext();
 	let dono: Conta;
 	try {
@@ -305,7 +308,7 @@ test('o histórico registra o CRUD inteiro de coluna e de card', async ({ playwr
 //
 // Sem essa garantia, renomear depois reescreveria o passado: a linha "criou X"
 // passaria a mostrar o nome novo, e apagar o próprio rastro seria só renomear.
-test('renomear depois não reescreve o que o histórico já registrou', async ({
+test('[B7] renomear depois não reescreve o que o histórico já registrou', async ({
 	playwright,
 	browser
 }) => {

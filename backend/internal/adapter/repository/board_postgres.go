@@ -99,11 +99,17 @@ func (r *BoardPostgres) Apagar(ctx context.Context, id string) error {
 // quadro alheio, mesmo que alguém esqueça a checagem no usecase.
 func (r *BoardPostgres) ListarDoUsuario(ctx context.Context, usuarioID string) ([]ucboard.Resumo, error) {
 	linhas, err := r.db.Query(ctx,
-		`SELECT b.id, b.titulo, b.fundo, b.criado_em, b.atualizado_em, m.papel
+		`SELECT b.id, b.titulo, b.fundo, b.criado_em, b.atualizado_em, m.papel,
+		        COALESCE((SELECT u.nome
+		                    FROM board_membros d
+		                    JOIN usuarios u ON u.id = d.usuario_id
+		                   WHERE d.board_id = b.id AND d.papel = $2
+		                   ORDER BY d.criado_em, d.usuario_id
+		                   LIMIT 1), '')
 		 FROM board_membros m
 		 JOIN boards b ON b.id = m.board_id
 		 WHERE m.usuario_id = $1
-		 ORDER BY b.criado_em DESC`, usuarioID,
+		 ORDER BY b.criado_em DESC`, usuarioID, string(membro.PapelDono),
 	)
 	if err != nil {
 		return nil, err
@@ -115,7 +121,7 @@ func (r *BoardPostgres) ListarDoUsuario(ctx context.Context, usuarioID string) (
 		var r ucboard.Resumo
 		var papel string
 		var fundo *string
-		if err := linhas.Scan(&r.Board.ID, &r.Board.Titulo, &fundo, &r.Board.CriadoEm, &r.Board.AtualizadoEm, &papel); err != nil {
+		if err := linhas.Scan(&r.Board.ID, &r.Board.Titulo, &fundo, &r.Board.CriadoEm, &r.Board.AtualizadoEm, &papel, &r.Dono); err != nil {
 			return nil, err
 		}
 		r.Board.Fundo = valorOuVazio(fundo)

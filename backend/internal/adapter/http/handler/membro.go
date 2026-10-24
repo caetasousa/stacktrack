@@ -3,7 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"net/url"
+	"strconv"
 	"time"
 
 	"stacktrack/internal/adapter/http/dto"
@@ -92,14 +92,35 @@ func (h *MembroHandler) Convidar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := paraConviteResponse(*resultado.Convite)
 	// A resposta carrega o link e, por isso, o token em texto puro: precisa de
 	// no-store como qualquer credencial. Ver middleware.SemCache.
-	responderJSON(w, http.StatusCreated, dto.ConviteCriadoResponse{
-		Adicionado: false,
-		Convite:    &c,
-		Link:       h.linkDoConvite(resultado.Token),
-	})
+	responderJSON(w, http.StatusCreated, h.conviteCriado(resultado))
+}
+
+// ReenviarConvite dá ao convite um link novo e o manda de novo por email. O
+// link anterior deixa de valer.
+func (h *MembroHandler) ReenviarConvite(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	resultado, err := h.membros.ReenviarConvite(r.Context(),
+		chi.URLParam(r, "boardID"), chi.URLParam(r, "conviteID"), usuarioID,
+	)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao reenviar convite", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, h.conviteCriado(resultado))
+}
+
+func (h *MembroHandler) conviteCriado(resultado *ucboard.ResultadoConvite) dto.ConviteCriadoResponse {
+	c := paraConviteResponse(ucboard.ConviteComEntrega{Convite: *resultado.Convite})
+	return dto.ConviteCriadoResponse{
+		Convite: &c,
+		Link:    dconvite.Link(h.origemFrontend, resultado.Token),
+		Entrega: string(resultado.Entrega),
+	}
 }
 
 // AlterarPapel troca o papel de quem participa. Só o dono.
@@ -166,6 +187,7 @@ func (h *MembroHandler) DetalharConvite(w http.ResponseWriter, r *http.Request) 
 		EmailMascarado: detalhe.EmailMascarado,
 		Papel:          string(detalhe.Papel),
 		ConvidadoPor:   detalhe.ConvidadoPor,
+		ExpiraEm:       detalhe.ExpiraEm,
 	})
 }
 
@@ -196,13 +218,6 @@ func (h *MembroHandler) usuario(w http.ResponseWriter, r *http.Request) (string,
 	return identidade.UsuarioID, true
 }
 
-// linkDoConvite monta a URL que o dono vai entregar. O token vai no caminho, e
-// não em query string: query string vaza com mais facilidade em log de proxy e
-// em cabeçalho Referer.
-func (h *MembroHandler) linkDoConvite(tokenPuro string) string {
-	return h.origemFrontend + "/convite/" + url.PathEscape(tokenPuro)
-}
-
 func paraMembroResponse(p ucboard.Participante) dto.MembroResponse {
 	return dto.MembroResponse{
 		UsuarioID: p.UsuarioID, Nome: p.Nome, Email: p.Email,
@@ -218,14 +233,21 @@ func paraMembrosResponse(participantes []ucboard.Participante) []dto.MembroRespo
 	return lista
 }
 
-func paraConviteResponse(c dconvite.Convite) dto.ConvitePendenteResponse {
-	return dto.ConvitePendenteResponse{
+func paraConviteResponse(item ucboard.ConviteComEntrega) dto.ConvitePendenteResponse {
+	c := item.Convite
+	resposta := dto.ConvitePendenteResponse{
 		ID: c.ID, Email: c.Email, Papel: string(c.Papel),
 		ExpiraEm: c.ExpiraEm, Expirado: !c.Pendente(time.Now()),
 	}
+	if item.Entrega != nil {
+		resposta.Entrega = &dto.EntregaResponse{
+			Estado: string(item.Entrega.Estado), EnviadoEm: item.Entrega.EnviadoEm,
+		}
+	}
+	return resposta
 }
 
-func paraConvitesResponse(convites []dconvite.Convite) []dto.ConvitePendenteResponse {
+func paraConvitesResponse(convites []ucboard.ConviteComEntrega) []dto.ConvitePendenteResponse {
 	lista := make([]dto.ConvitePendenteResponse, 0, len(convites))
 	for _, c := range convites {
 		lista = append(lista, paraConviteResponse(c))
@@ -252,6 +274,15 @@ func responderErroDeMembro(w http.ResponseWriter, r *http.Request, contexto stri
 	case errors.Is(err, membro.ErrSemDono),
 		errors.Is(err, dconvite.ErrEmailObrigatorio):
 		responderErro(w, http.StatusBadRequest, err.Error())
+	// 422, como a cota de anexo: o pedido está bem formado, o que não cabe é
+	// mais um convite em aberto neste quadro.
+	case errors.Is(err, dconvite.ErrPendentesDemais):
+		responderErro(w, http.StatusUnprocessableEntity, err.Error())
+	// 429: o mesmo convite acabou de sair, e reenviar agora só trocaria o link
+	// do email que a pessoa talvez esteja abrindo.
+	case errors.Is(err, dconvite.ErrReenvioCedoDemais):
+		w.Header().Set("Retry-After", strconv.Itoa(int(dconvite.IntervaloEntreReenvios.Seconds())))
+		responderErro(w, http.StatusTooManyRequests, err.Error())
 	default:
 		// Quadro não encontrado, sem permissão e papel inválido já são
 		// traduzidos pelo tratamento das rotas de quadro.

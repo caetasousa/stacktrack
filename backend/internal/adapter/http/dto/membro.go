@@ -33,13 +33,25 @@ type MembroResponse struct {
 }
 
 // ConvitePendenteResponse é um convite ainda não aceito. Não devolve o token:
-// ele existe em texto puro uma única vez, na resposta que o criou.
+// ele existe em texto puro só na resposta que o criou (ou renovou) e no email.
 type ConvitePendenteResponse struct {
 	ID       string    `json:"id"`
 	Email    string    `json:"email"`
 	Papel    string    `json:"papel"`
 	ExpiraEm time.Time `json:"expiraEm"`
 	Expirado bool      `json:"expirado"`
+	// Entrega é o último email deste convite; nil quando o envio está
+	// desligado ou o convite nunca foi mandado por email.
+	Entrega *EntregaResponse `json:"entrega,omitempty"`
+}
+
+// EntregaResponse é o estado do email de um convite, como o dono precisa ver:
+// saiu, está saindo, ou não vai sair. A causa técnica da falha fica no log e no
+// outbox, para a operação — para o dono, o que importa é o que fazer.
+type EntregaResponse struct {
+	// Estado é pendente, enviado, falhou, cancelado ou expirado.
+	Estado    string     `json:"estado"`
+	EnviadoEm *time.Time `json:"enviadoEm,omitempty"`
 }
 
 // MembrosResponse é o que a tela de membros precisa. Convites só vêm
@@ -50,20 +62,18 @@ type MembrosResponse struct {
 	Convites []ConvitePendenteResponse `json:"convites"`
 }
 
-// ConviteCriadoResponse é o resultado de convidar: sempre um convite pendente
-// e o link, que aparece NESTA resposta e em nenhuma outra.
+// ConviteCriadoResponse é o resultado de convidar ou reenviar: o convite, o
+// link e como ele chega à pessoa.
 //
-// Adicionado e Membro são campos de TRANSIÇÃO. Existia um caminho em que a
-// pessoa com conta virava membro na hora, e o cliente publicado ainda ramifica
-// por esse campo. Ele foi removido do domínio, então `adicionado` agora é
-// sempre false e `membro` nunca vem preenchido — o cliente antigo cai no ramo
-// do link, que é o comportamento correto. Os dois campos saem quando não
-// houver mais cliente antigo em campo.
+// O link vem SEMPRE, mesmo com o email na fila: é o plano B de quem convida
+// quando o email demora ou cai no spam, e a única entrega quando o envio está
+// desligado. Ele aparece nesta resposta e no email, e em nenhum outro lugar.
 type ConviteCriadoResponse struct {
-	Adicionado bool                     `json:"adicionado"`
-	Membro     *MembroResponse          `json:"membro,omitempty"`
-	Convite    *ConvitePendenteResponse `json:"convite,omitempty"`
-	Link       string                   `json:"link,omitempty"`
+	Convite *ConvitePendenteResponse `json:"convite"`
+	Link    string                   `json:"link"`
+	// Entrega é "email" (na fila, sai em instantes), "manual" (envio desligado
+	// neste ambiente) ou "cota" (teto de emails atingido: só o link vale).
+	Entrega string `json:"entrega"`
 }
 
 // ConviteDetalheResponse descreve um convite para quem tem o link, antes de
@@ -77,7 +87,8 @@ type ConviteDetalheResponse struct {
 	// mudar o valor: um cliente antigo lendo `email` mostra vazio, o que é
 	// visivelmente errado e se conserta, enquanto um campo `email` com valor
 	// mascarado passaria despercebido como se ainda fosse o endereço real.
-	EmailMascarado string `json:"emailMascarado"`
-	Papel          string `json:"papel"`
-	ConvidadoPor   string `json:"convidadoPor,omitempty"`
+	EmailMascarado string    `json:"emailMascarado"`
+	Papel          string    `json:"papel"`
+	ConvidadoPor   string    `json:"convidadoPor,omitempty"`
+	ExpiraEm       time.Time `json:"expiraEm"`
 }

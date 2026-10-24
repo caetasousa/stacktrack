@@ -17,3 +17,22 @@ export function destinoDeVolta(url: URL): string {
 	}
 	return voltar;
 }
+
+// Uma máscara de email como o servidor a produz: uma letra, três asteriscos e
+// o domínio (ver mascararEmail em $lib/email).
+const MASCARA = /^[^\s@*]\*\*\*@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * conviteEmAndamento diz se a tela de cadastro ou de login está no meio de um
+ * convite — volta para /convite/… — e para qual email (mascarado) ele é.
+ *
+ * O `para` vem da URL, então só é aceito com a forma exata de uma máscara: sem
+ * isso, um link forjado escreveria o que quisesse no aviso da tela.
+ */
+export function conviteEmAndamento(url: URL): { para: string } | null {
+	const para = url.searchParams.get('para') ?? '';
+	if (!destinoDeVolta(url).startsWith('/convite/') || !MASCARA.test(para)) {
+		return null;
+	}
+	return { para };
+}

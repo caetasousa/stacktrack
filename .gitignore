@@ -14,6 +14,9 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+# O relatório de cada execução da suíte E2E (resumo, HTML, prints): artefato de
+# quem rodou, refeito a cada `make test-e2e`.
+frontend/e2e/relatorio/
 
 # Variáveis de ambiente
 .env

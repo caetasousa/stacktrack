@@ -1,0 +1,10 @@
+{{.Nome}} convidou você para participar do quadro "{{.Titulo}}" no stacktrack, como {{.Papel}} — {{.Explicacao}}.
+
+Para aceitar, abra o link:
+{{.Link}}
+
+Se você ainda não tem conta, vai poder criar uma conta pelo próprio link, com este mesmo email ({{.Para}}). Se já tem, é só entrar.
+
+O convite vale até {{.ValeAte}}. Se você não esperava por ele, pode ignorar esta mensagem: sem abrir o link, nada acontece.
+
+— stacktrack

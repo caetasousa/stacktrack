@@ -61,6 +61,7 @@ func (h *BoardHandler) Listar(w http.ResponseWriter, r *http.Request) {
 			Papel:    string(resumo.Papel),
 			Fundo:    resumo.Board.FundoEfetivo(),
 			CriadoEm: resumo.Board.CriadoEm,
+			Dono:     resumo.Dono,
 		})
 	}
 	responderJSON(w, http.StatusOK, dto.ListaBoardsResponse{Boards: boards})

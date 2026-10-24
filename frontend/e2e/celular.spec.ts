@@ -65,7 +65,7 @@ test.beforeAll(async ({ playwright }) => {
 	}
 });
 
-test('um toque no card abre o modal', async ({ browser }) => {
+test('[D1] um toque no card abre o modal', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
@@ -81,7 +81,7 @@ test('um toque no card abre o modal', async ({ browser }) => {
 	await contexto.close();
 });
 
-test('arrastar o dedo pela lista não levanta o card', async ({ browser }) => {
+test('[D2] arrastar o dedo pela lista não levanta o card', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
@@ -120,7 +120,7 @@ test('arrastar o dedo pela lista não levanta o card', async ({ browser }) => {
 // A outra metade do estrago do clique fantasma: o modal ABRIA e fechava no
 // mesmo toque, porque o segundo clique caía no fundo escuro que acabara de
 // cobrir o card. Um toque tem de deixar o modal aberto — e continuar aberto.
-test('o modal aberto por toque não se fecha sozinho', async ({ browser }) => {
+test('[D3] o modal aberto por toque não se fecha sozinho', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
@@ -149,7 +149,9 @@ test('o modal aberto por toque não se fecha sozinho', async ({ browser }) => {
 // O alvo é a ALÇA, e não o cabeçalho: a biblioteca se recusa a arrastar quando
 // o toque começa num elemento com `value` — e `<button>` tem. Um teste mirando
 // o título da coluna passaria sem nunca chegar perto do defeito.
-test('arrastar o dedo pela alça da coluna rola a página, não reordena', async ({ browser }) => {
+test('[D4] arrastar o dedo pela alça da coluna rola a página, não reordena', async ({
+	browser
+}) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);
@@ -203,7 +205,7 @@ test('arrastar o dedo pela alça da coluna rola a página, não reordena', async
 //
 // O que este teste tranca não é a aparência: é que cancelar realmente CANCELA.
 // Uma confirmação que sempre segue em frente é pior que nenhuma.
-test('apagar um card pede confirmação, e cancelar não apaga', async ({ browser }) => {
+test('[D5] apagar um card pede confirmação, e cancelar não apaga', async ({ browser }) => {
 	const contexto = await abaDe(browser, ana);
 	const pagina = await contexto.newPage();
 	await pagina.goto(`/painel/quadros/${quadroId}`);

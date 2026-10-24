@@ -12,12 +12,19 @@ export interface Membro {
 	desdeEm: string;
 }
 
+// EstadoDaEntrega é onde está o email de um convite: na fila, entregue ao
+// provedor, desistido, ou sem propósito (cancelado com o convite, vencido).
+export type EstadoDaEntrega = 'pendente' | 'enviado' | 'falhou' | 'cancelado' | 'expirado';
+
 export interface ConvitePendente {
 	id: string;
 	email: string;
 	papel: Papel;
 	expiraEm: string;
 	expirado: boolean;
+	// O último email do convite. Ausente quando o envio está desligado ou o
+	// convite nunca foi por email.
+	entrega?: { estado: EstadoDaEntrega; enviadoEm?: string };
 }
 
 export interface Participacao {
@@ -27,19 +34,18 @@ export interface Participacao {
 	convites: ConvitePendente[];
 }
 
-// ConviteCriado é o resultado de convidar: sempre um convite pendente e o
-// `link`, que a API devolve NESTA resposta e em nenhuma outra — o banco guarda
-// só o hash do token.
-//
-// `adicionado` e `membro` são campos de TRANSIÇÃO do servidor: existia um
-// caminho em que quem já tinha conta virava membro na hora, sem aceitar nada.
-// Ele foi removido, `adicionado` é sempre false e `membro` nunca vem. Ficam
-// declarados enquanto o servidor os enviar.
+// Como o convite chega a quem foi convidado: por email, na fila; só pelo link,
+// porque o envio está desligado neste ambiente; ou só pelo link, porque o teto
+// de emails de convite foi atingido.
+export type Entrega = 'email' | 'manual' | 'cota';
+
+// ConviteCriado é o resultado de convidar ou reenviar. O `link` vem sempre —
+// é o plano B de quem convida —, e só nesta resposta e no email: o banco
+// guarda apenas o hash do token.
 export interface ConviteCriado {
-	adicionado: boolean;
-	membro?: Membro;
-	convite?: ConvitePendente;
-	link?: string;
+	convite: ConvitePendente;
+	link: string;
+	entrega: Entrega;
 }
 
 export interface ConviteDetalhe {
@@ -49,6 +55,7 @@ export interface ConviteDetalhe {
 	emailMascarado: string;
 	papel: Papel;
 	convidadoPor?: string;
+	expiraEm: string;
 }
 
 export function listarParticipacao(boardId: string): Promise<Participacao> {
@@ -72,6 +79,15 @@ export function removerMembro(boardId: string, usuarioId: string): Promise<void>
 
 export function revogarConvite(boardId: string, conviteId: string): Promise<void> {
 	return apiDelete(`/boards/${boardId}/convites/${conviteId}`);
+}
+
+// reenviarConvite dá ao convite um link novo e o manda de novo por email. O
+// link anterior deixa de valer — inclusive o que estava no email anterior.
+export function reenviarConvite(boardId: string, conviteId: string): Promise<ConviteCriado> {
+	return apiPost<Record<string, never>, ConviteCriado>(
+		`/boards/${boardId}/convites/${conviteId}/reenviar`,
+		{}
+	);
 }
 
 // detalharConvite não exige sessão: quem foi convidado costuma ainda não ter

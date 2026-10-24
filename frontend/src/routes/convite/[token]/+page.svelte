@@ -3,6 +3,7 @@
 	import { aceitarConvite } from '$lib/api/membros';
 	import { ApiError } from '$lib/api/client';
 	import { mascararEmail } from '$lib/email';
+	import { sessao } from '$lib/stores/session.svelte';
 
 	let { data } = $props();
 
@@ -21,8 +22,37 @@
 		data.usuario ? mascararEmail(data.usuario.email) === data.convite.emailMascarado : false
 	);
 
-	// Para onde voltar depois de entrar ou criar conta.
+	// Para onde voltar depois de entrar ou criar conta, e para qual email o
+	// convite é. O `para` viaja MASCARADO: é o mesmo que esta página pública já
+	// mostra, e serve ao cadastro e ao login para dizer qual conta usar.
 	const voltar = $derived(`/convite/${encodeURIComponent(data.token)}`);
+	const consulta = $derived(
+		`voltar=${encodeURIComponent(voltar)}&para=${encodeURIComponent(data.convite.emailMascarado)}`
+	);
+
+	const valeAte = $derived(
+		new Date(data.convite.expiraEm).toLocaleString('pt-BR', {
+			day: '2-digit',
+			month: 'long',
+			hour: '2-digit',
+			minute: '2-digit'
+		})
+	);
+
+	let saindo = $state(false);
+
+	// Logado na conta errada: sair e voltar ao login JÁ apontando para este
+	// convite. Antes a tela só oferecia "ir para o painel", e a pessoa precisava
+	// descobrir sozinha como trocar de conta sem perder o link.
+	async function trocarDeConta() {
+		saindo = true;
+		try {
+			await sessao.encerrar();
+			await goto(`/login?${consulta}`);
+		} finally {
+			saindo = false;
+		}
+	}
 
 	const explicacaoDoPapel: Record<string, string> = {
 		dono: 'poder total no quadro, inclusive apagá-lo',
@@ -63,10 +93,14 @@
 		]}.
 	</p>
 
-	<dl class="mt-5 rounded-md border border-hairline bg-surface-elevated p-4 text-xs">
+	<dl class="mt-5 space-y-2 rounded-md border border-hairline bg-surface-elevated p-4 text-xs">
 		<div class="flex justify-between gap-3">
 			<dt class="text-mute">Convite para</dt>
 			<dd class="truncate font-medium text-ink">{data.convite.emailMascarado}</dd>
+		</div>
+		<div class="flex justify-between gap-3">
+			<dt class="text-mute">Vale até</dt>
+			<dd class="font-medium text-ink">{valeAte}</dd>
 		</div>
 	</dl>
 
@@ -76,16 +110,13 @@
 
 	{#if !logado}
 		<p class="mt-5 text-sm text-mute">
-			Entre com <b class="text-ink">{data.convite.emailMascarado}</b> para aceitar. Se ainda não tem conta,
-			crie uma com esse email.
+			Para aceitar, crie uma conta ou entre com <b class="text-ink">{data.convite.emailMascarado}</b
+			>
+			— o convite é desse email. Depois você volta para esta tela.
 		</p>
 		<div class="mt-4 flex flex-wrap gap-2">
-			<a href="/cadastro?voltar={encodeURIComponent(voltar)}" class="botao w-auto px-5">
-				Criar conta
-			</a>
-			<a href="/login?voltar={encodeURIComponent(voltar)}" class="botao-secundario w-auto px-5">
-				Entrar
-			</a>
+			<a href="/cadastro?{consulta}" class="botao w-auto px-5">Criar conta</a>
+			<a href="/login?{consulta}" class="botao-secundario w-auto px-5">Já tenho conta</a>
 		</div>
 	{:else if emailConfere}
 		<button class="botao mt-5" onclick={aceitar} disabled={aceitando}>
@@ -96,9 +127,14 @@
 		     colocaria qualquer pessoa dentro do quadro. -->
 		<p class="mt-5 text-sm text-mute">
 			Você está com a conta <b class="text-ink">{data.usuario?.email}</b>, e este convite é para
-			<b class="text-ink">{data.convite.emailMascarado}</b>. Saia e entre com a conta convidada para
-			aceitar.
+			<b class="text-ink">{data.convite.emailMascarado}</b>. Para aceitar, entre com a conta desse
+			email.
 		</p>
-		<a href="/painel" class="botao-secundario mt-4 inline-block w-auto px-5">Ir para o painel</a>
+		<div class="mt-4 flex flex-wrap gap-2">
+			<button class="botao w-auto px-5" onclick={trocarDeConta} disabled={saindo}>
+				{saindo ? 'Saindo…' : 'Sair e entrar com outra conta'}
+			</button>
+			<a href="/painel" class="botao-secundario w-auto px-5">Ir para o painel</a>
+		</div>
 	{/if}
 </div>

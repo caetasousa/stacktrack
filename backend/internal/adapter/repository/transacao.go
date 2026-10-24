@@ -66,6 +66,10 @@ const (
 type UnidadeDeTrabalho struct {
 	pool    Fonte
 	eventos *EventoPostgres
+	// cifraDeEmail liga o outbox de email nas transações. Nil quando o envio
+	// está desligado: a Escrita sai sem Emails, e o convite nasce só com o link
+	// manual.
+	cifraDeEmail cifraDeEmail
 	// esperaPorLock é o teto de espera pelo lock do quadro (lock_timeout).
 	esperaPorLock time.Duration
 	// tempoDeComando é o teto de cada comando dentro da transação
@@ -133,7 +137,7 @@ func (u *UnidadeDeTrabalho) Escrever(
 	}
 	e.Revisao = revisao
 
-	if err := mudanca(repositoriosDe(tx)); err != nil {
+	if err := mudanca(u.escritaDe(tx)); err != nil {
 		return e, traduzirErroDeConcorrencia(err)
 	}
 	// Na criação, a primeira tentativa de numerar não encontra a linha porque a
@@ -187,7 +191,7 @@ func (u *UnidadeDeTrabalho) ExcluirQuadro(
 		}
 		return traduzirErroDeConcorrencia(err)
 	}
-	if err := mudanca(repositoriosDe(tx)); err != nil {
+	if err := mudanca(u.escritaDe(tx)); err != nil {
 		return traduzirErroDeConcorrencia(err)
 	}
 	return traduzirErroDeConcorrencia(tx.Commit(ctx))
@@ -270,6 +274,25 @@ func repositoriosDe(tx pgx.Tx) ucboard.Escrita {
 		Exclusoes:    &ExclusaoDeArquivoPostgres{db: tx},
 		Publicacoes:  &PublicacaoPostgres{db: tx},
 	}
+}
+
+// escritaDe são os repositórios da transação de escrita: os de sempre, mais o
+// outbox de email quando o envio está ligado.
+func (u *UnidadeDeTrabalho) escritaDe(tx pgx.Tx) ucboard.Escrita {
+	e := repositoriosDe(tx)
+	// Atribuição condicional: um *EmailPostgres nil guardado na interface a
+	// deixaria NÃO nil, e o caso de uso tentaria enfileirar sem cifra.
+	if u.cifraDeEmail != nil {
+		e.Emails = &EmailPostgres{db: tx, cifra: u.cifraDeEmail}
+	}
+	return e
+}
+
+// ComCifraDeEmail liga o outbox de email às transações, com a cifra que
+// protege a mensagem em repouso.
+func (u *UnidadeDeTrabalho) ComCifraDeEmail(cifra cifraDeEmail) *UnidadeDeTrabalho {
+	u.cifraDeEmail = cifra
+	return u
 }
 
 // traduzirErroDeConcorrencia transforma o SQLSTATE em erro de domínio.

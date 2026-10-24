@@ -118,3 +118,18 @@ a configuração do Flyway que execute essa migration fora de transação.
 duplicidade e os recria no fim — a recriação É a asserção do contract, e é o que
 o operador faz na janela de manutenção. Fixture que grave `chave` direto no
 banco precisa do mesmo tratamento, ou o banco a recusa antes de o teste começar.
+
+## `V19` — o outbox de email
+
+Tabela nova, `email_outbox`: a intenção de mandar um email, gravada na mesma
+transação do convite, e entregue depois do commit por um worker da API. A
+mensagem — que carrega o link do convite — fica cifrada (`payload_cifrado`) e é
+apagada no envio, no cancelamento e no vencimento.
+
+É **expansiva** e entra num deploy só: tabela nova não afeta a versão anterior
+da aplicação, que não a conhece. Nenhum dado é escrito, e os estados
+(`pendente`, `enviado`, `falhou`, `cancelado`, `expirado`) são do domínio
+(`internal/domain/email`), não de um `CHECK`. O `idx_email_outbox_fila` é
+parcial em `estado = 'pendente'`: o resto da tabela é histórico, que o worker
+não precisa varrer.
+

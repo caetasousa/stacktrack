@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"sort"
@@ -54,6 +55,7 @@ func Validar() error {
 	validarProxies(anotar)
 	validarInteiros(anotar)
 	validarTetos(anotar)
+	validarEmail(anotar)
 
 	if len(problemas) == 0 {
 		return nil
@@ -209,6 +211,8 @@ func validarInteiros(anotar func(string, ...any)) {
 		{"DISCO_MINIMO_BYTES", 0, 1 << 60},
 		{"DISCO_MINIMO_POR_CEM", 0, 100},
 		{"DISCO_MEDICAO_VALIDADE_SEG", 1, 3600},
+		{"SMTP_PORT", 1, 65535},
+		{"EMAIL_INTERVALO_MS", 100, 3_600_000},
 	}
 	for _, regra := range regras {
 		bruto := strings.TrimSpace(os.Getenv(regra.nome))
@@ -263,4 +267,44 @@ func validarTetos(anotar func(string, ...any)) {
 			anotar("%s está em zero: o teto correspondente fica desligado", nome)
 		}
 	}
+}
+
+// validarEmail confere o envio de email, quando ligado.
+//
+// Desligado (SMTP_HOST vazio) passa: o convite sai com o link manual, e nenhum
+// fluxo depende de email. Ligado, ele precisa estar ligado DIREITO — o mesmo
+// raciocínio do resto desta função: um SMTP sem TLS manda a senha do provedor
+// em claro e funciona normalmente, e uma chave efêmera perde a fila a cada
+// reinício sem dar erro nenhum.
+func validarEmail(anotar func(string, ...any)) {
+	if v := strings.TrimSpace(os.Getenv("CONVITE_INTERVALO_REENVIO_SEG")); v != "" {
+		if n, err := strconv.Atoi(v); err != nil || n < 30 {
+			anotar("CONVITE_INTERVALO_REENVIO_SEG=%q: em produção, ao menos 30 segundos entre dois emails do mesmo convite", v)
+		}
+	}
+	if !EmailLigado() {
+		return
+	}
+	smtp := ConfiguracaoSMTP()
+	if !smtp.STARTTLS {
+		anotar("SMTP_STARTTLS=false: em produção o SMTP exige TLS (a senha do provedor viajaria em claro)")
+	}
+	if !enderecoNu(smtp.Remetente) {
+		anotar("EMAIL_REMETENTE=%q precisa ser só o endereço (ex.: convites@dominio)", smtp.Remetente)
+	}
+	if smtp.Usuario != "" && smtp.Senha == "" {
+		anotar("SMTP_PASSWORD não definida para o SMTP_USER informado")
+	}
+	if _, _, err := ChaveDoEmail(); err != nil {
+		anotar("EMAIL_CHAVE inválida: %v (gere com: openssl rand -base64 32)", err)
+	}
+}
+
+// enderecoNu informa se o texto é um endereço de email sem nome de exibição.
+func enderecoNu(endereco string) bool {
+	if endereco == "" || strings.ContainsAny(endereco, " <>\"\r\n") {
+		return false
+	}
+	a, err := mail.ParseAddress(endereco)
+	return err == nil && a.Address == endereco
 }

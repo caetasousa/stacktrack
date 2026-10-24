@@ -72,12 +72,12 @@ test.afterAll(async () => {
 
 // A conexão fica de pé sozinha. O indicador só aparece quando ela NÃO está no
 // ar, então a ausência dele é a prova de que o WebSocket conectou.
-test('a conexão de tempo real fica no ar', async () => {
+test('[A1] a conexão de tempo real fica no ar', async () => {
 	await expect(telaBruno.getByText('reconectando')).toHaveCount(0);
 	await expect(telaBruno.getByText('conectando')).toHaveCount(0);
 });
 
-test('ana cria um card e bruno vê sem recarregar', async () => {
+test('[A2] ana cria um card e bruno vê sem recarregar', async () => {
 	const titulo = `Card da ana ${Date.now()}`;
 
 	// Bruno não pode ter isso na tela ainda.
@@ -100,7 +100,7 @@ test('ana cria um card e bruno vê sem recarregar', async () => {
 // atualizou a própria tela". Isso só é verdade na aba que enviou a mutação; a
 // outra não participou da requisição e depende do WebSocket como qualquer
 // colaborador.
-test('duas telas da mesma conta também convergem sem recarregar', async () => {
+test('[A3] duas telas da mesma conta também convergem sem recarregar', async () => {
 	const segundaTelaDaAna = await abaAna.newPage();
 	await segundaTelaDaAna.goto(`/painel/quadros/${boardId}`);
 	await expect(segundaTelaDaAna.getByText('A fazer')).toBeVisible();
@@ -117,7 +117,7 @@ test('duas telas da mesma conta também convergem sem recarregar', async () => {
 	await segundaTelaDaAna.close();
 });
 
-test('bruno cria uma coluna e ana vê sem recarregar', async () => {
+test('[A4] bruno cria uma coluna e ana vê sem recarregar', async () => {
 	const titulo = `Coluna do bruno ${Date.now()}`;
 
 	await expect(telaAna.getByText(titulo)).toHaveCount(0);
@@ -139,7 +139,7 @@ test('bruno cria uma coluna e ana vê sem recarregar', async () => {
 // vira o servidor, deixa a conexão passar para o de verdade e depois a fecha.
 // `setOffline` não serve aqui — ele não derruba um socket já estabelecido, que
 // só perceberia a rede ausente no ping seguinte, 30 segundos depois.
-test('a queda da conexão aparece na tela, e ela volta sozinha', async ({ browser }) => {
+test('[A5] a queda da conexão aparece na tela, e ela volta sozinha', async ({ browser }) => {
 	const aba = await abaDe(browser, bruno);
 	const tela = await aba.newPage();
 
@@ -171,7 +171,7 @@ test('a queda da conexão aparece na tela, e ela volta sozinha', async ({ browse
 
 // Presença é estado efêmero: vive no mapa de conexões do hub e morre com o
 // processo. Não há migration para ela, e é isso que a torna barata.
-test('cada um vê o avatar do outro, e ele some quando a aba fecha', async ({ browser }) => {
+test('[A6] cada um vê o avatar do outro, e ele some quando a aba fecha', async ({ browser }) => {
 	const avatares = telaAna.getByLabel('Quem está neste quadro agora').locator('span');
 	await expect(avatares).toHaveCount(2);
 
@@ -194,7 +194,7 @@ test('cada um vê o avatar do outro, e ele some quando a aba fecha', async ({ br
 // O quadro se atualizava, mas o modal carregava o card UMA vez, na abertura, e
 // nunca mais. Duas pessoas no mesmo card não viam o comentário uma da outra, e
 // o histórico aberto congelava. É o fluxo que a fase 11 criou e que nasceu mudo.
-test('com o card aberto nos dois, o comentário de um aparece no outro', async () => {
+test('[A7] com o card aberto nos dois, o comentário de um aparece no outro', async () => {
 	const titulo = `Conversa ${Date.now()}`;
 
 	const campoNovo = telaAna.getByLabel('Título do novo card').first();
@@ -227,7 +227,7 @@ test('com o card aberto nos dois, o comentário de um aparece no outro', async (
 
 // O caso que o bloqueio otimista existe para resolver: dois editando o mesmo
 // card, e o trabalho de um não pode sumir em silêncio.
-test('quem grava por último recebe o aviso em vez de sobrescrever', async () => {
+test('[A8] quem grava por último recebe o aviso em vez de sobrescrever', async () => {
 	const titulo = `Disputado ${Date.now()}`;
 
 	const campoNovo = telaAna.getByLabel('Título do novo card').first();
@@ -297,7 +297,7 @@ async function semModal(...paginas: Page[]) {
 	}
 }
 
-test('quem edita uma coluna aparece no rodapé dela para os outros', async () => {
+test('[A9] quem edita uma coluna aparece no rodapé dela para os outros', async () => {
 	await semModal(telaAna, telaBruno);
 	const rodape = telaAna.getByText('está editando');
 
@@ -319,7 +319,7 @@ test('quem edita uma coluna aparece no rodapé dela para os outros', async () =>
 
 // A própria pessoa NÃO se vê no rodapé: ela está com o formulário aberto na
 // frente dela, e o próprio nome ali só confundiria.
-test('quem está editando não vê o próprio nome no rodapé', async () => {
+test('[A10] quem está editando não vê o próprio nome no rodapé', async () => {
 	await semModal(telaAna, telaBruno);
 	await telaBruno.getByRole('button', { name: 'A fazer', exact: true }).click();
 	await expect(telaBruno.getByLabel('Título da coluna')).toBeVisible();

@@ -137,3 +137,28 @@ func (r *Convites) Vencer(id string) {
 
 // Quantidade informa quantos convites existem — atalho para os testes.
 func (r *Convites) Quantidade() int { return len(r.porID) }
+
+// ContarPendentes e Renovar existem só para este fake continuar satisfazendo a
+// porta: ele é legado (ver "Testes" no CLAUDE.md), e teste novo de convite roda
+// contra o Postgres de verdade, em test/repository/convite_email_test.go.
+
+// ContarPendentes conta os convites sem aceite nem revogação do quadro.
+func (r *Convites) ContarPendentes(ctx context.Context, boardID string) (int, error) {
+	n := 0
+	for _, c := range r.porID {
+		if c.BoardID == boardID && c.AceitoEm == nil && c.RevogadoEm == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Renovar troca o hash e a validade, se o convite continua sem aceite nem revogação.
+func (r *Convites) Renovar(ctx context.Context, id, tokenHash string, expiraEm time.Time) error {
+	c, ok := r.porID[id]
+	if !ok || c.AceitoEm != nil || c.RevogadoEm != nil {
+		return convite.ErrJaResolvido
+	}
+	c.TokenHash, c.ExpiraEm = tokenHash, expiraEm
+	return nil
+}

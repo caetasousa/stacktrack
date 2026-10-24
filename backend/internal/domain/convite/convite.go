@@ -1,22 +1,54 @@
-// Package convite modela o convite para participar de um quadro — o caminho de
-// quem ainda não tem conta. Quem já tem entra direto como membro, e nem passa
-// por aqui.
+// Package convite modela o convite para participar de um quadro — a ÚNICA porta
+// de entrada, tenha a pessoa conta ou não. Conhecer o email de alguém não põe
+// ninguém num quadro: o acesso nasce do link do convite, apresentado por quem
+// está logado na conta daquele email.
 package convite
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"stacktrack/internal/domain/membro"
 	"stacktrack/internal/domain/usuario"
 )
 
-// TTL é a validade de um convite a partir da criação.
+// TTL é a validade de um convite a partir da criação (ou do último reenvio).
 //
 // Sete dias: longo o bastante para a pessoa ver a mensagem depois de um fim de
 // semana, curto o bastante para um link esquecido num histórico de conversa não
 // virar porta aberta para sempre.
 const TTL = 7 * 24 * time.Hour
+
+// Os tetos de convite. Com o envio por email, convidar deixou de ser só gerar
+// um link: virou um jeito de o servidor mandar mensagem a qualquer endereço. Sem
+// teto, uma conta qualquer usaria o remetente do stacktrack para mandar spam — e
+// a reputação queimada é a do domínio, que derruba a entrega de todo mundo.
+//
+// Os tetos de EMAIL não impedem o convite: estourados, ele nasce do mesmo jeito,
+// só que com o link para o dono entregar. O que contém o spam é o email não
+// sair; travar o convite só castigaria quem convida.
+const (
+	// MaximoDePendentesPorQuadro é quantos convites um quadro pode ter em aberto.
+	MaximoDePendentesPorQuadro = 50
+	// MaximoDeEmailsPorDia é quantos emails de convite uma conta pode pedir em
+	// 24 horas, somando convites novos e reenvios.
+	MaximoDeEmailsPorDia = 30
+	// MaximoDeEmailsPorConvite é quantas vezes um mesmo convite pode ser mandado.
+	MaximoDeEmailsPorConvite = 5
+	// IntervaloEntreReenvios é o mínimo entre dois envios do mesmo convite.
+	IntervaloEntreReenvios = 2 * time.Minute
+)
+
+// Link monta a URL que entrega o convite, a partir da origem pública do
+// frontend. O token vai no caminho, e não em query string: query string vaza com
+// mais facilidade em log de proxy e em cabeçalho Referer.
+//
+// Mora no domínio porque o link sai por dois caminhos — a resposta que o dono vê
+// e o email que o convidado recebe —, e os dois precisam ser o MESMO link.
+func Link(origem, tokenPuro string) string {
+	return origem + "/convite/" + url.PathEscape(tokenPuro)
+}
 
 var (
 	// ErrEmailObrigatorio é retornado quando o email do convidado está vazio ou é inválido.
@@ -42,6 +74,12 @@ var (
 	// de "já foi usado". Este aqui não vai para a borda pública: ele descreve
 	// uma corrida entre duas escritas, e quem o lê é o usecase.
 	ErrJaResolvido = errors.New("este convite já foi aceito ou revogado")
+	// ErrPendentesDemais é retornado quando o quadro já tem
+	// MaximoDePendentesPorQuadro convites em aberto.
+	ErrPendentesDemais = errors.New("este quadro já tem convites demais em aberto — revogue os que não vão ser usados")
+	// ErrReenvioCedoDemais é retornado quando o mesmo convite foi mandado há
+	// menos de IntervaloEntreReenvios.
+	ErrReenvioCedoDemais = errors.New("o convite acabou de ser enviado — espere alguns minutos para reenviar")
 )
 
 // Convite é a permissão pendente de alguém entrar em um quadro.
@@ -138,6 +176,24 @@ func (c *Convite) Aceitar(agora time.Time) error {
 	}
 	c.AceitoEm = &agora
 	return nil
+}
+
+// Renovar troca o token e devolve ao convite a validade inteira, a partir de
+// agora. É o que o reenvio faz: o link antigo deixa de valer no mesmo instante
+// em que o novo passa a existir.
+//
+// Vale para o convite pendente e para o VENCIDO — reenviar é o caminho natural
+// de quem descobre que o convite expirou sem ser visto. Aceito e revogado são
+// fatos gravados, e devolvem ErrJaResolvido.
+func (c *Convite) Renovar(tokenHash string, agora time.Time) error {
+	switch c.EstadoEm(agora) {
+	case EstadoPendente, EstadoExpirado:
+		c.TokenHash = tokenHash
+		c.ExpiraEm = agora.Add(TTL)
+		return nil
+	default:
+		return ErrJaResolvido
+	}
 }
 
 // Revogar marca o convite como cancelado, invalidando o link já entregue.

@@ -167,7 +167,24 @@ describe('fraseNoQuadro', () => {
 			{ nome: 'Ana', papel: 'leitor', papelAnterior: 'editor' },
 			'mudou Ana de editor para leitor'
 		],
-		['membro.removido', { nome: 'Ana' }, 'removeu Ana do quadro']
+		['membro.removido', { nome: 'Ana' }, 'removeu Ana do quadro'],
+		// O convite tem frase própria: sem ela a auditoria omitia a linha, e
+		// ninguém sabia quem tinha chamado quem. O email vem mascarado do servidor.
+		[
+			'convite.criado',
+			{ email: 'b***@exemplo.com', papel: 'editor' },
+			'convidou b***@exemplo.com como editor'
+		],
+		[
+			'convite.reenviado',
+			{ email: 'b***@exemplo.com', papel: 'editor' },
+			'reenviou o convite de b***@exemplo.com'
+		],
+		[
+			'convite.revogado',
+			{ email: 'b***@exemplo.com', papel: 'editor' },
+			'revogou o convite de b***@exemplo.com'
+		]
 	])('descreve %s', (tipo, dados, esperado) => {
 		expect(fraseNoQuadro(entrada({ tipo, dados }))).toBe(esperado);
 	});

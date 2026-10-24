@@ -6,9 +6,11 @@
 	import {
 		alterarPapel,
 		convidar,
+		reenviarConvite,
 		removerMembro,
 		revogarConvite,
-		type ConviteCriado
+		type ConviteCriado,
+		type ConvitePendente
 	} from '$lib/api/membros';
 
 	let { data } = $props();
@@ -17,11 +19,14 @@
 	let papel = $state<Papel>('editor');
 	let erro = $state('');
 	let enviando = $state(false);
-	// O link do convite aparece uma vez só: a API devolve o token na resposta
-	// que o criou e o banco guarda apenas o hash. Quem fechar esta tela sem
-	// copiar precisa revogar e convidar de novo.
+	// O resultado do último convite (ou reenvio) feito nesta tela. O link
+	// aparece só aqui: a API devolve o token nesta resposta e no email, e o
+	// banco guarda apenas o hash — quem perdê-lo reenvia, e ganha outro.
 	let recemCriado = $state<ConviteCriado | null>(null);
+	let foiReenvio = $state(false);
 	let copiado = $state(false);
+	// Qual convite está sendo reenviado, para travar só o botão dele.
+	let reenviando = $state('');
 
 	const souDono = $derived(data.quadro.papel === 'dono');
 
@@ -48,14 +53,28 @@
 		try {
 			const resultado = await convidar(data.quadro.id, email, papel);
 			email = '';
-			// Sempre há link a mostrar: conhecer o email de alguém deixou de pôr
-			// essa pessoa no quadro, então todo convite precisa ser entregue.
 			recemCriado = resultado;
+			foiReenvio = false;
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível convidar');
 		} finally {
 			enviando = false;
+		}
+	}
+
+	async function reenviar(convite: ConvitePendente) {
+		erro = '';
+		copiado = false;
+		reenviando = convite.id;
+		try {
+			recemCriado = await reenviarConvite(data.quadro.id, convite.id);
+			foiReenvio = true;
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível reenviar o convite');
+		} finally {
+			reenviando = '';
 		}
 	}
 
@@ -113,6 +132,33 @@
 
 	const formatarData = (iso: string) =>
 		new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+	const formatarDataHora = (iso: string) =>
+		new Date(iso).toLocaleString('pt-BR', {
+			day: '2-digit',
+			month: 'short',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+
+	// O que a lista diz sobre o email de cada convite. O dono precisa saber se
+	// a pessoa já recebeu, ou se ele mesmo precisa mandar o link por outro meio.
+	function situacaoDoEmail(c: ConvitePendente): { texto: string; ruim: boolean } {
+		switch (c.entrega?.estado) {
+			case 'enviado':
+				return {
+					texto: c.entrega.enviadoEm
+						? `email enviado em ${formatarDataHora(c.entrega.enviadoEm)}`
+						: 'email enviado',
+					ruim: false
+				};
+			case 'pendente':
+				return { texto: 'email na fila', ruim: false };
+			case 'falhou':
+				return { texto: 'o email não saiu — confira o endereço e reenvie', ruim: true };
+			default:
+				return { texto: 'sem email — entregue o link', ruim: false };
+		}
+	}
 </script>
 
 <svelte:head><title>Membros · {data.quadro.titulo} · stacktrack</title></svelte:head>
@@ -133,9 +179,11 @@
 
 {#if souDono}
 	<section class="mt-6 rounded-lg border border-hairline bg-surface p-5 shadow-ficha">
-		<h2 class="text-sm font-semibold text-ink">Convidar alguém</h2>
+		<h2 class="text-sm font-semibold text-ink">Convidar por email</h2>
 		<p class="mt-1 text-xs text-mute">
-			Quem já tem conta entra na hora. Quem não tem recebe um link para você enviar.
+			A pessoa recebe um email com o link do convite. Se ainda não tiver conta, ela cria uma pelo
+			próprio link, com esse mesmo email; se já tiver, é só entrar. O quadro aparece para ela em
+			"Compartilhados com você".
 		</p>
 
 		<form onsubmit={enviarConvite} class="mt-4 flex flex-wrap gap-2">
@@ -154,7 +202,7 @@
 				{/each}
 			</select>
 			<button type="submit" class="botao w-auto shrink-0 px-5" disabled={enviando}>
-				{enviando ? 'Convidando…' : 'Convidar'}
+				{enviando ? 'Enviando…' : 'Enviar convite'}
 			</button>
 		</form>
 
@@ -162,16 +210,37 @@
 			{papeis.find((p) => p.valor === papel)?.explica}
 		</p>
 
-		{#if recemCriado?.link}
-			<div class="mt-4 rounded-md border border-accent bg-accent-suave p-4">
+		{#if recemCriado}
+			<div class="mt-4 rounded-md border border-accent bg-accent-suave p-4" role="status">
 				<p class="text-sm font-semibold text-accent-texto">
-					Convite criado para {recemCriado.convite?.email}
+					{#if recemCriado.entrega === 'email'}
+						{foiReenvio ? 'Convite reenviado' : 'Convite enviado'} para {recemCriado.convite.email}
+					{:else}
+						Convite {foiReenvio ? 'renovado' : 'criado'} para {recemCriado.convite.email}
+					{/if}
 				</p>
 				<p class="mt-1 text-xs text-body">
-					Copie o link agora — por segurança ele não é mostrado de novo. Se perder, revogue o
-					convite e faça outro.
+					{#if recemCriado.entrega === 'email'}
+						O email sai em instantes. O convite vale até {formatarData(
+							recemCriado.convite.expiraEm
+						)}.
+					{:else if recemCriado.entrega === 'cota'}
+						O limite de emails de convite foi atingido por hoje. Copie o link abaixo e mande você
+						mesmo.
+					{:else}
+						O envio de email não está ligado neste ambiente. Copie o link abaixo e mande por onde
+						preferir.
+					{/if}
+					{#if foiReenvio}
+						O link anterior deixou de valer.
+					{/if}
 				</p>
-				<div class="mt-3 flex flex-wrap items-center gap-2">
+				<p class="mt-3 text-xs text-mute">
+					{recemCriado.entrega === 'email'
+						? 'Prefere mandar você mesmo? O link só aparece agora:'
+						: 'O link só aparece agora — se perder, reenvie e ganhe outro:'}
+				</p>
+				<div class="mt-1.5 flex flex-wrap items-center gap-2">
 					<code
 						class="min-w-0 flex-1 overflow-x-auto rounded-sm border border-hairline-strong bg-surface px-2 py-1.5 text-xs whitespace-nowrap text-body"
 					>
@@ -180,7 +249,7 @@
 					<button
 						type="button"
 						class="botao-secundario w-auto shrink-0 px-4 py-1.5 text-xs"
-						onclick={() => copiarLink(recemCriado!.link!)}
+						onclick={() => copiarLink(recemCriado!.link)}
 					>
 						{copiado ? 'Copiado' : 'Copiar'}
 					</button>
@@ -249,24 +318,43 @@
 			class="mt-3 divide-y divide-hairline overflow-hidden rounded-lg border border-hairline bg-surface"
 		>
 			{#each data.participacao.convites as convite (convite.id)}
+				{@const situacao = situacaoDoEmail(convite)}
 				<li class="flex flex-wrap items-center justify-between gap-3 p-4">
 					<div class="min-w-0">
 						<b class="block truncate text-sm font-medium text-ink">{convite.email}</b>
 						<span class="block text-xs text-mute">
 							{convite.papel} ·
 							{#if convite.expirado}
-								<span class="text-negativo">expirou</span>
+								<span class="text-negativo">expirou — reenvie para renovar</span>
 							{:else}
 								vale até {formatarData(convite.expiraEm)}
 							{/if}
 						</span>
+						<span
+							class="block text-xs"
+							class:text-negativo={situacao.ruim}
+							class:text-mute={!situacao.ruim}
+						>
+							{situacao.texto}
+						</span>
 					</div>
-					<button
-						class="shrink-0 cursor-pointer text-xs text-mute hover:text-negativo"
-						onclick={() => revogar(convite.id, convite.email)}
-					>
-						Revogar
-					</button>
+					<div class="flex shrink-0 items-center gap-3">
+						<button
+							class="cursor-pointer text-xs text-mute hover:text-ink disabled:cursor-default disabled:opacity-60"
+							onclick={() => reenviar(convite)}
+							disabled={reenviando === convite.id}
+							aria-label="Reenviar o convite de {convite.email}"
+						>
+							{reenviando === convite.id ? 'Reenviando…' : 'Reenviar'}
+						</button>
+						<button
+							class="cursor-pointer text-xs text-mute hover:text-negativo"
+							onclick={() => revogar(convite.id, convite.email)}
+							aria-label="Revogar o convite de {convite.email}"
+						>
+							Revogar
+						</button>
+					</div>
 				</li>
 			{/each}
 		</ul>

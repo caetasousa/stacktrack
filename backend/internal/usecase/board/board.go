@@ -22,6 +22,10 @@ import (
 type Resumo struct {
 	Board board.Board
 	Papel membro.Papel
+	// Dono é o nome de quem é dono do quadro há mais tempo — normalmente quem o
+	// criou. É o que deixa o painel dizer "de Ana" num quadro compartilhado,
+	// em vez de misturá-lo com os quadros da própria pessoa.
+	Dono string
 }
 
 // Progresso é o "2/5" de checklist de um card.

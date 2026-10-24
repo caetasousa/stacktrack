@@ -45,11 +45,22 @@ fi
 # As imagens do GHCR nascem privadas. Sem token, o servidor só as puxa se os
 # pacotes tiverem sido tornados públicos — que é uma escolha válida, e por isso
 # o campo aceita vazio.
-# O `|| true` cobre a execução sem terminal (um pipe, o CI): `read` devolve 1 no
-# EOF e o `set -e` abortaria o script antes de gravar coisa alguma.
+# O `|| true` cobre a execução sem terminal (um pipe, um script): `read`
+# devolve 1 no EOF e o `set -e` abortaria o script antes de gravar coisa alguma.
 printf 'token do GHCR com read:packages (vazio se as imagens forem públicas): '
 read -r -s token_ghcr || true
 token_ghcr=${token_ghcr:-}
+echo
+
+# As credenciais SMTP do provedor de email (Brevo: SMTP & API → SMTP). Vazias,
+# o envio fica desligado e os convites saem só com o link manual — dá para
+# preencher depois com `ansible-vault edit`.
+printf 'usuário SMTP do provedor de email (vazio desliga o envio): '
+read -r smtp_usuario || true
+smtp_usuario=${smtp_usuario:-}
+printf 'senha SMTP do provedor: '
+read -r -s smtp_senha || true
+smtp_senha=${smtp_senha:-}
 echo
 
 # mktemp com 600 e trap: o arquivo passa alguns milissegundos em claro no disco,
@@ -73,11 +84,18 @@ vault_postgres_db: 'stacktrack'
 vault_postgres_user: 'stacktrack'
 vault_postgres_password: '$(openssl rand -hex 24)'
 vault_ghcr_token: '$token_ghcr'
+
+# O envio de email dos convites. A chave cifra a fila de emails (AES-256): ela
+# nasce aqui, aleatória, e ninguém precisa conhecê-la.
+vault_smtp_usuario: '$smtp_usuario'
+vault_smtp_senha: '$smtp_senha'
+vault_email_chave: '$(openssl rand -base64 32)'
 YAML
 
 mkdir -p "$(dirname "$vault")"
 # A senha vai no comando: o ansible.cfg não a declara, senão todo comando neste
-# diretório passaria a exigi-la — inclusive os do CI, que não a tem.
+# diretório passaria a exigi-la — inclusive o `make infra-validar`, que roda
+# sem ela.
 ansible-vault encrypt --vault-password-file "$senha_vault" --output "$vault" "$temporario"
 echo "→ segredos cifrados em deploy/ansible/$vault"
 echo

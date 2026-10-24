@@ -14,7 +14,7 @@ import (
 
 // ModeloDeConvite é o nome e a versão do texto do email de convite. Muda quando
 // o texto muda de um jeito que importe saber, olhando a fila, qual versão saiu.
-const ModeloDeConvite = "convite.v1"
+const ModeloDeConvite = "convite.v2"
 
 // RedatorDeConvite escreve o email que entrega um convite. Quem o implementa é
 // o adaptador de email, que conhece os modelos de texto e de HTML; o caso de

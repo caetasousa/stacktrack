@@ -472,7 +472,8 @@ senão quem invadir o servidor apaga os backups junto.
 
 O convite e o link de recuperação de senha vão por email pelo **Brevo**, em
 `smtp-relay.brevo.com:587` com STARTTLS — pelo mesmo outbox, que distingue os
-dois pela coluna `modelo` (`convite.v1`, `recuperacao.v1`). Em produção o TLS é obrigatório: a API recusa subir com
+dois pela coluna `modelo` (`convite.v2`, `recuperacao.v2`; o `v1` era o HTML com
+botão e cabeçalho, que o Gmail punha em Promoções). Em produção o TLS é obrigatório: a API recusa subir com
 `SMTP_STARTTLS=false`, sem `EMAIL_CHAVE` válida ou com usuário sem senha
 (`config.Validar`).
 
@@ -538,6 +539,21 @@ Gmail. Para a entrega deixar de depender da boa vontade desse filtro:
    verificação) e um DMARC (`_dmarc.d4ffy.com`, começando por `p=none`);
 3. troque `email_remetente` para um endereço do domínio
    (`convites@d4ffy.com`) e rode `make infra-apply`.
+
+**Chegou, mas em Promoções.** É classificação do Gmail, não falha de envio — o
+outbox mostra `enviado` e o log, "email entregue". Pesam três coisas:
+
+- o **formato**: o HTML é de propósito uma mensagem simples, com o link por
+  extenso, sem tabela de layout, botão nem cabeçalho de marca
+  (`backend/test/email/formato_test.go` falha se isso voltar);
+- o **rastreamento do Brevo**: links reescritos e pixel de abertura têm cara de
+  marketing — e a reescrita faz o token do link passar pelo redirecionador
+  deles. Se o link do email recebido não começar por
+  `https://stacktrack.d4ffy.com/`, desligue o rastreamento de cliques e
+  aberturas nas configurações de email transacional do Brevo;
+- o **remetente**, nos passos acima.
+
+Nada disso garante a aba Principal: quem decide é o Gmail.
 
 O plano gratuito do Brevo tem cota diária de envio; a cota de 30 convites por
 conta por dia existe para que uma conta só não a gaste inteira.

@@ -14,7 +14,7 @@ import (
 )
 
 // ModeloDeRecuperacao é o nome e a versão do texto do email de recuperação.
-const ModeloDeRecuperacao = "recuperacao.v1"
+const ModeloDeRecuperacao = "recuperacao.v2"
 
 // RedatorDeRecuperacao escreve o email que leva o link de senha nova. Quem o
 // implementa é o adaptador de email, que conhece os modelos de texto e HTML.

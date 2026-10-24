@@ -29,8 +29,14 @@
   # Os módulos community.docker procuram o daemon de SISTEMA por padrão e não
   # leem o contexto do cliente; o daemon da conta é o rootless, no runtime dir
   # dela. O uid vem dos fatos, coletados antes da primeira task.
+  #
+  # O `default('')` é para a própria coleta de fatos: o `environment` do play
+  # vale também para ela, e nesse instante o uid só existe se o cache de fatos
+  # (ansible.cfg, uma hora) ainda o tiver. Com o cache vencido, o template
+  # falhava antes da primeira task. A coleta não fala com o Docker, e da
+  # primeira task em diante o uid já está lá.
   environment:
-    DOCKER_HOST: unix:///run/user/{{ ansible_facts.user_uid }}/docker.sock
+    DOCKER_HOST: "unix:///run/user/{{ ansible_facts.user_uid | default('') }}/docker.sock"
 
 
   # Pré-requisitos que este playbook não pode criar sozinho, conferidos ANTES de

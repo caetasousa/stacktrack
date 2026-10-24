@@ -45,8 +45,9 @@ diretório e a próxima migration usa o próximo número livre.
 
 ## O contract da chave de ordenação: unicidade da posição
 
-A etapa A2 do [PLANO.md](../../PLANO.md) pede unicidade da posição dentro do
-contêiner, e o **`V18` é essa migration** — o terceiro passo de um ciclo
+A consistência das mutações (etapa A2 do roadmap de produção, hoje no
+[histórico](../../docs/historico-do-projeto.md)) pediu unicidade da posição
+dentro do contêiner, e o **`V18` é essa migration** — o terceiro passo de um ciclo
 expand/contract que levou três deploys:
 
 1. **Expand** — nada a fazer no schema.

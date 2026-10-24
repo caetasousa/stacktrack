@@ -1,5 +1,8 @@
 # 🔄 Publicação, varredura e deploy — tudo manual
 
+> **Em uma frase:** testar, publicar as imagens no GHCR, varrer vulnerabilidades e
+> implantar — à mão, nessa ordem.
+
 **Não há esteira.** O GitHub Actions foi removido. Testar, buildar, publicar as
 imagens e implantar são passos que você roda à mão, na ordem abaixo. O servidor
 continua nunca compilando nada — ele só puxa imagem pronta do GHCR.
@@ -12,21 +15,20 @@ O roteiro do servidor está em [producao.md](producao.md); o do host, em
 ## 1️⃣ Antes de publicar: testar
 
 ```bash
-make test                 # backend rápido + frontend
-cd frontend && npm run check   # tipos (svelte-check)
-cd backend  && make test       # com -race, o detector de corrida
-cd backend  && make test-integracao   # repositórios contra Postgres real (Docker)
-make test-e2e             # Playwright sobre a stack (exige `make run` no ar)
+make verificar                        # o que a esteira conferia, de uma vez (sem Docker)
+make test-integracao                  # casos de uso e servidor HTTP contra Postgres real (Docker)
+make test-e2e                         # Playwright sobre a stack (exige `make run` no ar)
 ```
 
-Migration nova: além dos testes de integração, confira à mão que ela **não
-escreve dado** (a regra do [CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados)) —
-não há mais automação para isso:
+O `make verificar` reúne o que a esteira fazia sozinha: `gofmt`, `go vet`, a
+regra de que **migration não escreve dado** (o grep do
+[CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados)), os testes com `-race`, o
+Prettier, o `svelte-check` e os testes de unidade do frontend. A diferença é que
+agora ele só roda se você rodar.
 
-```bash
-grep -rniE '^[[:space:]]*(INSERT|UPDATE|DELETE)[[:space:]]' backend/migrations/
-# nada = ok. Achou algo → mova o backfill para um comando do domínio.
-```
+O `make test-e2e` termina gerando `frontend/e2e/relatorio/resumo.md` — cada
+cenário do catálogo com o resultado e o print da tela. É o artefato a conferir
+antes de publicar.
 
 E valide o Ansible antes de aplicar:
 
@@ -59,7 +61,8 @@ torna públicos (Packages → Package settings), ou o servidor faz `docker login
 (o `make infra-apply` faz, se `vault_ghcr_token` estiver no vault).
 
 **Fixe sempre a tag no SHA.** É o que garante que o servidor sobe exatamente o
-que você testou, e é o que torna o rollback uma linha no `.env`.
+que você testou, e é o que torna o rollback o mesmo comando do deploy, com o SHA
+anterior ([producao.md](producao.md#voltar-atrás)).
 
 ---
 
@@ -70,7 +73,7 @@ que você testou, e é o que torna o rollback uma linha no `.env`.
 make infra-apply
 
 # o deploy em si:
-ssh -i ~/.ssh/stacktrack_deploy -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
+ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
 ```
 
 O wrapper (`stacktrack-release`, instalado pelo Ansible) faz, nessa ordem:
@@ -87,7 +90,7 @@ E o teste que vale mais que os `curl`: **cadastro → login → criar quadro →
 
 O wrapper é a fronteira do que uma chave de deploy alcança —
 `scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
-substituição de comando, SHA malformado, allowlist do `sync`) e roda em
+substituição de comando, SHA malformado, o `sync` que saiu com a esteira) e roda em
 `make infra-validar`.
 
 ---
@@ -253,6 +256,15 @@ migration que falhou ou `.env` incompleto.
 - **Dependabot / atualização de dependência.** Manual; quem avisa é você rodando
   a §4.
 - **Análise estática de segurança** (CodeQL, gosec). Não configurada.
+- **Os segredos que a esteira deixou no GitHub.** O repositório ainda pode ter,
+  em **Settings → Environments → production** e em **Settings → Secrets and
+  variables → Actions**, os segredos que ela usava: `VPS_SSH_KEY` (a metade
+  privada da chave de deploy antiga), `VPS_HOST`, `VPS_USER`, `VPS_PORT`,
+  `VPS_KNOWN_HOSTS`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` e a variável
+  `DOMINIO`. Nada mais os usa, e a chave de deploy que eles guardavam foi
+  revogada no servidor (`chaves_revogadas`) — mas segredo sem uso é segredo
+  esperando vazar: apague-os, e o environment `production` junto. O mesmo vale
+  para o token do Docker Hub, no próprio Docker Hub.
 
 ---
 

@@ -1,7 +1,8 @@
 # stacktrack
 
-Quadro Kanban colaborativo em tempo real (Go + SvelteKit). O roteiro completo,
-fase a fase, com as fontes de estudo de cada uma, está em [PLANO.md](PLANO.md).
+Quadro Kanban colaborativo em tempo real (Go + SvelteKit). O mapa da
+documentação está em [README.md](README.md); o que ainda falta, em
+[docs/historico-do-projeto.md](docs/historico-do-projeto.md#-o-que-ainda-falta).
 
 ---
 
@@ -43,9 +44,9 @@ Não usar nas migrations:
 - `UPDATE`, `INSERT` ou `DELETE` — **migration não escreve dado**. Todo backfill
   precisa decidir com que valor as linhas antigas ficam, e essa decisão é do
   domínio; em SQL ela vira uma segunda fonte da verdade, sem teste e sem
-  conserto, porque migration aplicada não se corrige. A conferência é humana —
-  não há automação que a faça cumprir. O comando que a checava está preservado
-  em `docs/entrega-continua.md`, para rodar à mão numa revisão de migration.
+  conserto, porque migration aplicada não se corrige. O `make verificar` roda o
+  grep que a confere — mas só se alguém rodar: não há esteira que o faça
+  cumprir sozinha.
 
 ### Migration que aperta exige dois deploys
 
@@ -97,10 +98,16 @@ correção vai para a role, e o `make infra-apply` é quem aplica.
 - não mexer no que é do studygo no servidor (o usuário dele, o `cloudflared`, o
   nginx de sistema). A conta `studygo` só serve para o primeiro
   `make infra-preparar`, quando o `stacktrack` ainda não existe
+- as chaves SSH do servidor são só do stacktrack: `~/.ssh/stacktrack_servidor`
+  (operador, shell e sudo) e `~/.ssh/stacktrack_release` (presa ao wrapper,
+  três verbos, nenhum que escreva arquivo). Trocar uma é pôr a antiga em
+  `chaves_revogadas` no `vars.yml` — com `exclusive: false`, ela continuaria
+  valendo
 
 **Não há esteira.** O GitHub Actions foi removido: testar, buildar, publicar as
 imagens no GHCR e implantar são passos manuais — ver
-[docs/entrega-continua.md](docs/entrega-continua.md).
+[docs/entrega-continua.md](docs/entrega-continua.md). O `make verificar` reúne o
+que ela conferia sozinha; antes de publicar, ele, a integração e o E2E.
 
 O deploy é `stacktrack-release release <sha>` (o wrapper faz backup, `pull`,
 para web e api, `up -d`). O `docker-compose.prod.yml` e o `backup.sh` são do
@@ -115,28 +122,73 @@ Detalhes em [docs/infraestrutura.md](docs/infraestrutura.md).
 
 ---
 
-## README
+## 📚 Documentação
 
-Sempre que uma nova rota for criada, ela deve ser adicionada à tabela de rotas no `README.md`, com a descrição do que ela faz — inclusive os códigos de erro que importam para quem chama (o 409 do card em disputa, o 404 de quem não participa).
+### Fontes de verdade
 
-**Não há Swagger, e isso é decisão tomada, não pendência.** O plano original previa Swaggo na fase 8; ficou de fora porque a tabela do README já responde à mesma pergunta, e uma segunda descrição das rotas — gerada de anotações no código — seria uma fonte da verdade a mais para manter alinhada, com o custo de poluir cada handler com blocos `@Summary`/`@Router`. Se a API um dia passar a ser consumida por terceiros, aí a conta muda e vale reabrir.
+Cada assunto tem **um** documento dono. Evite duplicar o que está nele — aponte
+para ele:
 
-### Estrutura de documentação
+| | Arquivo | Contém |
+|---|---|---|
+| 🛠️ | `Makefile` | os comandos (`make ajuda` lista; a descrição fica no próprio alvo) |
+| 📖 | `README.md` | o produto, a stack e o mapa da documentação |
+| 🐣 | `docs/como-funciona.md` | o projeto sem jargão, para quem chega agora |
+| 🧭 | `docs/funcionalidades.md` | cada funcionalidade: na tela, por baixo, as regras e os limites |
+| 📐 | `docs/arquitetura.md` | camadas, decisões centrais, modelo de dados, contrato HTTP, **rotas** e vocabulário |
+| 🚀 | `docs/rodar-local.md` | ambiente local, o `.env`, o dia a dia e as armadilhas |
+| 🔄 | `docs/fluxo-de-trabalho.md` | o caminho de uma mudança: cenário, código, checagens, commit, publicação |
+| 🧪 | `docs/testes.md` | cada camada de teste: build tags, Testcontainers, Playwright |
+| 🧪 | `frontend/e2e/CENARIOS.md` | como cada funcionalidade pode quebrar, com os ids que os testes citam |
+| 📖 | `docs/tecnologias.md` | o stack peça por peça: o que é → por que está aqui → onde estudar |
+| 🔁 | `docs/entrega-continua.md` | publicação, varredura de vulnerabilidades e deploy, todos manuais |
+| 🚢 | `docs/producao.md` | o servidor no ar: primeiro deploy, backup, email, diagnóstico e manutenção |
+| 🏗️ | `docs/infraestrutura.md` | o Ansible: playbooks, segredos, recomeço do zero |
+| 🐘 | `backend/migrations/README.md` | a sequência vigente das migrations e o porquê de cada uma |
+| 📜 | `docs/historico-do-projeto.md` | o caminho já percorrido e o que ainda falta |
+| 📌 | `go.mod`, `package.json`, lockfiles, Dockerfiles, compose | versões |
 
-O `README.md` é enxuto — cartão de visitas: stack resumida, quick start, tabela de rotas, comandos de teste, e links para `docs/`. Não crescer o README com conteúdo detalhado; extrair para arquivos dedicados em `docs/`:
+**Quando documentação e código divergirem, vale o código:** investigue a
+implementação e corrija a documentação relacionada no mesmo conjunto de
+alterações. Documento que descreve o que o sistema fazia é pior que documento
+nenhum, porque é lido com confiança.
 
-- `docs/tecnologias.md` — guia de estudo do stack (o que é, por que está no projeto, fontes oficiais para aprofundar)
-- `docs/testes.md` — instruções detalhadas de cada camada de teste (build tags, Testcontainers, Playwright)
-- `docs/regra-de-negocio.md` — modelo de negócio
-- `docs/producao.md` — arquitetura no servidor do WSL, primeiro deploy, backup e operação
-- `docs/entrega-continua.md` — publicação, varredura de vulnerabilidades e deploy, todos manuais
+### O que muda junto com o código
 
-O `PLANO.md` começa pelo estado atual das fases e depois preserva o roteiro e as
-retrospectivas. Backlog de produto fica nele; procedimento operacional fica em
-`docs/producao.md`. Números históricos de migration precisam ser marcados como
-tais e apontar para `backend/migrations/README.md`, que é a sequência vigente.
+- **Rota nova** entra na tabela de rotas de
+  [docs/arquitetura.md](docs/arquitetura.md#rotas), com a descrição do que ela
+  faz — inclusive os códigos de erro que importam para quem chama (o 409 do card
+  em disputa, o 404 de quem não participa).
+- **Regra ou tela nova** muda a seção dela em
+  [docs/funcionalidades.md](docs/funcionalidades.md), no roteiro que o documento
+  já usa: na tela → por baixo → regras → no código.
+- **Tecnologia nova ou decisão de arquitetura relevante** entra em
+  `docs/tecnologias.md` no padrão estabelecido (o que é → por que está aqui, com
+  referência a arquivo real do código → fontes para estudo) — e não só uma
+  menção de passagem.
+- **Comando novo** ganha a descrição `## …` na linha do alvo do `Makefile`.
 
-Ao adicionar uma tecnologia nova ou uma decisão de arquitetura relevante, documentar em `docs/tecnologias.md` seguindo o padrão já estabelecido (o que é → por que está aqui, com referência a arquivo real do código → fontes para estudo), não só mencionar em passant no README.
+**Não há Swagger, e isso é decisão tomada, não pendência.** O plano original
+previa Swaggo na fase 8; ficou de fora porque a tabela de rotas já responde à
+mesma pergunta, e uma segunda descrição das rotas — gerada de anotações no
+código — seria uma fonte da verdade a mais para manter alinhada, com o custo de
+poluir cada handler com blocos `@Summary`/`@Router`. Se a API um dia passar a ser
+consumida por terceiros, aí a conta muda e vale reabrir.
+
+### Como os documentos são escritos
+
+- O `README.md` é **cartão de visitas**: o que o produto faz, a stack, como
+  começar, os comandos e o mapa de `docs/`. Detalhe vai para o documento dono.
+- Todo documento de `docs/` abre com **"Em uma frase:"** — o que ele responde —
+  e aponta para `como-funciona.md` quem chega sem contexto.
+- `como-funciona.md` não usa jargão: o termo técnico, quando aparece, vem
+  explicado.
+- Descreve-se o sistema **como ele é hoje**. Quando uma decisão substituiu outra,
+  o motivo fica registrado só se ainda restringe o que pode mudar; a história vai
+  para `docs/historico-do-projeto.md`.
+- O que ainda falta fica em `docs/historico-do-projeto.md`; procedimento
+  operacional, em `docs/producao.md`. Números históricos de migration são marcados como tais e
+  apontam para `backend/migrations/README.md`, que é a sequência vigente.
 
 ---
 
@@ -148,6 +200,40 @@ Comentários sempre em português.
 - Arquivo com papel não óbvio pelo nome/caminho ganha um comentário de cabeçalho explicando para que ele serve (ex: `// Cliente HTTP fino sobre fetch para falar com a API Go.`).
 - Fora isso, comentário só quando o "porquê" não é óbvio pelo código — uma decisão, um trade-off, uma limitação do ambiente (ex: `// localStorage indisponível: mantém a escolha só nesta sessão`). Nunca comentário descrevendo o que o código já deixa claro sozinho.
 - Anotações Swag/godoc (`@Summary`, `@Router` etc.) seguem o formato exigido pela ferramenta, não esse padrão.
+
+---
+
+## 🧪 Testes
+
+- Um teste confere o que o usuário vê ou o que fica gravado — nunca a ordem
+  das chamadas a uma porta.
+- **E2E primeiro**, para o que passa pela tela. No final, produza um artefato
+  verificável e repetível.
+- **Integração** (tag `integracao`, PostgreSQL efêmero do Testcontainers) para
+  o resto do backend: casos de uso ligados aos repositories reais e à
+  `UnidadeDeTrabalho` de verdade (`backend/test/repository/convite_email_test.go`)
+  e o servidor inteiro por HTTP, com a mesma montagem da produção
+  (`backend/cmd/api/servidor_test.go`).
+- **Teste sem Docker só para** função pura de domínio ou de parser cujo
+  resultado o usuário vê (a chave de ordenação, o texto do email de convite,
+  o Markdown do comentário, o filtro de cards, as frases da auditoria) e para os
+  guarda-corpos estruturais (toda coluna das migrations coberta pelo SQL, o
+  wrapper de release).
+- **Proibido fake ou mock de port nosso no lugar do banco.** Dublê só na
+  fronteira de fora: relógio, servidor SMTP (`backend/test/smtpfalso`; o Mailpit
+  no E2E). Falha de gravação se provoca no próprio banco — lock segurado por
+  outra transação, `statement_timeout` (ver `tetos_de_banco_test.go`). Os fakes
+  em memória de `backend/test/repository/memoria` são legado: não crescem, e
+  teste novo não os usa.
+- **NUNCA** escreva o teste depois do código: **PRIMEIRO** escreva como a
+  funcionalidade pode quebrar (em `frontend/e2e/CENARIOS.md` ou no comentário
+  do teste), **DEPOIS** o código.
+
+A suíte E2E vive em `frontend/e2e/`: o catálogo de falhas em
+`frontend/e2e/CENARIOS.md` (cada teste cita no título o id que cobre) e o
+relatório de cada execução em `frontend/e2e/relatorio/resumo.md`, com o
+resultado e o print de cada cenário. Como rodar está em
+[docs/testes.md](docs/testes.md).
 
 ---
 

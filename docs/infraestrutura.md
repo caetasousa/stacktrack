@@ -1,5 +1,8 @@
 # 🧱 Infraestrutura como código
 
+> **Em uma frase:** o que é do stacktrack no servidor, descrito em Ansible — os
+> playbooks, o vault e como recomeçar do zero.
+
 A **aplicação** descrita em Ansible, em `deploy/ansible/`. O que antes era um
 roteiro de comandos para copiar à mão em `producao.md` agora é um playbook que
 se pode rodar quantas vezes quiser.
@@ -42,9 +45,10 @@ precisa saber qual é.
 
 A divisória não é estética. `provisionar.yml` não precisa de privilégio nenhum:
 tudo mora no home do `stacktrack` e o Docker é o rootless dele. Só o outro
-exige privilégio. A chave de deploy — a que você usaria de um script ou de outra
-máquina — está presa a um comando forçado que executa quatro verbos (`sync`,
-`release`, `backup`, `estado`) e nada de `preparar-host.yml`.
+exige privilégio. A chave de release — a que você usaria de um script ou de
+outra máquina — está presa a um comando forçado que executa três verbos
+(`release`, `backup`, `estado`), nenhum que escreva arquivo, e nada de
+`preparar-host.yml`.
 
 O `preparar-host.yml` entra como `stacktrack` e sobe por `sudo`, em vez de logar
 como root: o sshd do servidor tem `PermitRootLogin no`. Na **primeira vez**, com
@@ -111,9 +115,19 @@ O deploy **não tem conta própria**: ele entra no `stacktrack`, e o que o limit
 
 ```
 authorized_keys do stacktrack
-├── chave do operador                                    → shell normal
-└── restrict,command="/usr/local/bin/stacktrack-release" → quatro verbos
+├── operador-stacktrack (~/.ssh/stacktrack_servidor)     → shell normal
+└── restrict,command="/usr/local/bin/stacktrack-release" → três verbos
+    release-stacktrack (~/.ssh/stacktrack_release)
 ```
+
+As duas chaves são **do stacktrack, e de nada mais**. Trocar uma é trocar a
+pública no `vars.yml` e pôr a antiga em `chaves_revogadas`, que a role mantém
+ausentes do `authorized_keys` — com `exclusive: false`, só trocar o valor deixaria
+a antiga lá, valendo. Foi como saíram, em out/2026, as duas da época da esteira:
+a de deploy tinha a metade privada nos segredos do repositório no GitHub, e a de
+operador era a chave da esteira do agendaGo. A revogação é a última task da role,
+depois de as chaves novas estarem instaladas, para não trancar do lado de fora a
+execução que faz a troca.
 
 `command=` faz o sshd executar aquele programa e ignorar o que o cliente pediu;
 o pedido vai para `SSH_ORIGINAL_COMMAND`, como dado. `restrict` desliga PTY,
@@ -126,15 +140,19 @@ terminar num shell sem poder nenhum: falharia fechado, e esta escolha falha
 aberta. A mitigação é o `authorized_keys` ser escrito pelo playbook, e não à
 mão.
 
-O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende `sync`,
-`release <sha>`, `backup` e `estado`, e recusa o resto. `sync` é o único que
-escreve arquivo — recebe o `docker-compose.prod.yml` pelo stdin e o passa por
-uma allowlist (imagem do projeto, Postgres ou o nginx `unprivileged` da borda; sem `privileged`, namespace do
-host, bind mount ou capability nova) antes de instalar. Ele lê
-`SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é dado,
-não código. `scripts/testa-wrapper-de-release.sh` executa o script renderizado
-contra um `docker` de mentira e exige recusa para shell, encadeamento,
-substituição de comando e SHA malformado — e roda em `make infra-validar`.
+O wrapper (`/usr/local/bin/stacktrack-release`, root:root 0755) entende
+`release <sha>`, `backup` e `estado`, e recusa o resto. Nenhum dos três escreve
+arquivo: o compose, o `.env` e o `backup.sh` só chegam pelo `make infra-apply`.
+Houve um quarto, `sync`, que instalava o compose recebido pelo stdin — era como
+a esteira o entregava —, e ele saiu com ela: o compose carrega a configuração da
+borda, e reescrevê-lo seria entregar o roteamento do domínio a quem tivesse a
+chave de release.
+
+Ele lê `SSH_ORIGINAL_COMMAND` com `read -ra`, nunca `eval`: a linha do cliente é
+dado, não código. `scripts/testa-wrapper-de-release.sh` executa o script
+renderizado contra um `docker` de mentira e exige recusa para shell,
+encadeamento, substituição de comando, SHA malformado e o `sync` — e roda em
+`make infra-validar`.
 
 ---
 

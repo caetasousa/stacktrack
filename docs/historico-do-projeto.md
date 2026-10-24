@@ -1,9 +1,13 @@
 # stacktrack — histórico do projeto
 
-Este documento preserva o caminho que trouxe o stacktrack até o estado atual.
-Ele **não é o backlog** e não deve ser usado para decidir a próxima entrega. O
-roadmap executável, com prioridades, dependências e critérios de aceite, está em
-[PLANO.md](../PLANO.md).
+> **Em uma frase:** como o stacktrack chegou até aqui — o que foi decidido,
+> descartado e aprendido — e o que ainda falta para tratar o sistema como pronto
+> para dados valiosos.
+
+Este documento preserva o caminho que trouxe o stacktrack até o estado atual e,
+no fim, [o que ainda falta](#-o-que-ainda-falta). O `PLANO.md`, que guardava o
+roadmap etapa por etapa (A1–A12), saiu em out/2026; o texto dele continua no
+histórico do Git.
 
 O histórico foi separado porque o plano anterior misturava quatro coisas:
 
@@ -118,7 +122,8 @@ permanecem no histórico do Git, não neste documento.
 
 ### API e documentação
 
-A tabela de rotas do README continua sendo a documentação humana da API.
+A tabela de rotas continua sendo a documentação humana da API — saiu do README
+para [arquitetura.md](arquitetura.md#rotas) em out/2026.
 Swagger UI ficou de fora. O roadmap novo acrescenta proteção de contrato por
 fixtures compartilhadas e validação em runtime, sem criar uma segunda descrição
 manual das rotas.
@@ -127,7 +132,8 @@ manual das rotas.
 
 - Frontend e API compartilham a mesma origem pública.
 - O cookie de produção usa o prefixo `__Host-`.
-- A borda do VPS é o único proxy externo (hoje o Traefik do projeto `loadbalancer`).
+- A borda é o único proxy externo: no VPS, o Traefik do projeto `loadbalancer`;
+  desde out/2026, o nginx do próprio compose, atrás do túnel da Cloudflare.
 - O host recebe imagens prontas; nunca compila o projeto.
 - PostgreSQL e anexos permanecem em volumes locais enquanto o perfil suportado
   for uma única instância.
@@ -247,9 +253,11 @@ recuperação, observabilidade e capacidade estiverem prontas.
 
 ## Onde estudar e operar
 
+- [como-funciona.md](como-funciona.md): o mapa do projeto, sem jargão.
+- [funcionalidades.md](funcionalidades.md): comportamento atual do produto, tela por tela.
+- [arquitetura.md](arquitetura.md): camadas, modelo de dados, contrato HTTP e rotas.
 - [tecnologias.md](tecnologias.md): modelo mental e decisões técnicas.
 - [testes.md](testes.md): camadas de teste e limites de cada uma.
-- [regra-de-negocio.md](regra-de-negocio.md): comportamento atual do produto.
 - [producao.md](producao.md): topologia, deploy, backup e operação.
 - [infraestrutura.md](infraestrutura.md): Ansible e reconstrução do host.
 - [entrega-continua.md](entrega-continua.md): publicar imagens, varrer e implantar (manual).
@@ -258,3 +266,31 @@ Quando uma etapa do roadmap mudar o comportamento real, esses documentos devem
 ser atualizados no mesmo conjunto de alterações. O histórico, por outro lado,
 só muda quando uma etapa inteira termina e deixa um aprendizado que vale
 preservar.
+
+---
+
+## 📋 O que ainda falta
+
+O roadmap de produção tinha doze etapas. A1–A4 (autorização, atomicidade,
+tempo real por revisão, limites) estão concluídas; A12 entrou com o convite por
+email e a recuperação de senha. O resto, na ordem em que fazia sentido:
+
+| Etapa | O que falta | Por que importa |
+|---|---|---|
+| A5 | terminar o privilégio mínimo do host (a parte do stacktrack está no Ansible) | uma credencial vazada não pode valer o servidor inteiro |
+| A6 | **backup fora da máquina e restauração ensaiada** (RPO 24 h, RTO 4 h) | hoje o backup mora no mesmo disco; e o coletor de anexos fica em fail-closed até existir esta prova |
+| A7 | promover a imagem por digest, sem recompilar, e verificar a cadeia de suprimentos | o que roda tem de ser exatamente o que foi testado |
+| A8 | observabilidade, SLO de 99,5% e alertas acionáveis | ninguém avisa quando algo para — nem o backup |
+| A9 | contrato de API verificado entre backend e frontend; acessibilidade dos fluxos críticos | erro previsível no cliente, e tela usável sem mouse |
+| A10 | medir a capacidade (25 conexões, 1.000 cards) e aplicar eventos sem recarregar o quadro | recarregar é correto, mas custa uma requisição por evento |
+| A11 | privacidade e ciclo de dados: exportar, apagar, reter | o que acontece com os dados de quem sai |
+| A12 | confirmar a conta por email; trocar nome, email e senha estando logado | hoje o email do cadastro não é verificado |
+
+E duas melhorias conhecidas, que não são critério de nada:
+
+- **Derrubar o WebSocket no instante em que o acesso muda**, e não na
+  revalidação seguinte (até 30 s). Exige um canal de invalidação que só faz
+  sentido com mais de uma instância.
+- **Reservar a cota de anexo antes de receber os bytes**, em vez de conferir
+  depois de gravar. Hoje o recusado é descartado e nada fica órfão; o custo é I/O
+  num caminho de exceção.

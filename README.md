@@ -1,173 +1,171 @@
-# stacktrack
+# 🗂️ stacktrack
+
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Ansible](https://img.shields.io/badge/Ansible-provisionamento-EE0000?logo=ansible&logoColor=white)
 
 **Quadro Kanban colaborativo em tempo real.** Várias pessoas movem cards no
-mesmo quadro e todas veem na hora, sem recarregar a página.
+mesmo quadro e todas veem na hora, sem recarregar a página — com convite por
+email, papéis, histórico de quem mexeu em quê e um link público para quem só
+acompanha.
 
 🔗 **[stacktrack.d4ffy.com](https://stacktrack.d4ffy.com)**
 
 Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado entre
-clientes** — o roteiro completo, fase a fase e com as fontes de cada uma, está em
-[PLANO.md](PLANO.md).
+clientes**: o que acontece quando duas pessoas mexem na mesma coisa ao mesmo
+tempo, e como cada tela fica sabendo. O caminho até aqui, e o que ainda falta,
+está em [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
 
-> **Estado atual: fases 0–11 concluídas, com ajustes de escopo.** O quadro tem
-> colaboração ao vivo, presença, replay após reconexão, bloqueio otimista,
-> responsáveis, comentários, histórico completo e link público de
-> acompanhamento. A fase 12 (aplicar eventos sem recarregar o quadro) está
-> adiada porque a medição ainda não justificou o risco. O estado de todas as
-> fases está no início do [PLANO.md](PLANO.md).
+---
 
-## Documentação
+## O que ele faz
 
-| | |
-|---|---|
-| [docs/producao.md](docs/producao.md) | arquitetura no ar, primeiro deploy, backup e operação |
-| [docs/infraestrutura.md](docs/infraestrutura.md) | o servidor como código: playbooks, segredos e recomeço do zero |
-| [docs/entrega-continua.md](docs/entrega-continua.md) | publicar as imagens, varrer vulnerabilidades e implantar — tudo manual |
-| [docs/tecnologias.md](docs/tecnologias.md) | o stack peça por peça: o que é, por que está aqui, onde estudar |
-| [docs/regra-de-negocio.md](docs/regra-de-negocio.md) | o que o produto faz — papéis, convites, cards e ordenação |
-| [docs/testes.md](docs/testes.md) | as camadas de teste, o que cada uma cobre e o que não cobre |
-| [CLAUDE.md](CLAUDE.md) | convenções do repositório |
+- **Quadro, colunas e cards** — arrastar e soltar, com cor por coluna (o card
+  herda a da etapa) e descrição em Markdown. Mover um card reescreve **uma
+  linha**: duas pessoas arrastando ao mesmo tempo não desfazem o trabalho uma da
+  outra.
+- **Tempo real** — a mudança de um aparece na tela dos outros sem recarregar,
+  inclusive no card aberto. Mostra **quem está no quadro** e **quem está
+  editando cada coluna**; caiu a conexão, a tela avisa, reconecta sozinha e
+  recebe o que perdeu.
+- **Edição sem atropelo** — duas pessoas editando o mesmo card: a primeira a
+  salvar ganha, e a segunda é avisada **com o texto dela preservado**.
+- **Tudo o que pende de um card** — responsáveis, etiquetas, prazo (com
+  "vencido"), checklists com progresso, anexos (link ou arquivo), comentários e
+  o histórico do card.
+- **Convite por email** — o dono informa o email e o papel (**dono**,
+  **editor** ou **leitor**). Quem não tem conta cria uma pelo próprio convite;
+  quem tem entra com a conta de sempre, e o quadro aparece em "Compartilhados
+  com você" — só ele, e não os outros quadros do dono. A tela mostra se o email
+  saiu, e o convite se reenvia ou revoga.
+- **Histórico do quadro** — quem criou, moveu, renomeou, apagou, comentou,
+  entrou ou saiu, com filtro por pessoa. Todo card movido mostra "movido por Ana
+  há 5 min".
+- **Link público** — o quadro em modo de leitura para quem não tem conta: o
+  andamento do trabalho sai; comentários, nomes de quem trabalha e anexos, não.
+- **Recuperar a senha** — o link chega por email, vale uma hora e uma vez, e
+  trocar a senha tira a conta de todos os aparelhos. Pedir não revela se o
+  email tem conta.
+- **Filtro** por responsável, etiqueta e "só vencidos".
+- **No celular** — toque abre o card, tocar e segurar arrasta; rolar a lista
+  nunca levanta card sem querer.
+- **Permissão conferida no servidor**, a cada operação: quem não participa de um
+  quadro não descobre nem que ele existe.
 
-## Stack
+O detalhe de cada uma — o que se faz na tela, o que acontece por baixo e as
+regras — está em **[docs/funcionalidades.md](docs/funcionalidades.md)**.
 
-| Camada | Tecnologia |
-|---|---|
-| Backend | Go 1.26 · [chi](https://github.com/go-chi/chi) · [pgx](https://github.com/jackc/pgx) · [log/slog](https://pkg.go.dev/log/slog) |
-| Banco | PostgreSQL 16 · migrations com [Flyway](https://flywaydb.org/) |
-| Frontend | [Svelte 5](https://svelte.dev) + [SvelteKit](https://svelte.dev/docs/kit) · TypeScript · [Tailwind 4](https://tailwindcss.com/) |
-| Testes | `go test` · [Vitest](https://vitest.dev/) |
-| Ambiente | Docker Compose · [Mailpit](https://mailpit.axllent.org/) |
-| Produção | servidor na distro `ubuntu-server` do WSL · Docker rootless · borda nginx atrás de um túnel da Cloudflare · imagens no GHCR (build e push manuais) · deploy por SSH (`stacktrack-release`) |
-| Infraestrutura | [Ansible](https://docs.ansible.com/ansible/latest/) — a aplicação provisionada por playbook, segredos em `ansible-vault` |
+---
 
-Arquitetura hexagonal no backend (`domain` / `usecase` / `adapter`). O detalhe de
-cada escolha está em [docs/tecnologias.md](docs/tecnologias.md).
+## 🧰 Stack
 
-> **Sem envio de email.** Confirmação de cadastro e recuperação de senha ficaram
-> de fora por isso, e o convite virou **link**: quem já tem conta com o email
-> convidado entra na hora; quem não tem recebe um link que o dono copia e envia
-> por onde quiser.
+| | Tecnologia | Papel |
+|---|---|---|
+| 🐹 | **Go 1.26** | API hexagonal (`domain` / `usecase` / `adapter`), [chi](https://github.com/go-chi/chi), [pgx](https://github.com/jackc/pgx) e SQL à mão, [log/slog](https://pkg.go.dev/log/slog) |
+| 📡 | **WebSocket** | o tempo real, com replay por revisão do quadro — dentro da própria API |
+| 🧡 | **SvelteKit · Svelte 5** | a tela, em runes, TypeScript e [Tailwind 4](https://tailwindcss.com/); servida pelo `adapter-node` |
+| 🐘 | **PostgreSQL 16** | a fonte da verdade, inclusive o log de eventos e as filas de saída; migrations com [Flyway](https://flywaydb.org/) |
+| ✉️ | **SMTP** | o convite por email, por um outbox cifrado — [Brevo](https://www.brevo.com/) em produção, [Mailpit](https://mailpit.axllent.org/) no desenvolvimento |
+| 🧪 | **go test · Vitest · Playwright · Testcontainers** | E2E com navegador de verdade e integração contra PostgreSQL de verdade |
+| 🐳 | **Docker Compose** | a stack local, com recarga automática nos dois lados |
+| 🌐 | **nginx + Cloudflare Tunnel** | a borda no servidor; HTTPS e acesso público pelo túnel, sem porta aberta |
+| 📕 | **Ansible** | o que é da aplicação no servidor, com os segredos em `ansible-vault` |
 
-## Quick start
+Cada peça — o que é, por que está aqui, onde estudar — está em
+[docs/tecnologias.md](docs/tecnologias.md).
 
-Requer Docker com Compose, Node/npm e OpenSSL. Go só é necessário para executar
-os testes do backend diretamente no host.
+---
+
+## 📐 Arquitetura
+
+```mermaid
+flowchart LR
+    U(("🧑 Navegador")) -- HTTPS --> CF["☁️ Cloudflare"]
+    CF -- túnel --> B["🌐 borda<br/>nginx"]
+    B -- "/api" --> A["🐹 API Go<br/>REST + WebSocket"]
+    B -- "/" --> W["🧡 web<br/>SvelteKit"]
+    A --> P[("🐘 PostgreSQL")]
+    A --> D[("📎 anexos")]
+    A -. "outbox" .-> M["✉️ Brevo"]
+```
+
+Uma API, num processo só. Toda mudança grava, **no mesmo commit**, o evento que
+a descreve; o tempo real, o histórico e o selo "movido por" são leituras desse
+log. O aviso às telas, o envio de email e a faxina rodam dentro da própria API.
+As decisões estruturais, o modelo de dados e **todas as rotas** estão em
+**[docs/arquitetura.md](docs/arquitetura.md)**; as convenções para contribuir,
+em **[CLAUDE.md](CLAUDE.md)**.
+
+---
+
+## 🚀 Começar
+
+Requer Docker com Compose, Node/npm e OpenSSL (Go, para os testes do backend).
 
 ```bash
 make run
 ```
 
-Sobe tudo em primeiro plano; `Ctrl+C` encerra. Na primeira vez o alvo prepara o
-que faltar (`.env` com senha aleatória, `frontend/.env`, `npm install` no host) e
-pode repetir à vontade.
-
 | Serviço | Endereço |
 |---|---|
-| Frontend | http://localhost:5173 |
-| API | http://localhost:8080 |
-| Mailpit (reservado para envio futuro) | http://localhost:8025 |
-| Postgres | `localhost:5432` |
+| a tela | <http://localhost:5173> |
+| a API | <http://localhost:8080> |
+| o Mailpit — os emails do desenvolvimento | <http://localhost:8025> |
 
-Rodando outra stack local que use as mesmas portas ao mesmo tempo, o segundo
-`docker compose up` falha com "port is already allocated". Armadilhas do
-ambiente de desenvolvimento (o `EACCES` do `node_modules`, o `air` servindo
-binário velho) estão em
-[docs/tecnologias.md](docs/tecnologias.md#armadilhas-do-ambiente).
+Sobe tudo em primeiro plano, e `Ctrl+C` encerra. Na primeira vez prepara o que
+faltar (`.env` com senha aleatória, `frontend/.env`, `npm install` no host) —
+repetir é seguro. O passo a passo, o que muda em relação à produção e as
+armadilhas conhecidas estão em [docs/rodar-local.md](docs/rodar-local.md).
 
-## Testes
+---
 
-```bash
-make test            # backend (rápidos) + frontend
-make test-backend    # go test ./...
-make test-frontend   # vitest run
+## 🛠️ Comandos (`make`)
 
-make test-e2e        # Playwright sobre a stack (exige `make run` no ar)
+`make ajuda` lista os alvos com a descrição que fica no próprio Makefile — se
+esta tabela e ele discordarem, vale o Makefile.
 
-cd backend && make test-integracao   # repositórios contra Postgres real (Docker)
-cd backend && make test-tempo-real   # protocolo do WebSocket (exige a stack no ar)
+### Rodar e conferir
 
-cd backend && make test        # com -race, o detector de corrida
-cd frontend && npm run check   # tipos (svelte-check)
-```
+| Comando | O que faz |
+|---|---|
+| `make run` | sobe a stack de desenvolvimento (Postgres, migrations, API, tela e Mailpit) com recarga automática; `make` sozinho faz o mesmo |
+| `make verificar` | o que a esteira conferia, sem Docker: `gofmt`, `go vet`, a regra de que migration não escreve dado, os testes com `-race`, Prettier, `svelte-check` e Vitest |
+| `make test` | só os testes rápidos do backend e do frontend |
+| `make test-integracao` | casos de uso e o servidor HTTP contra PostgreSQL de verdade (Testcontainers). Exige Docker |
+| `make test-e2e` | o app inteiro pelo navegador (Playwright). Cada teste cobre um item de [`frontend/e2e/CENARIOS.md`](frontend/e2e/CENARIOS.md), e o relatório com o print de cada cenário fica em `frontend/e2e/relatorio/resumo.md`. Exige o `make run` no ar |
+| `make test-tempo-real` | duas abas pelo WebSocket, contra a API no ar |
 
-Detalhe de cada camada em [docs/testes.md](docs/testes.md).
+### Servidor
 
-## Manutenção do banco
+O servidor é a distro `ubuntu-server` do WSL desta máquina, publicada por um
+túnel da Cloudflare. **Não há esteira**: publicar as imagens e implantar são
+passos manuais ([docs/entrega-continua.md](docs/entrega-continua.md)).
 
-Um segundo binário, ao lado da API, para o que **não pode** ser feito por
-migration — a regra do projeto é que migration não escreve dado, porque todo
-backfill decide com que valor as linhas antigas ficam, e essa decisão é do
-domínio.
+| Comando | O que faz |
+|---|---|
+| `make infra-check` | mostra o que o `infra-apply` mudaria no servidor, sem tocar em nada |
+| `make infra-apply` | aplica o que é do stacktrack no servidor: `.env`, compose, backup, cron e papéis do banco |
+| `make infra-validar` | sintaxe e lint dos playbooks e o teste do wrapper de release, sem tocar no servidor |
+| `make infra-segredos` · `make infra-preparar` | uma vez só: os segredos do vault e a conta de deploy |
+| `stacktrack-release release <sha>` | o deploy, por SSH com a chave de release: backup, `pull`, `up -d` ([docs/producao.md](docs/producao.md#deploy-do-dia-a-dia)) |
 
-```bash
-cd backend
-go run ./cmd/manutencao reparar-ordenacao --conferir   # só relata; sai 1 se há trabalho
-go run ./cmd/manutencao reparar-ordenacao              # repara e reconfere
-```
+---
 
-`reparar-ordenacao` redistribui chaves de ordenação duplicadas, um quadro por
-transação e sob o lock de cada um — dá para rodar com a aplicação no ar. É a
-pré-condição do contract de unicidade descrito em
-[backend/migrations/README.md](backend/migrations/README.md). Procedimento
-completo em [docs/producao.md](docs/producao.md#manutenção-do-banco).
+## 📚 Documentação
 
-## Rotas
-
-A sessão viaja num cookie `HttpOnly` + `SameSite=Lax` (com prefixo `__Host-` e
-`Secure` em produção). O banco guarda só o SHA-256 do token; a senha, um hash
-Argon2id.
-
-| Método | Rota | O que faz |
+| | Documento | Para quê |
 |---|---|---|
-| `GET` | `/health` | Liveness: o processo está no ar. Não toca em dependência nenhuma. |
-| `GET` | `/ready` | Readiness, com o motivo separado: **503** se o banco estiver fora (sem ele nem leitura existe) e **200 com `escrita: false`** quando o disco está sem margem — aí a leitura continua e só a escrita é recusada. Traz `discoLivreBytes`, `discoLivrePorCem` e `tempoReal` (atraso do despachante e conexões derrubadas por lentidão). |
-| `POST` | `/auth/cadastro` | Cria a conta e já abre a sessão (201 + cookie). Conta e sessão entram no **mesmo commit**. **409** se o email já existir; **400** para senha com menos de 15 caracteres ou presente na lista local de senhas comuns. |
-| `POST` | `/auth/login` | Autentica e abre a sessão (200 + cookie). 401 genérico; 429 no teto por conta. |
-| `POST` | `/auth/logout` | Encerra a sessão no servidor e apaga o cookie (204, sempre). |
-| `GET` | `/auth/me` | Devolve a conta autenticada. **401** sem sessão válida; **429** com `Retry-After` quando o mesmo IP apresenta cookies desconhecidos demais — o teto é conferido **antes** da consulta ao banco, e vale para toda rota autenticada. |
-| `GET` | `/convites/{token}` | Detalhes do convite, **sem sessão** — é o que a tela do link mostra. O email vem **mascarado** (`a***@exemplo.com`) no campo `emailMascarado`: quem tem o link não é necessariamente quem foi convidado. Responde `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. |
-| `GET` | `/publico/{token}` | O quadro de um link de acompanhamento, **sem sessão**: colunas, cards, descrições, etiquetas, prazos e checklists. Sem responsáveis, comentários, anexos, histórico nem ids. **404** para token inventado, revogado ou de quadro apagado — os três iguais. Responde `Cache-Control: no-store` e `X-Robots-Tag: noindex`. |
-
-As demais exigem sessão e têm teto de requisições por sessão.
-
-| Método | Rota | O que faz |
-|---|---|---|
-| `GET`/`POST` | `/boards` | Lista os quadros de que você participa (com o seu papel) e cria um novo. |
-| `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só — lido sobre **um único instantâneo** do banco (`REPEATABLE READ`). Traz `revisao`, que é o cursor que a tela devolve ao WebSocket. |
-| `PATCH`/`DELETE` | `/boards/{id}` | Renomeia ou apaga o quadro. Só o dono. |
-| `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
-| `GET` | `/boards/{id}/publicacao` | O estado do link público, com a URL. Só o dono — **403** para editor e leitor, porque o token é o segredo do link. |
-| `PUT` | `/boards/{id}/publicacao` | Liga o link público e devolve a URL. Só o dono. Idempotente: repetir devolve o **mesmo** link. |
-| `DELETE` | `/boards/{id}/publicacao` | Revoga o link (204, mesmo que já não houvesse). O endereço morre na hora, e publicar de novo gera um token **diferente**. |
-| `POST` | `/boards/{id}/colunas` | Cria uma coluna no fim do quadro (201). |
-| `PATCH`/`DELETE` | `/colunas/{id}` | Renomeia (título e cor) ou apaga a coluna e os cards dela. |
-| `PATCH` | `/colunas/{id}/mover` | Reordena a coluna no quadro, **pelos vizinhos**. |
-| `POST` | `/colunas/{id}/cards` | Cria um card no fim da coluna (201). |
-| `GET` | `/cards/{id}` | O card com responsáveis, comentários, etiquetas, checklists e anexos — lidos no mesmo instantâneo `REPEATABLE READ`. Traz `revisao`, usada para o modal participar da confirmação do cursor do quadro. |
-| `PATCH`/`DELETE` | `/cards/{id}` | Edita título, descrição e cor, ou apaga. **409** se `version` estiver defasada. |
-| `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
-| `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
-| `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes, para o dono) e convida informando o email. **Sempre** devolve um link, tenha a pessoa conta ou não: conhecer um email não põe ninguém no quadro. **409** se ela já participa ou já tem convite pendente. |
-| `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
-| `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204). **Marca** como revogado em vez de apagar — a linha ainda responde "quem convidou quem, e quando". **404** para convite já aceito, já revogado ou inexistente: os três iguais. |
-| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro, no **mesmo commit**. **403** quando a sessão é de outro email — e o convite **não** é consumido. **404** para token inválido, vencido ou já usado, inclusive quando outra requisição venceu a corrida. |
-| `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
-| `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
-| `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |
-| `PUT`/`DELETE` | `/cards/{id}/responsaveis/{usuarioId}` | Marca e desmarca quem responde pelo card. **422** se a pessoa não participa do quadro. |
-| `GET` | `/cards/{id}/atividade` | O histórico do card: o que aconteceu, quem fez e quando. Read model sobre o log de eventos. |
-| `GET` | `/boards/{id}/atividade` | O histórico do quadro: tudo o que aconteceu — card, coluna, etiqueta, anexo, checklist, responsável, comentário, participação —, do mais recente para o mais antigo. Qualquer membro lê. Parâmetros opcionais: `filtro=movimentacoes\|tudo` (padrão `movimentacoes`), `autor={usuarioId}` e `antesDe={seq}` — o cursor da página seguinte, e não um número de página. Devolve `temMais` para a tela não oferecer um "carregar mais" vazio. |
-| `GET`/`POST` | `/cards/{id}/comentarios` | A conversa do card, do mais antigo para o mais novo, e escrever nela. Basta participar — comentar não exige papel de edição. |
-| `PATCH`/`DELETE` | `/comentarios/{id}` | Edita ou apaga. **403** ao editar o de outra pessoa: só o autor edita. Apagar, o autor no próprio e o dono em qualquer um. |
-| `POST` | `/cards/{id}/checklists` | Cria uma checklist no card. |
-| `PATCH`/`DELETE` | `/checklists/{id}` | Renomeia ou apaga (os itens vão junto). |
-| `POST` | `/checklists/{id}/itens` | Cria uma linha. |
-| `PATCH`/`DELETE` | `/itens/{id}` | Marca, renomeia ou apaga a linha. |
-| `POST` | `/cards/{id}/anexos/link` | Anexa uma URL. **422** quando o card já tem 20 anexos. Link não consome cota de disco. |
-| `POST` | `/cards/{id}/anexos/arquivo` | Envia um arquivo (multipart, até 10 MB). **413** para arquivo acima do limite individual; **422** quando o card já tem 20 anexos ou quando o quadro atingiu 1 GiB de arquivos. As duas cotas são conferidas **dentro da transação**, sob o lock do quadro — dois envios simultâneos não passam os dois. |
-| `GET`/`DELETE` | `/anexos/{id}` | Baixa ou apaga o anexo. |
-| `GET` | `/ws?board={id}&revisao={n}` | Abre o WebSocket do quadro e repõe tudo após a última revisão que a tela confirmou como aplicada. `desde={seq}` permanece apenas para clientes legados durante a transição. O handshake tem prazo e limites próprios; depois do `101`, a conexão longa usa ping, teto de frame/fila e revalidação periódica. |
-
-**A rota nunca informa o quadro.** Card, coluna e etiqueta são identificados por
-si, e o servidor descobre sozinho a que quadro pertencem (card → coluna →
-quadro). Informar um quadro pela URL não daria acesso a nada.
+| 🐣 | **[docs/como-funciona.md](docs/como-funciona.md)** | **comece por aqui** — o projeto explicado sem jargão |
+| 🧭 | **[docs/funcionalidades.md](docs/funcionalidades.md)** | cada funcionalidade de ponta a ponta: na tela, por baixo, as regras |
+| 📐 | **[docs/arquitetura.md](docs/arquitetura.md)** | camadas, decisões centrais, modelo de dados, contrato HTTP e **rotas** |
+| 🚀 | **[docs/rodar-local.md](docs/rodar-local.md)** | rodar localmente, o `.env`, o dia a dia e as armadilhas |
+| 🔄 | **[docs/fluxo-de-trabalho.md](docs/fluxo-de-trabalho.md)** | o caminho de uma mudança: cenário → código → verificar → commitar → publicar |
+| 🧪 | **[docs/testes.md](docs/testes.md)** | as camadas de teste, o que cada uma cobre e o que não cobre |
+| 📖 | **[docs/tecnologias.md](docs/tecnologias.md)** | o stack peça por peça: o que é, por que está aqui, onde estudar |
+| 🔁 | **[docs/entrega-continua.md](docs/entrega-continua.md)** | publicar as imagens, varrer vulnerabilidades e implantar — tudo manual |
+| 🚢 | **[docs/producao.md](docs/producao.md)** | o servidor no ar: primeiro deploy, backup, email, diagnóstico |
+| 🏗️ | **[docs/infraestrutura.md](docs/infraestrutura.md)** | o servidor como código: playbooks, segredos e recomeço do zero |
+| 📜 | **[docs/historico-do-projeto.md](docs/historico-do-projeto.md)** | como se chegou até aqui |
+| 🤖 | **[CLAUDE.md](CLAUDE.md)** | convenções para contribuir (e para a IA seguir) |

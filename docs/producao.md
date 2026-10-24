@@ -1,5 +1,8 @@
 # 🚀 Produção
 
+> **Em uma frase:** o servidor no ar — como ele está montado, o primeiro deploy e o dia a
+> dia: deploy, rollback, backup, email, diagnóstico e manutenção do banco.
+
 O stacktrack roda na distro **`ubuntu-server` do WSL desta máquina**, publicada
 por um **túnel da Cloudflare**. O servidor foi montado pelo `site.yml` do
 studygo, que divide a máquina com ele; cada projeto tem o seu usuário e o seu
@@ -83,9 +86,13 @@ Três detalhes que não são óbvios:
 **Se a location `/api/` sumir**, o `/api` cai no SvelteKit, o login não completa
 e o WebSocket não conecta.
 
-**Regressão consciente:** o bloco Caddy de antigamente redigia do *access log do
-proxy* os tokens de convite e de link público; o access log do nginx da borda não
-redige. O log da **aplicação** (`internal/pkg/logging`) continua sanitizando.
+**Tokens fora do log.** Em `/convite/…`, `/publico/…` e nas rotas da API
+correspondentes, o segmento do caminho É a credencial — e o link do convite
+viaja por email. O access log da borda usa um formato próprio (`redigido`) que
+troca esse segmento por `[redigido]` e deixa o Referer de fora; o log de erro
+fica em `crit`, porque ele repete a requisição inteira em falha de upstream,
+que é o que acontece num release. O log da **aplicação**
+(`internal/pkg/logging`) registra a rota, nunca o caminho com o token.
 
 ### Por que subdomínio, e não um caminho
 
@@ -163,31 +170,37 @@ para a tela de login", sem erro visível.
 
 ## 2️⃣ A chave e o wrapper de deploy
 
-Uma chave dedicada ao deploy do stacktrack — não a de outro projeto do servidor. Uma
-chave que abre dois projetos faz o comprometimento de um ser o comprometimento
-do outro:
+Duas chaves dedicadas ao stacktrack, e a nenhum outro projeto: uma chave que
+abre dois projetos faz o comprometimento de um ser o comprometimento do outro.
 
 ```bash
-ssh-keygen -t ed25519 -C deploy-stacktrack -f ~/.ssh/stacktrack_deploy -N ""
+ssh-keygen -t ed25519 -C operador-stacktrack -f ~/.ssh/stacktrack_servidor -N ""   # shell e sudo
+ssh-keygen -t ed25519 -C release-stacktrack  -f ~/.ssh/stacktrack_release  -N ""   # só o wrapper
 ```
 
-A **pública** vai para `esteira_chave_publica` em
-`deploy/ansible/group_vars/producao/vars.yml`, e o `make infra-preparar` a
-instala no servidor com `restrict` e comando forçado apontando para o wrapper.
-Guarde a **privada** onde só você a alcança.
+As **públicas** vão para `operador_chave_publica` e `chave_deploy_publica` em
+`deploy/ansible/group_vars/producao/vars.yml`, e o `make infra-preparar` as
+instala no servidor — a de release com `restrict` e comando forçado apontando
+para o wrapper. Guarde as **privadas** onde só você as alcança.
+
+Trocar uma chave é trocar a pública no `vars.yml` **e** pôr a antiga em
+`chaves_revogadas`: com `exclusive: false`, a antiga continuaria no
+`authorized_keys`, valendo. Foi assim que saíram as duas chaves da época da
+esteira (out/2026) — a de deploy tinha a metade privada nos segredos do GitHub,
+e a de operador era a chave da esteira do agendaGo.
 
 ### O que essa chave consegue fazer
 
-Nada além de quatro verbos. Ela está no `authorized_keys` do usuário
-`stacktrack` com `restrict` e `command="/usr/local/bin/stacktrack-release"`:
-não abre shell, não faz `scp`, não encaminha porta nem agente.
+Nada além de três verbos, e nenhum deles escreve arquivo. Ela está no
+`authorized_keys` do usuário `stacktrack` com `restrict` e
+`command="/usr/local/bin/stacktrack-release"`: não abre shell, não faz `scp`,
+não encaminha porta nem agente.
 
 A restrição é **da chave**, não da conta: a mesma conta aceita a sua chave de
-operador sem limite algum e esta de deploy limitada a quatro verbos.
+operador sem limite algum e esta de release limitada a três verbos.
 
 | Verbo | O que faz |
 |---|---|
-| `sync` | recebe o `docker-compose.prod.yml` pelo stdin, valida contra a allowlist (imagem do projeto, Postgres ou o nginx `unprivileged` da borda; sem `privileged`, namespace do host, bind mount ou capability nova) e instala. É o **único** que escreve arquivo |
 | `release <sha>` | pré-voo, backup, `pull`, para web e api, `up -d`, limpa imagens órfãs |
 | `backup` | um backup pontual |
 | `estado` | `compose ps`, o sha256 do compose e do `backup.sh`, fuso e cron |
@@ -195,8 +208,13 @@ operador sem limite algum e esta de deploy limitada a quatro verbos.
 O que limita quem tem essa chave é o comando forçado, e só ele: a conta em que
 ela mora tem Docker e sudo, porque é a conta que roda a aplicação.
 `scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
-substituição de comando, SHA malformado, allowlist do `sync`) e roda em
+substituição de comando, SHA malformado, o `sync` que saiu) e roda em
 `make infra-validar`.
+
+Houve um quarto verbo, `sync`, que instalava o `docker-compose.prod.yml`
+recebido pelo stdin — era como a esteira entregava o compose. Saiu com ela: o
+compose carrega a configuração da borda, e um verbo que o reescrevesse daria a
+quem tivesse a chave de release o roteamento do domínio inteiro.
 
 O `DOMINIO` que a aplicação usa vem do `.env` (escrito pelo Ansible a partir de
 `dominio` em `group_vars/producao/vars.yml`).
@@ -284,7 +302,7 @@ Os passos de build, push e `release` estão em
 sha=$(git rev-parse HEAD)
 # build + push das 3 imagens para ghcr.io/caetasousa/stacktrack-* (:$sha e :latest)
 make infra-apply                                   # se compose/backup.sh/papéis mudaram
-ssh -i ~/.ssh/stacktrack_deploy -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
+ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
 ```
 
 As imagens nascem **privadas**. Ou você as torna públicas em cada pacote
@@ -327,7 +345,7 @@ Uma linha, depois de publicar as imagens (ver
 [entrega-continua.md](entrega-continua.md)):
 
 ```
-ssh -i ~/.ssh/stacktrack_deploy stacktrack@<vps> "stacktrack-release release <sha>"
+ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release <sha>"
 ```
 
 A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,
@@ -344,9 +362,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 **O `docker-compose.prod.yml`, o `backup.sh`, o `.env` e os papéis do banco são
-do Ansible** — mudou algum deles, `make infra-apply` antes do `release`. (O
-wrapper tem um verbo `sync` que instala só o compose, validando-o contra uma
-allowlist; é útil para um ajuste pontual sem uma execução completa do playbook.)
+do Ansible** — mudou algum deles, `make infra-apply` antes do `release`. Não há
+outro caminho: a chave de release não escreve arquivo.
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas
@@ -364,11 +381,18 @@ corrigida com roll-forward a partir da release revisionada. Voltar à versão
 anterior só é seguro durante a janela de manutenção, antes de reabrir tráfego e
 antes de qualquer escrita nova.
 
-```bash
-$EDITOR .env       # IMAGE_TAG=<sha do commit bom>
-docker compose -f docker-compose.prod.yml stop web api
-docker compose -f docker-compose.prod.yml up -d
+É o mesmo verbo do deploy, apontando para o commit bom — as imagens dele
+continuam no GHCR, e o wrapper tira o backup antes, como em qualquer release:
+
 ```
+ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release <sha do commit bom>"
+```
+
+Nada de editar o `IMAGE_TAG` do `.env` no servidor: o arquivo é do Ansible, e o
+wrapper nem o lê — ele exporta a tag pedida, que vale sobre a do `.env` durante
+o `release`. O `.env` só registra a versão que estava no ar no último `make
+infra-apply` (lida do container da API). Por isso um `docker compose up -d` dado
+à mão, sem `IMAGE_TAG`, sobe **essa** versão, que pode não ser a de agora.
 
 **O banco não volta junto.** O Flyway é forward-only: a migration aplicada
 continua aplicada, e a imagem antiga encontra um schema mais novo do que ela
@@ -443,6 +467,80 @@ migration ruim; não cobre perder a máquina — e aqui o servidor e o PC de
 desenvolvimento são o mesmo disco. O Supabase Storage fala S3 e resolveria com
 uma linha no fim do script — com uma chave que só possa **escrever** no bucket,
 senão quem invadir o servidor apaga os backups junto.
+
+## 📧 Email dos convites
+
+O convite e o link de recuperação de senha vão por email pelo **Brevo**, em
+`smtp-relay.brevo.com:587` com STARTTLS — pelo mesmo outbox, que distingue os
+dois pela coluna `modelo` (`convite.v1`, `recuperacao.v1`). Em produção o TLS é obrigatório: a API recusa subir com
+`SMTP_STARTTLS=false`, sem `EMAIL_CHAVE` válida ou com usuário sem senha
+(`config.Validar`).
+
+| Onde | O quê |
+|---|---|
+| `group_vars/producao/vars.yml` | `smtp_host`, `smtp_porta`, `email_remetente`, `email_remetente_nome` |
+| vault (`segredos/producao.yml`) | `vault_smtp_usuario`, `vault_smtp_senha` e `vault_email_chave` (a chave AES-256 da fila) |
+
+O `make infra-apply` escreve os dois no `.env`. Com `smtp_host` vazio o envio
+fica **desligado**: o convite sai só com o link manual, e a recuperação de
+senha responde como sempre, sem mandar nada.
+
+### Como o email sai
+
+O convite e a mensagem caem no **mesmo commit**: a mensagem vai para a tabela
+`email_outbox`, já redigida e **cifrada** (AES-256-GCM, com a chave do vault), e
+um worker dentro da própria API a entrega depois do commit. Ele é acordado na
+hora por quem enfileirou e, de rede, olha a fila a cada 5 segundos.
+
+- Falha passageira (servidor fora, resposta 4xx): tenta de novo, com espera
+  dobrando a partir de 30 s (±20%), por 8 tentativas — cerca de uma hora.
+- Recusa definitiva (resposta 5xx — endereço inexistente, por exemplo):
+  desiste na hora, porque insistir só piora a reputação do remetente.
+- A mensagem — que carrega o link — é **apagada** ao sair, ao ser cancelada
+  (convite revogado, aceito ou reenviado) e ao vencer (a faxina). A linha fica
+  como registro de que houve envio, sem conteúdo.
+- O erro do servidor vai para o log e para `ultimo_erro` com os endereços
+  mascarados.
+
+### Conferir a fila
+
+```bash
+cd ~ && alias dc='docker compose -f docker-compose.prod.yml'
+dc exec postgres psql -U stacktrack -d stacktrack -c \
+  "SELECT estado, count(*) FROM email_outbox GROUP BY estado"
+dc exec postgres psql -U stacktrack -d stacktrack -c \
+  "SELECT criado_em, estado, tentativas, proxima_em, ultimo_erro
+     FROM email_outbox WHERE estado IN ('pendente', 'falhou')
+    ORDER BY criado_em DESC LIMIT 20"
+dc logs api | grep -i email        # "email entregue", "vai tentar de novo", "desistiu"
+```
+
+**Email que falhou** não tem botão de operação: quem convidou vê "o email não
+saiu" na lista de convites e clica em **Reenviar** — link novo, email novo. Se a
+causa for o provedor (credencial vencida, cota), corrija no vault, `make
+infra-apply`, e reenvie. O link de recuperação que não saiu se resolve do mesmo
+jeito, pela pessoa: **Pedir outro link** na tela (até 3 por hora).
+
+**Trocar a `EMAIL_CHAVE`** torna ilegíveis as mensagens que ainda estiverem na
+fila: elas falham na próxima tentativa, e quem convidou reenvia. Os convites em
+si não são afetados.
+
+### Entregabilidade
+
+O remetente hoje é um endereço `@gmail.com`, verificado no Brevo. Funciona, mas
+o SPF, o DKIM e o DMARC do `gmail.com` são do Google, e não seus: o filtro de
+spam do destinatário vê um email "do Gmail" saindo de um servidor que não é do
+Gmail. Para a entrega deixar de depender da boa vontade desse filtro:
+
+1. no Brevo, autentique um domínio seu (**Senders, Domains & Dedicated IPs →
+   Domains**) — o `d4ffy.com`, que já está na Cloudflare;
+2. crie na Cloudflare os registros que o Brevo pedir (DKIM e o código de
+   verificação) e um DMARC (`_dmarc.d4ffy.com`, começando por `p=none`);
+3. troque `email_remetente` para um endereço do domínio
+   (`convites@d4ffy.com`) e rode `make infra-apply`.
+
+O plano gratuito do Brevo tem cota diária de envio; a cota de 30 convites por
+conta por dia existe para que uma conta só não a gaste inteira.
 
 ## Diagnóstico
 
@@ -550,8 +648,9 @@ sem privilégio no servidor.
 - [ ] rota `stacktrack.d4ffy.com` → `http://localhost:8580` no túnel da Cloudflare
 - [ ] servidor provisionado pelo `site.yml` do studygo (sshd na 2222, Docker
       rootless, cloudflared no ar)
-- [ ] chave de deploy gerada, pública em `esteira_chave_publica` no `vars.yml`,
-      privada guardada
+- [ ] chaves do operador e de release geradas, públicas em `operador_chave_publica`
+      e `chave_deploy_publica` no `vars.yml`, e as antigas em `chaves_revogadas`;
+      privadas guardadas
 - [ ] `dominio: stacktrack.d4ffy.com` no `group_vars/producao/vars.yml`
 - [ ] `make infra-preparar` verde (usuário de deploy, Docker rootless, wrapper,
       chaves) — e `changed=0` na segunda vez

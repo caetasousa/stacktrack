@@ -7,7 +7,8 @@
 //
 // O teste que MEDIA o esgotamento (52 inserções sucessivas no mesmo ponto)
 // saiu junto com `ordem.Entre`, que era o que ele exercitava. O registro do
-// problema e da saída está no PLANO.md, fase 9.
+// problema e da saída está em docs/historico-do-projeto.md ("Ordenação: o
+// limite mudou de lugar, mas não desapareceu").
 package domain_test
 
 import (

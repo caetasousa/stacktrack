@@ -1,5 +1,8 @@
 # 🧰 Tecnologias
 
+> **Em uma frase:** o stack peça por peça — o que é, por que está aqui (com o arquivo real
+> do código) e onde estudar.
+
 Guia de estudo do stack: o que cada peça é, **por que está neste projeto** — com
 referência a um arquivo real — e onde aprofundar.
 
@@ -220,10 +223,9 @@ por isso que os botões do cabeçalho da coluna não disparam arraste sem querer
 
 ### Docker Compose
 
-Um arquivo para desenvolvimento (hot reload, bind mount e Mailpit reservado
-para um canal de email futuro) e outro para produção (imagens prontas, sem
-porta publicada, contenção). Ver
-[producao.md](producao.md).
+Um arquivo para desenvolvimento (hot reload, bind mount e o Mailpit, que faz o
+papel do provedor de email) e outro para produção (imagens prontas, sem porta
+publicada, contenção). Ver [producao.md](producao.md).
 
 ### coder/websocket — o tempo real, por dentro
 
@@ -459,7 +461,8 @@ ar — ele exercita o handshake de verdade, com cookie real e checagem de origem
 Para ver os frames: DevTools → Network → filtro **WS** → a conexão → aba
 **Messages**. É a forma mais rápida de entender a `revisao` na prática — feche
 a aba, mexa no quadro noutra, reabra e observe o `?revisao=` no handshake.
-`?desde=` aparece somente em clientes legados durante a janela de transição.
+O `?desde={seq}` do protocolo anterior saiu: o servidor o ignora e trata a
+conexão como a primeira.
 
 📚 [coder/websocket](https://pkg.go.dev/github.com/coder/websocket) · [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) — leia as seções 1 (visão geral) e 4 (handshake); o resto é referência
 📝 [O exemplo de chat do gorilla/websocket](https://github.com/gorilla/websocket/tree/main/examples/chat) — `hub.go` e `client.go` são a referência canônica do padrão hub em Go, e o desenho daqui vem deles
@@ -500,8 +503,8 @@ outbox por chave estrangeira, então não existe mais agregado no qual persistir
 `quadro.apagado`. O commit publica depois um sinal efêmero para as abas abertas
 saírem da sala; quem estava offline encontra `404` ao voltar. A entrega ao vivo
 continua sendo feita pelo processo e pode ser perdida se ele morrer depois do
-commit. O dispatcher durável e ordenado que elimina essa janela permanece na
-etapa A3 do `PLANO.md`.
+commit. É uma janela conhecida e aceita: quem perde o sinal encontra o `404` ao
+recarregar, e nenhum dado fica errado por causa dela.
 
 📚 [Transactional outbox (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html)
 
@@ -723,6 +726,51 @@ O índice de pendência considera `aceito_em IS NULL AND revogado_em IS NULL`. O
 **vencimento** não cabe num índice parcial (comparar com `now()` não é imutável,
 e o PostgreSQL recusa), então é o domínio que revoga o convite vencido — na
 mesma transação, sob o lock — antes de criar o novo.
+
+O convite vai por **email** (ver "Email: outbox, SMTP e Mailpit", abaixo), e o
+link continua na resposta para o dono: é a entrega quando o envio está desligado
+e o plano B quando o email cai no spam. **Reenviar** troca o token e renova a
+validade no mesmo `UPDATE` condicional — o link anterior, inclusive o do email
+anterior, morre no mesmo commit —, e cancela o email que ainda estiver na fila
+com o link velho.
+
+### Email: outbox, SMTP e Mailpit
+
+O envio de email segue o padrão **outbox transacional**: a requisição não fala
+com o provedor. Ela grava a mensagem, já redigida, na tabela `email_outbox`, na
+**mesma transação** do convite (`usecase/board/correio.go`,
+`adapter/repository/email_postgres.go`), e um worker a entrega depois do commit
+(`usecase/correio/carteiro.go`). A falha do provedor nunca desfaz o convite, e o
+convite desfeito nunca deixa mensagem órfã — os dois valem ou caem juntos. É o
+mesmo raciocínio do log de eventos do quadro, aplicado ao que sai para fora.
+
+Três decisões que valem entender:
+
+- **A mensagem fica cifrada** (AES-256-GCM, `adapter/security/cifra.go`), com o
+  id do envio como dado autenticado: o link do convite é credencial, e a tabela
+  de convites só guarda o hash do token. A cópia em claro existe só na memória
+  do worker, e o payload é apagado no envio, no cancelamento e no vencimento.
+- **A reserva é atômica**: um `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP
+  LOCKED)` empurra o envio para a frente antes de tentar. Um worker que morre no
+  meio não perde a mensagem — ela volta quando a reserva vence —, e o preço é
+  uma duplicata ocasional, que leva o MESMO link e é inofensiva.
+- **5xx desiste, 4xx tenta de novo**: a resposta do servidor SMTP decide.
+  Endereço inexistente (550) não melhora com insistência, e insistir queima a
+  reputação do remetente; a espera dobra de 30 s até 1 h, com sorteio de ±20%
+  para um provedor que volta do ar não receber tudo no mesmo segundo
+  (`domain/email/email.go`).
+
+O cliente é o `net/smtp` da biblioteca padrão, com STARTTLS obrigatório em
+produção, e o texto vem de modelos versionados em `adapter/email/modelos/`,
+embutidos no binário. Em desenvolvimento o "provedor" é o **Mailpit**, que
+recebe por SMTP e guarda as mensagens numa interface web (localhost:8025) e numa
+API que a suíte E2E lê; em produção, o **Brevo**.
+
+📚 [Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html) — o padrão, e por que o envio não entra na transação
+📚 [net/smtp](https://pkg.go.dev/net/smtp) · [RFC 5321 — códigos de resposta](https://www.rfc-editor.org/rfc/rfc5321#section-4.2) — por que 4xx e 5xx pedem tratamentos diferentes
+📚 [crypto/cipher — AEAD/GCM](https://pkg.go.dev/crypto/cipher#AEAD) — confidencialidade e integridade, e o "dado adicional" que amarra o payload à linha
+📚 [Mailpit](https://mailpit.axllent.org/docs/) · [API](https://mailpit.axllent.org/docs/api-v1/) — o que os testes consultam
+📝 [SPF, DKIM e DMARC no Brevo](https://help.brevo.com/hc/en-us/articles/12163873383186) — o que separa um email entregue de um email no spam
 
 ### Senha: comprimento, e uma lista curta
 
@@ -1024,7 +1072,7 @@ Três consequências que valem entender:
 - **Sua máquina precisa alcançar o servidor.** Não há daemon esperando conexão;
   é você que empurra. Por isso se chama modelo *push*.
 - **O deploy usa o mesmo canal SSH — mas preso.** `stacktrack-release release
-  <sha>` abre SSH e cai num comando forçado que só entende quatro verbos. O
+  <sha>` abre SSH e cai num comando forçado que só entende três verbos. O
   Ansible manda módulos que sabem dizer se mudaram alguma coisa; o wrapper, uma
   sequência fixa.
 
@@ -1242,13 +1290,14 @@ shell com poder de root. Uma conta separada, fora do grupo `docker`, faria o
 mesmo erro terminar em nada — falharia fechado. A mitigação escolhida foi o
 `authorized_keys` ser escrito pelo playbook e nunca à mão.
 
-O que a chave alcança é o conjunto de verbos do wrapper — `sync`, `release`,
-`backup`, `estado`. O `sync` é o único que escreve arquivo (o
-`docker-compose.prod.yml`, pelo stdin) e o passa por uma allowlist antes de
-instalar: imagem do projeto ou Postgres, e nada de `privileged`, namespace do
-host, bind mount ou capability nova. `scripts/testa-wrapper-de-release.sh`
+O que a chave alcança é o conjunto de verbos do wrapper — `release`, `backup`,
+`estado` —, e nenhum deles escreve arquivo. Houve um quarto, `sync`, que
+instalava o `docker-compose.prod.yml` recebido pelo stdin, passando-o por uma
+allowlist; era como a esteira entregava o compose, e saiu com ela. A allowlist
+não bastava: com a borda dentro do compose, um `sync` permitido ainda podia
+reescrever o roteamento do domínio. `scripts/testa-wrapper-de-release.sh`
 executa o script renderizado contra um `docker` de mentira e prova as recusas —
-inclusive as da allowlist do `sync`.
+inclusive a do `sync`.
 
 📚 [sshd — AUTHORIZED_KEYS FILE FORMAT](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT) · [sudoers](https://www.sudo.ws/docs/man/sudoers.man/)
 
@@ -1305,9 +1354,17 @@ A ordem que funciona é mexer, não ler:
 
 Ponta a ponta em navegador de verdade, sobre a stack do `docker compose`. A
 configuração NÃO sobe a stack (`webServer`): são cinco serviços, contando o job
-de migration e o Mailpit reservado, com
-dependências na ordem certa, e o `make run` já os orquestra — duplicar isso
-criaria uma segunda forma de subir o projeto, que divergiria da primeira.
+de migration e o Mailpit, com dependências na ordem certa, e o `make run` já os
+orquestra — duplicar isso criaria uma segunda forma de subir o projeto, que
+divergiria da primeira.
+
+Cada teste cita no título o id do catálogo de falhas
+(`frontend/e2e/CENARIOS.md`), e cada execução gera um artefato conferível sem
+rodar nada: `frontend/e2e/resumo.mjs` cruza o catálogo com o `resultados.json`
+do Playwright e escreve `frontend/e2e/relatorio/resumo.md` — o resultado e o
+print da tela de cada cenário, e as lacunas. O convite por email é testado de
+verdade: a API manda pelo SMTP da stack, e o teste lê a mensagem pela API do
+Mailpit (`emailsPara`, em `frontend/e2e/apoio.ts`).
 
 📚 [Playwright](https://playwright.dev/docs/intro) · [browser contexts](https://playwright.dev/docs/browser-contexts) · [routeWebSocket](https://playwright.dev/docs/mock#mock-websockets)
 📝 [Best practices do Playwright](https://playwright.dev/docs/best-practices) — por que seletor por papel e rótulo, e não por classe CSS
@@ -1316,38 +1373,5 @@ criaria uma segunda forma de subir o projeto, que divergiria da primeira.
 
 ## Armadilhas do ambiente
 
-Coisas que já custaram tempo aqui.
-
-### `EACCES` no `node_modules`
-
-O container `web` monta `node_modules` e `.svelte-kit` em volumes próprios — a
-instalação dele é Alpine/musl, a sua é glibc, e misturar quebra os binários
-nativos do Vite. O Docker cria o ponto de montagem como **root** quando o
-diretório ainda não existe, e depois disso todo `npm install` seu falha.
-
-Por isso o `make run` instala no host **antes** do compose. Se já aconteceu:
-
-```bash
-docker run --rm -v "$PWD/frontend:/app" alpine \
-  chown 1000:1000 /app/node_modules /app/.svelte-kit
-```
-
-### O `air` servindo binário velho
-
-Quando a build falha, o `air` **mantém no ar o binário anterior**: a API responde
-normalmente e só as rotas novas dão 404 — o que parece erro de código e é erro de
-build. É o que acontece logo depois de um `go get`, porque o container ainda não
-baixou o módulo:
-
-```bash
-go get <módulo>              # no host, atualiza go.mod/go.sum
-docker compose restart api   # o container baixa e recompila
-```
-
-Na dúvida, `docker compose logs api` mostra a falha.
-
-### Porta já alocada
-
-Rodando outra stack local nas mesmas portas (5173, 8080, 5432, 8025), o segundo
-`docker compose up` falha com "port is already allocated" — derrube a outra
-antes.
+Mudaram para [rodar-local.md](rodar-local.md#-armadilhas-conhecidas), junto do
+resto do que se precisa para subir o projeto na própria máquina.

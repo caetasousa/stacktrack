@@ -1,22 +1,42 @@
 # 🧪 Testes
 
+> **Em uma frase:** o que cada camada de teste cobre, o que **não** cobre e como rodá-la. A
+> política — E2E primeiro, banco de verdade, cenário antes do código — está no
+> [CLAUDE.md](../CLAUDE.md#-testes).
+
 Oito camadas hoje e uma lacuna E2E conhecida. Este documento diz o que cada uma
 cobre, o que ela **não** cobre e onde isso já custou caro.
 
 ```bash
-make test            # backend (rápidos) + frontend
-make test-backend    # go test ./...
-make test-frontend   # vitest run
-
-cd backend && make test        # com -race
-cd frontend && npm run check   # tipos (svelte-check)
-cd frontend && npx prettier --check "src/**/*.{svelte,ts}" "e2e/*.ts"
-
-cd backend && make test-tempo-real   # protocolo do tempo real (build tag)
+make verificar                       # gofmt, vet, migrations, -race, prettier, tipos, unidade
+make test-integracao                 # casos de uso e servidor HTTP contra Postgres real (Docker)
+make test-tempo-real                 # protocolo do tempo real (build tag; exige `make run`)
 make test-e2e                        # navegador de verdade sobre a stack
 ```
 
 Os dois últimos exigem `make run` noutro terminal.
+
+## A política
+
+Está no [CLAUDE.md](../CLAUDE.md#-testes), e vale para todo teste novo:
+
+- o teste confere o que o usuário **vê** ou o que fica **gravado** — nunca a
+  ordem das chamadas a uma porta;
+- **E2E primeiro** para o que passa pela tela, com um artefato conferível no
+  fim (`frontend/e2e/relatorio/resumo.md`);
+- **integração** (tag `integracao`, Postgres do Testcontainers) para o resto do
+  backend: casos de uso com os repositórios e a `UnidadeDeTrabalho` de verdade,
+  e o servidor inteiro por HTTP, com a montagem da produção;
+- sem Docker, só função pura cujo resultado o usuário vê e os guarda-corpos
+  estruturais;
+- **nenhum fake de porta nossa no lugar do banco** — dublê só na fronteira de
+  fora (relógio, servidor SMTP). Falha de gravação se provoca no próprio banco;
+- o **cenário de falha vem antes do código**: no `frontend/e2e/CENARIOS.md` ou no
+  comentário de abertura do teste.
+
+As camadas 2 e 3 abaixo usam os fakes em memória de
+`backend/test/repository/memoria` e são **legado** da regra anterior: continuam
+rodando, não crescem, e teste novo não as usa.
 
 ---
 
@@ -29,10 +49,11 @@ textual (inclusive os quatro padrões de reordenação no mesmo ponto, e o teto
 real de ~750 que a coluna impõe — contra 52 da posição em float), cores da
 paleta, prazo e checklist.
 
-## 2. Usecases (Go, com fakes)
+## 2. Usecases (Go, com fakes) — legado
 
 `backend/test/usecase/` — orquestração e **autorização**, contra repositórios em
-memória (`test/repository/memoria/`).
+memória (`test/repository/memoria/`). Não recebe teste novo: caso de uso novo se
+testa contra o banco de verdade (camada 7).
 
 É aqui que mora a garantia de que não-membro recebe 404, que leitor não move
 card e que a cadeia card → coluna → quadro é percorrida antes de decidir.
@@ -191,6 +212,38 @@ lugar errado.
 Sem paralelismo (`workers: 1`), pelo mesmo motivo do teste em Go: cadastro e
 login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 
+### O catálogo e o relatório
+
+`frontend/e2e/CENARIOS.md` é o catálogo de falhas — cada linha uma maneira
+concreta de uma funcionalidade quebrar para quem usa, por área (A tempo real,
+B auditoria, C link público, D celular, E convite e compartilhamento). Cada
+teste cita no título o id que cobre (`[E4] …`).
+
+`make test-e2e` termina rodando `frontend/e2e/resumo.mjs`, que cruza o catálogo
+com o resultado e escreve `frontend/e2e/relatorio/resumo.md`: o resultado e o
+print da tela de cada cenário, o commit da execução, as falhas com o motivo, os
+cenários sem teste (lacunas) e os testes sem cenário. O HTML com o trace de cada
+falha fica em `frontend/e2e/relatorio/html/`. Sem retentativa: um teste que só
+passa na segunda vez esconde a intermitência que o E2E existe para mostrar.
+
+> O Vite ignora `e2e/relatorio/` (`server.watch.ignored`, em `vite.config.ts`).
+> Sem isso, cada print gravado no meio da suíte recarregava a página do teste
+> seguinte, e a suíte inteira falhava sem nenhum defeito no produto.
+
+### O convite por email
+
+`convite.spec.ts` manda o email de verdade: a API o entrega por SMTP ao Mailpit
+da stack, e o teste lê a mensagem pela API do Mailpit (`emailsPara` em
+`e2e/apoio.ts`), tira o link (`linkDoConvite`) e o abre num navegador sem conta.
+Um link que não chegasse, ou chegasse quebrado, falharia aqui mesmo com a API
+inteira respondendo 201.
+
+`recuperacao.spec.ts` faz o mesmo com o "esqueci minha senha" (área F): pede o
+link pela tela de login, lê o email, troca a senha e confere pela API que a
+antiga deixou de entrar — e que a sessão aberta antes, noutro contexto, caiu.
+Um teste pode cobrir mais de um cenário quando o mesmo percurso prova todos
+(`[F2][F3][F6] …`); o relatório marca cada id.
+
 ### O quadro no celular
 
 `e2e/celular.spec.ts` roda o mesmo navegador com `devices['Pixel 5']` — tela
@@ -226,11 +279,40 @@ uma derruba o seu teste.
 
 ## 7. Integração contra Postgres real (Testcontainers)
 
-`backend/test/repository/`, atrás da build tag `integracao` porque exige Docker:
+`backend/test/repository/` e `backend/cmd/api/`, atrás da build tag `integracao`
+porque exigem Docker:
 
 ```bash
 make -C backend test-integracao
 ```
+
+O alvo passa a saída por um filtro legível, e com `pipefail`: antes, o código de
+saída era o do `sed`, e uma suíte vermelha terminava o `make` com sucesso. O
+filtro também deixa passar o motivo de cada falha e o erro de compilação.
+
+### Casos de uso contra o banco de verdade
+
+`convite_email_test.go` é o modelo para caso de uso novo: o `MembroUseCase`
+montado com os repositórios e a `UnidadeDeTrabalho` reais, o outbox cifrado, o
+redator, o cliente SMTP e o worker — e, de dublê, só o servidor SMTP de mentira
+(`backend/test/smtpfalso`, que fala o protocolo e pode recusar ou cair) e o
+relógio do worker. Os cenários (I1–I13) estão no comentário de abertura. A falha
+de gravação é provocada no próprio banco: um trigger recusa o evento do quadro
+**depois** de o convite e o email terem sido gravados, e o teste prova que nenhum
+dos dois sobrou.
+
+`recuperacao_test.go` (R1–R8) segue o mesmo molde com o
+`RecuperarSenhaUseCase` e a `UnidadeDeAutenticacao` de verdade. O R6 — duas
+redefinições simultâneas com o mesmo link — falha se o `FOR UPDATE` da busca
+pelo token sair: foi conferido tirando o lock.
+
+### O servidor inteiro, por HTTP
+
+`backend/cmd/api/servidor_test.go` sobe a aplicação pela MESMA função que o
+`main` usa (`montar`, em `cmd/api/montagem.go`) — configuração lida do ambiente,
+pool, rotas, middlewares e workers —, contra um Postgres efêmero, e a exercita
+por HTTP com cookie de verdade. É o teste que pega a montagem que esqueceu de
+ligar alguma coisa (H1–H6 no comentário).
 
 É a camada que os fakes nunca puderam cobrir. `TestTodoCampoDoCardSobreviveAoBanco`
 escreve um card com todos os campos preenchidos e **lê de volta do banco** — se
@@ -340,10 +422,9 @@ Não há esteira — a disciplina é sua. O conjunto mínimo antes de buildar as
 imagens (ver [entrega-continua.md](entrega-continua.md)):
 
 ```bash
-cd backend && gofmt -l . && go vet ./... && make test        # -race incluído
-cd backend && make test-integracao                            # Testcontainers
-cd frontend && npx prettier --check . && npm run check && npm run test:unit
-make test-e2e                                                 # Playwright, com `make run` no ar
+make verificar                        # gofmt, vet, migrations, -race, prettier, tipos, unidade
+cd backend && make test-integracao    # Testcontainers
+make test-e2e                         # Playwright, com `make run` no ar
 ```
 
 O `go test` roda com **`-race`** — concorrência sem detector de corrida é fé,

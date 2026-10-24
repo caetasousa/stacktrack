@@ -38,8 +38,8 @@ func NovoEventoPostgres(pool Fonte) *EventoPostgres {
 // RegistrarNaTransacao grava o evento usando a transação recebida e devolve o
 // seq atribuído pelo banco.
 //
-// O seq volta como identidade global e para compatibilidade com o protocolo
-// legado. O cursor novo é a revisão do quadro.
+// O seq volta como identidade global do evento — é ele que pagina o histórico.
+// O cursor do tempo real é a revisão do quadro.
 func (r *EventoPostgres) RegistrarNaTransacao(ctx context.Context, tx pgx.Tx, e evento.Evento) (int64, error) {
 	corpo, err := json.Marshal(e.Dados)
 	if err != nil {
@@ -71,35 +71,16 @@ func (r *EventoPostgres) Registrar(ctx context.Context, e evento.Evento) (int64,
 	return seq, tx.Commit(ctx)
 }
 
-// Desde devolve os eventos do quadro posteriores ao seq informado, em ordem.
-//
-// O teto existe para o replay não virar uma máquina de negação de serviço: uma
-// aba que ficou uma semana fechada pediria a história inteira do quadro, e o
-// servidor a montaria inteira em memória para entregá-la. Quando o intervalo é
-// grande demais, o cliente recarrega tudo — que é mais barato e sempre certo.
-func (r *EventoPostgres) Desde(ctx context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error) {
-	linhas, err := r.pool.Query(ctx, `SELECT `+camposDeReplay+`
-		   FROM board_events
-		  WHERE board_id = $1 AND seq > $2
-		  ORDER BY seq
-		  LIMIT $3`, boardID, seq, limite,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return lerEventosDeReplay(linhas, boardID)
-}
-
-// camposDeReplay é a lista lida pelos dois caminhos de replay. Uma constante,
-// e não duas listas iguais, porque uma coluna nova esquecida em um dos dois
-// produziria eventos com metade dos campos zerados — e zerado, aqui, significa
-// "sem revisão", que o cliente trata como motivo para recarregar tudo.
+// camposDeReplay é a lista que o replay lê, na ordem que lerEventosDeReplay
+// espera. Uma coluna esquecida aqui produziria eventos com metade dos campos
+// zerados — e zerado, aqui, significa "sem revisão", que o cliente trata como
+// motivo para recarregar tudo.
 const camposDeReplay = `seq, card_id, tipo, payload, autor_id, criado_em, revisao, indice, quantidade`
 
 // DesdeRevisao devolve os eventos do quadro posteriores à revisão informada,
 // em ordem de (revisão, índice).
 //
-// É o replay do protocolo novo, e a diferença para Desde não é de gosto: `seq`
+// O cursor é a revisão, e não o `seq`, e a diferença não é de gosto: `seq`
 // registra a ordem de ALOCAÇÃO do número, não a de commit, então um cliente que
 // avance o cursor por seq pode pular para sempre um evento que comitou tarde.
 // A revisão é atribuída sob o lock do quadro e não tem esse buraco.
@@ -326,20 +307,4 @@ func lerAtividades(linhas pgx.Rows) ([]ucboard.Atividade, error) {
 		lista = append(lista, a)
 	}
 	return lista, linhas.Err()
-}
-
-// UltimoSeq informa em que ponto o quadro está agora.
-//
-// É o que o cliente recebe ao conectar pela primeira vez: sem ele, a primeira
-// reconexão pediria "desde o 0" e receberia a história inteira do quadro para
-// jogar fora.
-func (r *EventoPostgres) UltimoSeq(ctx context.Context, boardID string) (int64, error) {
-	var seq *int64
-	err := r.pool.QueryRow(ctx,
-		`SELECT MAX(seq) FROM board_events WHERE board_id = $1`, boardID,
-	).Scan(&seq)
-	if err != nil || seq == nil {
-		return 0, err
-	}
-	return *seq, nil
 }

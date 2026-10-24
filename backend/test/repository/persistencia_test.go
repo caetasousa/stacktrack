@@ -156,16 +156,17 @@ func TestOBancoRecusaEscritaComVersaoDefasada(t *testing.T) {
 	}
 }
 
-// O log de eventos da fase 7: o seq tem de crescer, e a consulta por intervalo
-// tem de devolver só o que veio depois.
+// O log de eventos: o seq tem de crescer, e o replay por revisão tem de
+// devolver só o que veio depois do cursor, em ordem.
 func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 	boardID, _, usuarioID := cenario(t)
 	log := repository.NovoEventoPostgres(pool)
 
 	var seqs []int64
-	for i := 0; i < 3; i++ {
-		seq, err := log.Registrar(context.Background(), evento.Novo(evento.ColunaCriada, boardID, usuarioID,
-			map[string]string{"titulo": "coluna"}))
+	for i := 1; i <= 3; i++ {
+		e := evento.Novo(evento.ColunaCriada, boardID, usuarioID, map[string]string{"titulo": "coluna"})
+		e.Revisao, e.Quantidade = int64(i), 1
+		seq, err := log.Registrar(context.Background(), e)
 		if err != nil {
 			t.Fatalf("registrar: %v", err)
 		}
@@ -178,15 +179,15 @@ func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 		}
 	}
 
-	// A partir do primeiro, só os dois seguintes.
-	perdidos, err := log.Desde(context.Background(), boardID, seqs[0], 100)
+	// Depois da revisão 1, só as duas seguintes.
+	perdidos, err := log.DesdeRevisao(context.Background(), boardID, 1, 100)
 	if err != nil {
-		t.Fatalf("desde: %v", err)
+		t.Fatalf("desde a revisão: %v", err)
 	}
 	if len(perdidos) != 2 {
-		t.Fatalf("desde o %d devolveu %d eventos, esperado 2", seqs[0], len(perdidos))
+		t.Fatalf("depois da revisão 1 vieram %d eventos, esperado 2", len(perdidos))
 	}
-	if perdidos[0].Seq != seqs[1] || perdidos[1].Seq != seqs[2] {
+	if perdidos[0].Revisao != 2 || perdidos[1].Revisao != 3 {
 		t.Errorf("ordem errada: %v", perdidos)
 	}
 	if perdidos[0].Tipo != evento.ColunaCriada {
@@ -198,10 +199,6 @@ func TestLogDeEventosOrdenaEDevolveApenasOIntervaloPedido(t *testing.T) {
 		t.Error("o payload voltou vazio do log")
 	}
 
-	ultimo, err := log.UltimoSeq(context.Background(), boardID)
-	if err != nil || ultimo != seqs[2] {
-		t.Errorf("ultimoSeq = %d, esperado %d (%v)", ultimo, seqs[2], err)
-	}
 }
 
 // O log não vaza entre quadros — a mesma fronteira dos eventos ao vivo.
@@ -210,13 +207,15 @@ func TestLogNaoVazaEntreQuadros(t *testing.T) {
 	boardB, _, _ := cenario(t)
 	log := repository.NovoEventoPostgres(pool)
 
-	if _, err := log.Registrar(context.Background(), evento.Novo(evento.CardCriado, boardA, usuarioID, nil)); err != nil {
+	e := evento.Novo(evento.CardCriado, boardA, usuarioID, nil)
+	e.Revisao, e.Quantidade = 1, 1
+	if _, err := log.Registrar(context.Background(), e); err != nil {
 		t.Fatalf("registrar: %v", err)
 	}
 
-	deB, err := log.Desde(context.Background(), boardB, 0, 100)
+	deB, err := log.DesdeRevisao(context.Background(), boardB, 0, 100)
 	if err != nil {
-		t.Fatalf("desde: %v", err)
+		t.Fatalf("desde a revisão: %v", err)
 	}
 	if len(deB) != 0 {
 		t.Errorf("o quadro B recebeu %d eventos do A", len(deB))

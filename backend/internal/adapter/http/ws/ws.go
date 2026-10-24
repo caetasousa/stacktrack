@@ -77,13 +77,11 @@ type SessaoValida func(ctx context.Context, token string) bool
 
 // Historico é o log do quadro, consultado no reconnect.
 //
-// Os dois pares convivem durante a transição: `Desde`/`UltimoSeq` atendem o
-// cliente antigo, que ainda manda `?desde={seq}`, e `DesdeRevisao`/
-// `RevisaoAtual` atendem o protocolo novo. O cliente novo prefere revisão, e é
-// ela que resolve o buraco silencioso descrito em evento.Evento.Seq.
+// O cursor é a revisão do quadro, e só ela: o seq global registra a ordem de
+// alocação, e não a de commit — o buraco silencioso descrito em
+// evento.Evento.Seq. O `?desde={seq}` do protocolo anterior saiu depois que o
+// último cliente que o usava deixou de existir.
 type Historico interface {
-	Desde(ctx context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error)
-	UltimoSeq(ctx context.Context, boardID string) (int64, error)
 	DesdeRevisao(ctx context.Context, boardID string, revisao int64, limite int) ([]evento.Evento, error)
 	RevisaoAtual(ctx context.Context, boardID string) (int64, error)
 }
@@ -611,18 +609,10 @@ func revisaoNoFio(e evento.Evento) *int64 {
 type posicao struct {
 	revisao int64
 	indice  int
-	// porSeq marca a posição de um cliente antigo, que ainda usa `?desde={seq}`.
-	// Nesse modo a comparação é por seq, porque os eventos que ele acabou de
-	// receber podem ser legados, sem revisão nenhuma.
-	porSeq bool
-	seq    int64
 }
 
 // jaEntregue informa se o evento já saiu pela reposição.
 func (p posicao) jaEntregue(e evento.Evento) bool {
-	if p.porSeq {
-		return e.Seq != 0 && e.Seq <= p.seq
-	}
 	if p.revisao == 0 || e.Revisao == 0 {
 		// Sem revisão dos dois lados não há como comparar. Deixar passar é a
 		// escolha certa: entregar duas vezes é inofensivo (o cliente aplica de
@@ -637,14 +627,13 @@ func (p posicao) jaEntregue(e evento.Evento) bool {
 
 // repor entrega o que o cliente perdeu e devolve até onde a entrega foi.
 //
-// Três caminhos, decididos pela query string:
+// Dois caminhos, decididos pela query string:
 //
-//   - `?revisao=N` — o protocolo novo. Replay por (revisão, índice), que é
+//   - `?revisao=N` — a reconexão. Replay por (revisão, índice), que é
 //     contígua e na ordem de commit.
-//   - `?desde=N` — o cliente anterior, que usa o seq como cursor. Continua
-//     atendido durante o deploy de transição, e só durante ele.
-//   - nenhum dos dois — primeira conexão. Nada de história: só a posição
-//     atual, para a tela saber de onde partir depois de baixar o snapshot.
+//   - sem ela — primeira conexão. Nada de história: só a posição atual, para
+//     a tela saber de onde partir depois de baixar o snapshot. Um `?desde=`
+//     do protocolo anterior cai aqui: é ignorado, e a tela recarrega.
 func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID string, parametros url.Values) (posicao, error) {
 	if h.historico == nil {
 		return posicao{}, nil
@@ -652,9 +641,6 @@ func (h *Handler) repor(ctx context.Context, c *websocket.Conn, boardID string, 
 
 	if bruta := parametros.Get("revisao"); bruta != "" {
 		return h.reporPorRevisao(ctx, c, boardID, bruta)
-	}
-	if bruta := parametros.Get("desde"); bruta != "" {
-		return h.reporPorSeq(ctx, c, boardID, bruta)
 	}
 
 	// Primeira conexão. A mensagem que sai daqui é o que OBRIGA o snapshot: ela
@@ -732,41 +718,6 @@ func ateOFimDoGrupo(eventos []evento.Evento) []evento.Evento {
 		corte--
 	}
 	return eventos[:corte]
-}
-
-// reporPorSeq é o caminho do cliente ANTERIOR, que usa o seq como cursor.
-//
-// Mantido só durante o deploy de transição. Ele tem o defeito conhecido — o seq
-// registra a ordem de alocação e não a de commit —, e é por isso que ele sai
-// junto com o último cliente antigo.
-func (h *Handler) reporPorSeq(ctx context.Context, c *websocket.Conn, boardID, bruta string) (posicao, error) {
-	ultimoAplicado, err := strconv.ParseInt(bruta, 10, 64)
-	if err != nil || ultimoAplicado < 0 {
-		return posicao{}, fmt.Errorf("desde inválido: %q", bruta)
-	}
-
-	perdidos, err := h.historico.Desde(ctx, boardID, ultimoAplicado, maxBacklog+1)
-	if err != nil {
-		return posicao{}, err
-	}
-	if len(perdidos) > maxBacklog {
-		return posicao{}, h.mandarRecarregar(ctx, c, boardID)
-	}
-
-	corte := posicao{porSeq: true, seq: ultimoAplicado}
-	for _, e := range perdidos {
-		if err := h.enviar(ctx, c, e); err != nil {
-			return corte, err
-		}
-		corte.seq = e.Seq
-	}
-	if corte.seq > ultimoAplicado {
-		return corte, h.enviar(ctx, c, evento.Evento{
-			Tipo: evento.Sincronizado, BoardID: boardID, Seq: corte.seq,
-			Quantidade: 1, OcorridoEm: time.Now(),
-		})
-	}
-	return corte, nil
 }
 
 // mandarRecarregar diz ao cliente para buscar o quadro inteiro.

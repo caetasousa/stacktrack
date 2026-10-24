@@ -47,25 +47,9 @@ type historicoFalso struct {
 	erro    error
 }
 
-func (h *historicoFalso) Desde(_ context.Context, boardID string, seq int64, limite int) ([]evento.Evento, error) {
-	if h.erro != nil {
-		return nil, h.erro
-	}
-	var fora []evento.Evento
-	for _, e := range h.eventos {
-		if e.BoardID == boardID && e.Seq > seq {
-			fora = append(fora, e)
-			if len(fora) == limite {
-				break
-			}
-		}
-	}
-	return fora, nil
-}
-
-// DesdeRevisao e RevisaoAtual são o caminho do protocolo novo. O falso as
-// implementa com a mesma régua do banco: ordem por (revisão, índice), e só
-// eventos que TÊM revisão — os legados, sem ela, não entram no replay novo.
+// DesdeRevisao e RevisaoAtual são o histórico. O falso os implementa com a
+// mesma régua do banco: ordem por (revisão, índice), e só eventos que TÊM
+// revisão — os legados, sem ela, não entram no replay.
 func (h *historicoFalso) DesdeRevisao(_ context.Context, boardID string, revisao int64, limite int) ([]evento.Evento, error) {
 	if h.erro != nil {
 		return nil, h.erro
@@ -96,19 +80,6 @@ func (h *historicoFalso) RevisaoAtual(_ context.Context, boardID string) (int64,
 	for _, e := range h.eventos {
 		if e.BoardID == boardID && e.Revisao > maior {
 			maior = e.Revisao
-		}
-	}
-	return maior, nil
-}
-
-func (h *historicoFalso) UltimoSeq(_ context.Context, boardID string) (int64, error) {
-	if h.erro != nil {
-		return 0, h.erro
-	}
-	var maior int64
-	for _, e := range h.eventos {
-		if e.BoardID == boardID && e.Seq > maior {
-			maior = e.Seq
 		}
 	}
 	return maior, nil
@@ -488,19 +459,38 @@ func TestWSDuasAbasDaMesmaContaRecebemAsDuas(t *testing.T) {
 func TestWSReponOQueSePerdeu(t *testing.T) {
 	c := montarWS(t, func(c *cenarioWS) {
 		c.historico.eventos = []evento.Evento{
-			{Seq: 1, Tipo: evento.CardCriado, BoardID: quadroUm, AutorID: "bob"},
-			{Seq: 2, Tipo: evento.CardMovido, BoardID: quadroUm, AutorID: "bob"},
-			{Seq: 3, Tipo: evento.ColunaCriada, BoardID: quadroUm, AutorID: "bob"},
+			{Seq: 1, Revisao: 1, Quantidade: 1, Tipo: evento.CardCriado, BoardID: quadroUm, AutorID: "bob"},
+			{Seq: 2, Revisao: 2, Quantidade: 1, Tipo: evento.CardMovido, BoardID: quadroUm, AutorID: "bob"},
+			{Seq: 3, Revisao: 3, Quantidade: 1, Tipo: evento.ColunaCriada, BoardID: quadroUm, AutorID: "bob"},
 		}
 	})
-	conexao := c.conectar(t, "/?board="+quadroUm+"&desde=1")
+	conexao := c.conectar(t, "/?board="+quadroUm+"&revisao=1")
 
-	// Pede a partir do 1: recebe o 2 e o 3, nessa ordem, e nunca o 1.
-	if m := receberPulandoPresenca(t, conexao); m.Seq != 2 {
-		t.Fatalf("primeiro reposto tem seq %d, esperado 2", m.Seq)
+	// Pede a partir da 1: recebe a 2 e a 3, nessa ordem, e nunca a 1.
+	if m := receberPulandoPresenca(t, conexao); m.Revisao != 2 {
+		t.Fatalf("primeiro reposto tem revisão %d, esperado 2", m.Revisao)
 	}
-	if m := receberPulandoPresenca(t, conexao); m.Seq != 3 {
-		t.Fatalf("segundo reposto tem seq %d, esperado 3", m.Seq)
+	if m := receberPulandoPresenca(t, conexao); m.Revisao != 3 {
+		t.Fatalf("segundo reposto tem revisão %d, esperado 3", m.Revisao)
+	}
+}
+
+// O `?desde={seq}` do protocolo anterior não repõe mais nada: a conexão é
+// tratada como primeira, e a tela recebe a posição atual para baixar o
+// snapshot. Repor por seq traria de volta o buraco que a revisão fechou — o
+// seq é a ordem de alocação, e não a de commit.
+func TestWSIgnoraODesdeDoProtocoloAnterior(t *testing.T) {
+	c := montarWS(t, func(c *cenarioWS) {
+		c.historico.eventos = []evento.Evento{
+			{Seq: 1, Revisao: 1, Quantidade: 1, Tipo: evento.CardCriado, BoardID: quadroUm, AutorID: "bob"},
+			{Seq: 2, Revisao: 2, Quantidade: 1, Tipo: evento.CardMovido, BoardID: quadroUm, AutorID: "bob"},
+		}
+	})
+	conexao := c.conectar(t, "/?board="+quadroUm+"&desde=0")
+
+	m := receberPulandoPresenca(t, conexao)
+	if m.Tipo != evento.Sincronizado || m.Revisao != 2 {
+		t.Errorf("recebeu %s com revisão %d, esperado sincronizado com 2 e nenhum evento reposto", m.Tipo, m.Revisao)
 	}
 }
 
@@ -578,11 +568,12 @@ func TestWSBacklogGrandeDemaisMandaRecarregarTudo(t *testing.T) {
 	c := montarWS(t, func(c *cenarioWS) {
 		for i := 1; i <= 300; i++ {
 			c.historico.eventos = append(c.historico.eventos, evento.Evento{
-				Seq: int64(i), Tipo: evento.CardMovido, BoardID: quadroUm, AutorID: "bob",
+				Seq: int64(i), Revisao: int64(i), Quantidade: 1,
+				Tipo: evento.CardMovido, BoardID: quadroUm, AutorID: "bob",
 			})
 		}
 	})
-	conexao := c.conectar(t, "/?board="+quadroUm+"&desde=0")
+	conexao := c.conectar(t, "/?board="+quadroUm+"&revisao=0")
 
 	m := receberPulandoPresenca(t, conexao)
 	if m.Tipo != evento.RecarregueTudo {

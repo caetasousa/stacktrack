@@ -41,6 +41,12 @@ está em [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
   com você" — só ele, e não os outros quadros do dono. A tela mostra se o email
   saiu, e o convite se reenvia ou revoga. Quem confirmou o email da conta vê o
   convite também no painel, e aceita ou recusa por lá.
+- **Notificações** — um sino no topo avisa o convite para um quadro, o card que
+  passou a ser seu, a menção num comentário (`@Nome`, com autocompletar) e o
+  prazo chegando, sem recarregar. O aviso também vai por email, dois minutos
+  depois, e só se você não o viu na tela; desfeita a atribuição, o link do email
+  diz que não vale mais. O dono de cada quadro escolhe por quanto tempo os avisos
+  lidos ficam guardados.
 - **Histórico do quadro** — quem criou, moveu, renomeou, apagou, comentou,
   entrou ou saiu, com filtro por pessoa. Todo card movido mostra "movido por Ana
   há 5 min".
@@ -65,10 +71,10 @@ regras — está em **[docs/funcionalidades.md](docs/funcionalidades.md)**.
 | | Tecnologia | Papel |
 |---|---|---|
 | 🐹 | **Go 1.26** | API hexagonal (`domain` / `usecase` / `adapter`), [chi](https://github.com/go-chi/chi), [pgx](https://github.com/jackc/pgx) e SQL à mão, [log/slog](https://pkg.go.dev/log/slog) |
-| 📡 | **WebSocket** | o tempo real, com replay por revisão do quadro — dentro da própria API |
+| 📡 | **WebSocket · SSE** | o tempo real do quadro (WebSocket, com replay por revisão) e o sino das notificações (Server-Sent Events) — dentro da própria API |
 | 🧡 | **SvelteKit · Svelte 5** | a tela, em runes, TypeScript e [Tailwind 4](https://tailwindcss.com/); servida pelo `adapter-node` |
 | 🐘 | **PostgreSQL 16** | a fonte da verdade, inclusive o log de eventos e as filas de saída; migrations com [Flyway](https://flywaydb.org/) |
-| ✉️ | **SMTP** | o convite por email, por um outbox cifrado — [Brevo](https://www.brevo.com/) em produção, [Mailpit](https://mailpit.axllent.org/) no desenvolvimento |
+| ✉️ | **SMTP** | o convite e os avisos por email, por um outbox cifrado — [Brevo](https://www.brevo.com/) em produção, [Mailpit](https://mailpit.axllent.org/) no desenvolvimento |
 | 🧪 | **go test · Vitest · Playwright · Testcontainers** | E2E com navegador de verdade e integração contra PostgreSQL de verdade |
 | 🐳 | **Docker Compose** | a stack local, com recarga automática nos dois lados |
 | 🌐 | **nginx + Cloudflare Tunnel** | a borda no servidor; HTTPS e acesso público pelo túnel, sem porta aberta |
@@ -85,7 +91,7 @@ Cada peça — o que é, por que está aqui, onde estudar — está em
 flowchart LR
     U(("🧑 Navegador")) -- HTTPS --> CF["☁️ Cloudflare"]
     CF -- túnel --> B["🌐 borda<br/>nginx"]
-    B -- "/api" --> A["🐹 API Go<br/>REST + WebSocket"]
+    B -- "/api" --> A["🐹 API Go<br/>REST + WebSocket + SSE"]
     B -- "/" --> W["🧡 web<br/>SvelteKit"]
     A --> P[("🐘 PostgreSQL")]
     A --> D[("📎 anexos")]
@@ -94,7 +100,8 @@ flowchart LR
 
 Uma API, num processo só. Toda mudança grava, **no mesmo commit**, o evento que
 a descreve; o tempo real, o histórico e o selo "movido por" são leituras desse
-log. O aviso às telas, o envio de email e a faxina rodam dentro da própria API.
+log. O aviso às telas, o sino das notificações, o vigia de prazos, o envio de
+email e a faxina rodam dentro da própria API.
 As decisões estruturais, o modelo de dados e **todas as rotas** estão em
 **[docs/arquitetura.md](docs/arquitetura.md)**; as convenções para contribuir,
 em **[CLAUDE.md](CLAUDE.md)**.

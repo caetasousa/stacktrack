@@ -158,3 +158,28 @@ Três mudanças **expansivas**, num deploy só:
 - `convites_board.recusado_em`: o "não" de quem foi convidado. A recusa grava
   também `revogado_em`, e por isso nenhuma consulta de pendentes nem o índice de
   "um convite em aberto por email" precisou mudar.
+
+## `V22` — as notificações
+
+Três mudanças **expansivas**, num deploy só:
+
+- `notificacoes`, tabela nova: o aviso pessoal (convite, atribuição, menção,
+  prazo), com `CASCADE` para o que ele aponta — quadro, card, comentário,
+  convite — e uma `chave` única que impede o mesmo fato de virar dois avisos.
+  O que NÃO tem coluna é "se o aviso ainda vale": é lido do estado atual a cada
+  consulta (ver `adapter/repository/notificacao_postgres.go`).
+- `boards.retencao_notificacoes_dias`, anulável: por quantos dias as
+  notificações lidas do quadro ficam guardadas, escolhido pelo dono. Os quadros
+  existentes ficam nulos — o padrão de 30 dias é do domínio
+  (`domain/notificacao`) e entra como parâmetro na faxina, e não como `DEFAULT`
+  nem backfill.
+- `email_outbox.notificacao_id`, anulável e com `CASCADE`: o email de um aviso.
+  `CASCADE`, e não `SET NULL`, porque um aviso apagado (o card apagado, a menção
+  retirada) não pode deixar na fila um email sobre algo que não existe mais.
+
+O vigia de prazos usa o `idx_cards_prazo` que já existia desde o `V6`.
+
+**Rollback**: a versão anterior não conhece as colunas novas e as deixa nulas ao
+inserir; ao ler o outbox, ela ignora `notificacao_id`. Um email de notificação
+ainda pendente durante um rollback sai sem a conferência da notificação — o
+pior caso é um aviso que já tinha sido lido chegar também por email.

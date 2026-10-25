@@ -87,8 +87,11 @@ atributos do cookie de sessão.
 ## 4. Frontend (Vitest)
 
 `frontend/src/**/*.test.ts` — funções puras (o renderizador de markdown, os
-helpers de arraste, o cliente da API contra `fetch` falso) e **um teste de
-componente**, que monta o `CardDoQuadro` de verdade em jsdom.
+helpers de arraste, as frases do sino e da auditoria, o autocompletar de
+menções, o cliente da API contra `fetch` falso), os dois clientes de tempo real
+contra um `WebSocket` e um `EventSource` falsos — a reconexão com espera, a
+sessão encerrada que não reabre — e **um teste de componente**, que monta o
+`CardDoQuadro` de verdade em jsdom.
 
 Esse último existe por um motivo específico: a ligação entre a cor do card e o
 pixel já se perdeu em silêncio uma vez — a cor atravessava domínio, banco e API
@@ -143,6 +146,22 @@ Treze casos, em quatro grupos:
 
 O último grupo usa `ComIntervaloDeRevalidacao` para não esperar os 30 segundos
 de produção.
+
+### O protocolo do SSE, sem stack
+
+`sse_test.go` faz o mesmo pelo stream do sino: o handler sobre `httptest` e um
+cliente que lê a resposta linha a linha, como o `EventSource` do navegador. Os
+casos (P1–P10, no comentário de abertura) cobrem a sessão exigida, os cabeçalhos
+que fazem o stream atravessar a borda (`text/event-stream`, `no-store`,
+`X-Accel-Buffering: no`), a contagem na abertura e a cada toque, o batimento, o
+logout que encerra dizendo por quê, a recontagem do que muda só com o relógio, o
+teto por conta e o desligamento.
+
+O P9 é o que vale entender: ele embrulha o handler no `middleware.Prazo` de
+verdade, com prazo de 100 ms, e confere que o stream continua vivo depois.
+Foi verificado por mutação nos dois sentidos — sem `LiberarDoPrazo` o stream cai,
+e com `LiberarDoPrazo` limpando só o contexto (e não o deadline de leitura do
+socket) ele cai também.
 
 ### A transação do outbox
 
@@ -216,11 +235,15 @@ login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 
 `frontend/e2e/CENARIOS.md` é o catálogo de falhas — cada linha uma maneira
 concreta de uma funcionalidade quebrar para quem usa, por área (A tempo real,
-B auditoria, C link público, D celular, E convite e compartilhamento). Cada
-teste cita no título o id que cobre (`[E4] …`).
+B auditoria, C link público, D celular, E convite e compartilhamento, F
+recuperação de senha, G confirmação de email, N notificações). Cada teste cita no
+título o id que cobre (`[E4] …`).
 
 `make test-e2e` termina rodando `frontend/e2e/resumo.mjs`, que cruza o catálogo
-com o resultado e escreve `frontend/e2e/relatorio/resumo.md`: o resultado e o
+com o resultado e escreve `frontend/e2e/relatorio/resumo.md`. A leitura do
+catálogo aceita qualquer quantidade de espaço em volta das células: com um espaço
+fixo, todo id de um dígito (`| A1  |`, alinhado pela tabela) sumia do resumo e o
+teste dele aparecia como "sem cenário". O resumo traz o resultado e o
 print da tela de cada cenário, o commit da execução, as falhas com o motivo, os
 cenários sem teste (lacunas) e os testes sem cenário. O HTML com o trace de cada
 falha fica em `frontend/e2e/relatorio/html/`. Sem retentativa: um teste que só
@@ -243,6 +266,21 @@ link pela tela de login, lê o email, troca a senha e confere pela API que a
 antiga deixou de entrar — e que a sessão aberta antes, noutro contexto, caiu.
 Um teste pode cobrir mais de um cenário quando o mesmo percurso prova todos
 (`[F2][F3][F6] …`); o relatório marca cada id.
+
+### As notificações
+
+`notificacoes.spec.ts` (área N) confere as duas pontas do sino pela tela: o
+número que muda **sem recarregar** quando outra conta atribui, menciona ou
+convida — a prova é a ordem das asserções, "Notificações" antes e "1 não lida"
+depois, sem nenhum `reload` no meio —, e o email que chega ao Mailpit com um link
+que diz a verdade: abre o card, diz "Este aviso não vale mais" depois de a
+atribuição ser desfeita, ou passa pelo login e volta. O prazo é marcado para
+daqui a seis horas, e não para "amanhã": o vigia avisa o que cai nas próximas 24
+horas, e "amanhã ao meio-dia" só estaria dentro da janela à tarde.
+
+A espera de dois minutos do email não aparece aqui — no compose de
+desenvolvimento ela é zero. Ela, e o cancelamento por leitura, são provados na
+integração, com o relógio do worker adiantado.
 
 ### O quadro no celular
 
@@ -308,6 +346,22 @@ aceite: um `:=` sombreava o erro da transação, e quem perdia a corrida respond
 sucesso sem ter entrado. O I14, em `convite_email_test.go`, guarda o mesmo caso
 pelo link.
 
+`notificacao_test.go` (S1–S15) é o das notificações: os casos de uso que avisam
+(responsável, comentário, convite, prazo) com a `UnidadeDeTrabalho`, o outbox e o
+worker de verdade, e o relógio do worker e do vigia adiantados em vez de
+esperados. O S1 repete o trigger do I1 — o evento recusado depois de a
+atribuição, o aviso e o email já estarem gravados, e nada sobra —; o S2 prova a
+espera e o cancelamento por leitura; o S3, que a atribuição desfeita deixa de
+contar e o email é cancelado na saída; o S11, a faxina com a retenção de cada
+quadro.
+
+`idempotencia_test.go` (D1) nasceu de um defeito que o S4 encontrou: atribuir de
+novo quem já responde pelo card — e aplicar de novo uma etiqueta — respondia erro
+interno. O repositório engolia a violação da chave primária, mas o PostgreSQL já
+tinha abortado a transação no `INSERT` recusado, e o comando seguinte (o evento
+do quadro) falhava com "current transaction is aborted". O conserto é
+`ON CONFLICT DO NOTHING`, e o teste falha sem ele.
+
 `recuperacao_test.go` (R1–R8) segue o mesmo molde com o
 `RecuperarSenhaUseCase` e a `UnidadeDeAutenticacao` de verdade. O R6 — duas
 redefinições simultâneas com o mesmo link — falha se o `FOR UPDATE` da busca
@@ -319,7 +373,9 @@ pelo token sair: foi conferido tirando o lock.
 `main` usa (`montar`, em `cmd/api/montagem.go`) — configuração lida do ambiente,
 pool, rotas, middlewares e workers —, contra um Postgres efêmero, e a exercita
 por HTTP com cookie de verdade. É o teste que pega a montagem que esqueceu de
-ligar alguma coisa (H1–H6 no comentário).
+ligar alguma coisa (H1–H8 no comentário) — o H8 abre o stream do sino, atribui
+pela API de outra conta e lê o evento chegar, e confere o link da notificação no
+email.
 
 É a camada que os fakes nunca puderam cobrir. `TestTodoCampoDoCardSobreviveAoBanco`
 escreve um card com todos os campos preenchidos e **lê de volta do banco** — se

@@ -51,6 +51,7 @@ config do nginx embutida no próprio arquivo (`configs.borda_nginx.content`) —
 num arquivo no servidor, e não neste repo em nenhum outro lugar:
 
 ```
+location = /api/notificacoes/eventos      ->  api:8080   (SSE: sem buffer, timeout 1h)
 location /api/   rewrite ^/api(/.*)$ $1  ->  api:8080   (Upgrade, timeout 1h)
 location /                                ->  web:3000   (cabeçalhos de segurança)
 ```
@@ -58,7 +59,10 @@ location /                                ->  web:3000   (cabeçalhos de seguran
 `/api/boards` chega na API como `/boards`. É a origem única que faz o cookie
 `__Host-` valer e a CSP em `connect-src 'self'` — o frontend chama `/api`
 relativo (`PUBLIC_API_URL=/api` assado no build). O `/api/ws` passa pela mesma
-location, que repassa o `Upgrade` do WebSocket e segura a conexão por até 1h.
+location, que repassa o `Upgrade` do WebSocket e segura a conexão por até 1h. O
+stream do sino (`/api/notificacoes/eventos`, SSE) tem location própria, com
+`proxy_buffering off`: com o buffer padrão, o nginx guardaria os avisos e os
+entregaria todos juntos.
 
 A resposta do front leva HSTS, `X-Content-Type-Options`, `X-Frame-Options DENY`,
 `Referrer-Policy`, `Permissions-Policy` e `Cross-Origin-Opener-Policy` (a CSP
@@ -470,10 +474,11 @@ senão quem invadir o servidor apaga os backups junto.
 
 ## 📧 Email dos convites
 
-O convite, o link de recuperação de senha e o de confirmação de conta vão por
-email pelo **Brevo**, em
+O convite, o link de recuperação de senha, o de confirmação de conta e os avisos
+de notificação vão por email pelo **Brevo**, em
 `smtp-relay.brevo.com:587` com STARTTLS — pelo mesmo outbox, que distingue os
-três pela coluna `modelo` (`convite.v2`, `recuperacao.v2`, `confirmacao.v1`; o
+tipos pela coluna `modelo` (`convite.v2`, `recuperacao.v2`, `confirmacao.v1`,
+`notificacao.atribuicao.v1`, `notificacao.mencao.v1`, `notificacao.prazo.v1`; o
 `v1` dos dois primeiros era o HTML com botão e cabeçalho, que o Gmail punha em
 Promoções). Em produção o TLS é obrigatório: a API recusa subir com
 `SMTP_STARTTLS=false`, sem `EMAIL_CHAVE` válida ou com usuário sem senha
@@ -504,6 +509,11 @@ hora por quem enfileirou e, de rede, olha a fila a cada 5 segundos.
   como registro de que houve envio, sem conteúdo.
 - O erro do servidor vai para o log e para `ultimo_erro` com os endereços
   mascarados.
+- O **email de notificação** (atribuição, menção, prazo) espera **2 minutos**
+  antes de sair (`NOTIFICACAO_ESPERA_EMAIL_SEG`) e, na hora de sair, o worker
+  confere o aviso: lido no sistema, desfeito, ou de alguém que saiu do quadro, o
+  envio vira `cancelado` (log: "email de notificação cancelado"). Cada pessoa
+  recebe no máximo 20 por dia; além disso, o aviso fica só no sino.
 
 ### Conferir a fila
 
@@ -512,9 +522,14 @@ cd ~ && alias dc='docker compose -f docker-compose.prod.yml'
 dc exec postgres psql -U stacktrack -d stacktrack -c \
   "SELECT estado, count(*) FROM email_outbox GROUP BY estado"
 dc exec postgres psql -U stacktrack -d stacktrack -c \
-  "SELECT criado_em, estado, tentativas, proxima_em, ultimo_erro
+  "SELECT criado_em, modelo, estado, tentativas, proxima_em, ultimo_erro
      FROM email_outbox WHERE estado IN ('pendente', 'falhou')
     ORDER BY criado_em DESC LIMIT 20"
+# os de notificação, por tipo e desfecho — muitos `cancelado` é o normal: a
+# pessoa leu no sistema antes de o email sair
+dc exec postgres psql -U stacktrack -d stacktrack -c \
+  "SELECT modelo, estado, count(*) FROM email_outbox
+    WHERE notificacao_id IS NOT NULL GROUP BY modelo, estado"
 dc logs api | grep -i email        # "email entregue", "vai tentar de novo", "desistiu"
 ```
 
@@ -557,8 +572,11 @@ outbox mostra `enviado` e o log, "email entregue". Pesam três coisas:
 
 Nada disso garante a aba Principal: quem decide é o Gmail.
 
-O plano gratuito do Brevo tem cota diária de envio; a cota de 30 convites por
-conta por dia existe para que uma conta só não a gaste inteira.
+O plano gratuito do Brevo tem cota diária de envio (300 emails); a cota de 30
+convites por conta por dia, e a de 20 emails de notificação por pessoa, existem
+para que uma conta só não a gaste inteira. Com mais gente usando, quem estoura
+primeiro é a notificação: a espera de dois minutos já corta boa parte (quem está
+olhando lê no sino), e o que passar disso pede o plano pago ou uma espera maior.
 
 ## Diagnóstico
 
@@ -574,6 +592,22 @@ dc exec postgres psql -U stacktrack -d stacktrack -c '\dt'
 # a API não publica porta: para falar com ela, entre pela rede da stack
 docker run --rm --network stacktrack_borda alpine:3.21 wget -qO- http://api:8080/ready
 ```
+
+**O sino não atualiza sozinho.** O stream das notificações é um GET que não
+termina, e três coisas o quebram sem erro nenhum na tela:
+
+```bash
+# quantos streams estão abertos — zero com gente usando é o sintoma
+docker run --rm --network stacktrack_borda alpine:3.21 wget -qO- http://api:8080/ready
+# os eventos chegando um a um pela borda (com um cookie de sessão válido):
+curl -N -H "Cookie: __Host-stacktrack_session=<token>" https://<domínio>/api/notificacoes/eventos
+dc logs api | grep -i "stream de notificações"   # recusas por teto, sessão encerrada
+```
+
+Se o `curl` só mostra os eventos quando a conexão fecha, a borda está com buffer:
+a `location = /api/notificacoes/eventos` do compose (com `proxy_buffering off`)
+não chegou ao container — ver "Mudar a config da borda não recria a borda
+sozinho", abaixo.
 
 Os logs rotacionam em 10 MB × 3 arquivos por serviço. Sem isso, um log de acesso
 enche o disco e derruba tudo junto — **inclusive o studygo e a distro de
@@ -746,10 +780,17 @@ aperta (`SET NOT NULL`, `DROP COLUMN`, `RENAME`, `UNIQUE` novo) exige dois
 deploys.
 
 **`WriteTimeout` e `ReadTimeout` precisam continuar em zero.** Um timeout do
-`http.Server` vale para a conexão inteira, e o WebSocket é uma requisição que
-dura horas. Os dois já estão zerados deliberadamente em
-`backend/config/server.go`; reintroduzi-los faria o quadro cair sempre no mesmo
-intervalo. O ping/pong do próprio WebSocket é quem limita conexão morta.
+`http.Server` vale para a conexão inteira, e o WebSocket e o stream do sino são
+requisições que duram horas. Os dois já estão zerados deliberadamente em
+`backend/config/server.go`; reintroduzi-los faria o quadro e o sino caírem sempre
+no mesmo intervalo. Quem limita conexão morta é o ping/pong do WebSocket e o
+batimento de 25 s do stream, cuja escrita falha quando a outra ponta sumiu.
+
+**O stream do sino precisa de rota sem buffer na borda.** Com o buffer padrão
+do nginx, os avisos chegam todos juntos, atrasados. A `location =
+/api/notificacoes/eventos` do compose desliga o buffer e a API também manda
+`X-Accel-Buffering: no` — tirar os dois faz o sino parar de atualizar sem erro
+nenhum.
 
 **O nome antigo sobrevive num comentário da migration V1.** O Flyway guarda
 checksum de cada `.sql` e recusa o `validate` se o arquivo mudar — por isso a

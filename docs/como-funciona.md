@@ -28,6 +28,10 @@ Em volta disso:
 - cada card guarda **conversa, checklists, anexos, prazo, etiquetas,
   responsáveis** e o **histórico** do que aconteceu com ele;
 - o **histórico do quadro** responde "quem mexeu nisso, e quando?";
+- um **sino** no topo da tela avisa o que é com você: um convite para um quadro,
+  um card que passou a ser seu, alguém que chamou você pelo nome num comentário
+  (com "@Nome"), um prazo seu chegando — e o mesmo aviso chega por email, se você
+  não o viu na tela;
 - um **link público** mostra o quadro, só para leitura, a quem não tem conta —
   o cliente, a diretoria;
 - **esqueceu a senha?** O link chega por email, vale uma hora, e trocar a senha
@@ -52,7 +56,7 @@ Pense na **secretaria de uma escola**, com o quadro de avisos no corredor:
 | **PostgreSQL** | o livro de registros | onde tudo fica guardado — inclusive a lista, em ordem, de tudo o que aconteceu |
 | **borda** (nginx) | a portaria | o único lugar por onde se entra; manda cada visita para a sala certa |
 | **túnel da Cloudflare** | o endereço da escola | traz as visitas da internet até a portaria, sem abrir porta na rua |
-| **Brevo** | os correios | levam os emails de convite e de senha nova |
+| **Brevo** | os correios | levam os emails de convite, de senha nova e os avisos |
 
 Dentro da secretaria trabalham ajudantes que **ninguém chama** — eles rodam
 sozinhos, o tempo todo:
@@ -60,9 +64,16 @@ sozinhos, o tempo todo:
 - o **despachante**: a cada anotação nova no livro, avisa todas as telas que
   estão com aquele quadro aberto;
 - o **carteiro**: leva os emails da fila aos correios — e, se os correios
-  estiverem fechados, tenta de novo mais tarde;
+  estiverem fechados, tenta de novo mais tarde. Antes de levar um aviso, ele
+  confere se ainda vale a pena: se você já viu o aviso na tela, ou se ele deixou
+  de valer, o email não sai;
+- o **vigia de prazos**: olha o relógio e, na véspera de um prazo, avisa quem é
+  responsável pelo card;
+- a **campainha**: quando chega um aviso para alguém, toca nas telas que essa
+  pessoa tem abertas, e o número do sino muda sem recarregar;
 - a **faxina**: de hora em hora, joga fora o que venceu — sessões, links de
-  senha nova e de confirmação, convites velhos, emails que ficaram na fila.
+  senha nova e de confirmação, convites velhos, emails que ficaram na fila e os
+  avisos já lidos há mais tempo do que o dono do quadro escolheu guardar.
 
 ```
 Você → tela (web) → portaria (borda) → secretaria (API) → livro (PostgreSQL)
@@ -141,6 +152,11 @@ pessoa para ver, e aceitar, os convites dela.
 O email do convite entra numa **fila**, no mesmo instante em que o convite é
 gravado; o carteiro o leva depois. Os correios fora do ar não desfazem convite
 nenhum — o email só sai mais tarde.
+
+Os avisos do sino também: o aviso de "você é responsável por este card" é
+anotado no mesmo instante em que alguém marca você — se a anotação do card falha,
+o aviso não existe, e vice-versa. O email desse aviso espera dois minutos na
+fila, porque quem está com a tela aberta já viu.
 
 O mesmo vale para os arquivos anexados: apagar um anexo anota a exclusão, e o
 arquivo só sai do disco quando houver um backup garantido de que ele não vai
@@ -236,6 +252,9 @@ de dentro para fora, e as visitas chegam por ela.
 | **evento** | a anotação de uma mudança no livro ("Ana moveu X") |
 | **revisão** | o número de ordem dos eventos de um quadro: 41, 42, 43… |
 | **tempo real** | a tela se atualizando sozinha quando outra pessoa mexe |
+| **notificação** (aviso) | o que aparece no sino: convite, card que passou a ser seu, menção, prazo |
+| **menção** | chamar alguém num comentário escrevendo "@" e o nome da pessoa |
+| **SSE** | o jeito como a campainha chega à tela: uma conexão que fica aberta e por onde só o servidor fala |
 | **outbox** | a fila de saída: o que vai para fora é anotado nela antes de sair |
 | **borda** | a portaria (nginx) por onde toda visita entra |
 | **túnel** | a conexão da Cloudflare que traz as visitas até o servidor |
@@ -262,6 +281,11 @@ para comparar com o repositório. Os logs e o resto do diagnóstico estão em
 **Publiquei e quebrou?** Volte para o commit anterior com o mesmo comando do
 deploy, mudando só o SHA — [producao.md](producao.md#voltar-atrás). O banco não
 volta junto, e a seção explica quando isso importa.
+
+**O sino não muda sozinho?** Recarregar a página mostra os avisos de qualquer
+jeito — eles moram no banco, não na conexão. Se nunca muda sem recarregar, a
+conexão da campainha está sendo barrada no caminho: veja
+[producao.md](producao.md#diagnóstico).
 
 **O convite não chegou?** A tela de Membros mostra o que houve com cada email
 ("na fila", "enviado", "não saiu"), e **Reenviar** resolve a maioria dos casos. A

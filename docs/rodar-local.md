@@ -66,6 +66,9 @@ O mesmo código, com outros valores — e cada diferença é decisão:
 | chave da fila de email | efêmera — a fila não sobrevive a um reinício | `EMAIL_CHAVE`, do vault |
 | tetos de requisição | frouxos (200 cadastros/min…) | os do produto (5 cadastros/min…), obrigatórios |
 | intervalo entre reenvios de convite | 0 | 2 minutos |
+| espera do email de notificação | 0 — sai na hora, para aparecer no Mailpit | 2 minutos (ler no sistema antes cancela) |
+| vigia de prazos | olha a cada 5 segundos | a cada 10 minutos (e quando acordado) |
+| aberturas do stream do sino por IP | 1000/min | 60/min |
 | origem | tela em `:5173`, API em `:8080` (CORS por `FRONTEND_ORIGIN`) | uma origem só, `/api` é um caminho |
 | cookie de sessão | `stacktrack_session`, sem `Secure` | `__Host-…`, com `Secure` |
 
@@ -171,6 +174,22 @@ Mudou o `.air.toml`? Reinicie a API — ele só é lido na partida do `air`.
 Rodando outra stack local nas mesmas portas (5173, 8080, 5432, 8025, 1025), o
 segundo `docker compose up` falha com "port is already allocated" — derrube a
 outra antes.
+
+### Seis abas abertas e a tela "trava"
+
+Em desenvolvimento o navegador fala HTTP/1.1 com a API (`localhost:8080`), e o
+HTTP/1.1 permite só **6 conexões** por servidor. Cada aba logada prende uma com o
+stream do sino (SSE), então com seis abas abertas as requisições seguintes entram
+em fila e a tela parece travada. Feche abas. Em produção não acontece: o
+navegador fala HTTP/2 com a Cloudflare, que multiplexa tudo numa conexão só.
+
+### O email de notificação não chega ao Mailpit
+
+Ele sai na hora (a espera é zero no compose), mas o worker **confere o aviso**
+antes de mandar: aviso já lido no sistema, atribuição desfeita ou pessoa fora do
+quadro cancelam o email. Quem se atribui a si mesmo, ou menciona a si mesmo, não
+recebe aviso nenhum. E o teto é de 20 emails de notificação por pessoa em 24 h —
+quem testa muito com a mesma conta esbarra nele.
 
 ### A tela recarregando sozinha durante o E2E
 

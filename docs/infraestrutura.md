@@ -103,7 +103,8 @@ Rodar `preparar-host.yml` duas vezes seguidas deve terminar em `changed=0` — q
 ```
 
 O roteamento de `stacktrack.d4ffy.com` (split `/api` → API, resto → front,
-WebSocket, cabeçalhos) está no serviço **`borda`** do `docker-compose.prod.yml`:
+WebSocket, o stream SSE do sino sem buffer, cabeçalhos) está no serviço
+**`borda`** do `docker-compose.prod.yml`:
 um nginx com a config embutida no próprio compose, publicado em
 `127.0.0.1:8580`. O TLS fica com a Cloudflare. O contrato está em
 [producao.md](producao.md#a-borda-o-que-o-túnel-alcança).

@@ -249,6 +249,10 @@ Escolhemos WebSocket porque o produto já pede o caminho de volta (quem está
 editando o quê) e porque o resto desta seção — a parte cara — teria de existir
 quase igual com SSE.
 
+O SSE entrou depois, onde o caminho de volta não existe: o sino das
+notificações só recebe, e marcar como lido é um POST comum. Ver
+[SSE — o sino das notificações](#sse--o-sino-das-notificações).
+
 O `coder/websocket` entra por ter API sobre `context`: cada envio e o
 desligamento gracioso caem no mesmo mecanismo do resto do projeto.
 
@@ -469,6 +473,96 @@ conexão como a primeira.
 📝 [Go Concurrency Patterns, de Rob Pike](https://go.dev/talks/2012/concurrency.slide) — o modelo mental de canais que o hub usa
 📝 [OWASP — WebSockets](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#websockets) — a seção do Cross-Site WebSocket Hijacking
 📝 [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) — o lado do navegador, que é o que `conexao.svelte.ts` usa
+
+### SSE — o sino das notificações
+
+**O que é.** Server-Sent Events é um GET comum cuja resposta **não termina**:
+o servidor responde `200` com `Content-Type: text/event-stream` e vai escrevendo
+blocos de texto nela, um por evento, até alguém fechar. O formato é texto puro —
+cada bloco é uma sequência de linhas `campo: valor` terminada por uma linha em
+branco:
+
+```
+retry: 5000
+
+event: notificacoes
+data: {"versao":1,"naoLidas":3}
+
+: batimento
+```
+
+`event:` dá nome ao evento, `data:` carrega o conteúdo, `retry:` diz ao
+navegador quanto esperar para reconectar e a linha que começa com `:` é um
+comentário, que o navegador ignora. Do lado do navegador, o `EventSource` abre o
+stream, entrega cada evento ao ouvinte daquele nome e **reabre sozinho** quando a
+conexão cai. Existe ainda o campo `id:`, que o navegador devolve no cabeçalho
+`Last-Event-ID` ao reconectar, para o servidor repor o que se perdeu — e que aqui
+não é usado, de propósito (ver abaixo).
+
+**Por que está aqui.** O sino tem a exigência do quadro — o aviso aparece sem
+recarregar — sem o resto: não há presença, não há "estou editando", não há nada
+que o cliente mande pelo canal. Para mão única, o SSE resolve com HTTP puro: o
+cookie de sessão viaja como em qualquer requisição (sem handshake próprio nem
+checagem de `Origin` à parte), a borda o repassa como qualquer resposta, e a
+reconexão já vem pronta no navegador. Um segundo WebSocket só para isso teria o
+custo do primeiro sem usar a metade que o justifica.
+
+**O stream não carrega notificação nenhuma.** Ele diz só "a contagem agora é N";
+a lista mora no banco (`notificacoes`), e a tela a relê quando quer mostrá-la.
+É a mesma escolha do quadro, que recarrega em vez de aplicar diferença, levada
+ao fim: como não há conteúdo no stream, não há o que repor numa queda — e por
+isso não há `id:` nem `Last-Event-ID`. A próxima leitura já é a verdade inteira.
+Um cursor por `id` ainda traria de volta o problema do `seq`
+([seq e revisao](#seq-e-revisao-por-que-dois-números)): avisos de duas transações
+concorrentes comitam fora da ordem em que foram numerados.
+
+**Como é no projeto.**
+
+- O caso de uso grava o aviso **na mesma transação** do que o causou — a
+  atribuição, o comentário, o convite (`usecase/board/notificacoes.go`) — e, só
+  depois do commit, toca a **campainha** (`adapter/realtime/campainha`). Ela é o
+  irmão pequeno do hub: salas por PESSOA em vez de por quadro, e um canal de
+  buffer UM por tela aberta, com envio que não bloqueia. Dois toques seguidos
+  viram um — o que a tela faz com qualquer um deles é o mesmo.
+- O handler (`adapter/http/sse/sse.go`) assina a campainha **antes** da primeira
+  contagem, pela mesma razão de o WebSocket assinar a sala antes de repor o
+  histórico; a cada toque, reconta e escreve; a cada 30 s, reconfere a sessão e
+  reconta — o que cobre o que muda só com o relógio, como o convite que venceu
+  sem ninguém tocar campainha nenhuma.
+- No navegador, `lib/realtime/notificacoes.svelte.ts` envolve o `EventSource`
+  e `lib/stores/notificacoes.svelte.ts` guarda o número e a lista.
+
+**As armadilhas — todas já resolvidas, e todas fáceis de reintroduzir:**
+
+| Armadilha | O que acontece | Onde está o conserto |
+|---|---|---|
+| o nginx guarda a resposta em buffer | os avisos chegam todos juntos, atrasados, ou só quando a conexão fecha | `X-Accel-Buffering: no` na resposta **e** `proxy_buffering off` na rota, na borda |
+| o prazo de 10 s das requisições comuns | o stream cai sempre no mesmo tempo | `middleware.LiberarDoPrazo`, chamado só pelo handler do SSE |
+| o deadline de **leitura** do socket | no HTTP/1.1 o servidor lê o socket em segundo plano para notar o cliente que saiu; esbarrando no deadline, ele cancela o contexto — e o stream cai igual | o mesmo `LiberarDoPrazo` limpa os dois deadlines (o teste P9 prova, e falha sem isso) |
+| resposta parada é tratada como morta | a Cloudflare derruba em 100 s, o nginx em 1 h | um comentário `: batimento` a cada 25 s |
+| o navegador desiste | numa resposta que não é 200 (o 503 de teto, um 502 no deploy), o `EventSource` fecha e **não** reabre | o cliente reabre com espera crescente e sorteio |
+| sessão encerrada | o navegador reabriria para sempre e levaria 401 a cada tentativa | o servidor manda `event: encerrada` com o motivo, e o cliente fecha de vez |
+| o limite do HTTP/1.1 | o navegador abre até 6 conexões por servidor, e cada aba prende uma com o stream | em produção o navegador fala HTTP/2 com a Cloudflare, e o limite some; em desenvolvimento, com seis abas abertas, as requisições entram em fila — ver [rodar-local.md](rodar-local.md) |
+
+**Como estudar na prática.**
+
+```bash
+# com `make run` no ar e uma conta criada (o -c/-b guardam o cookie):
+curl -s -c /tmp/c -H 'Content-Type: application/json' \
+  -d '{"nome":"Ana","email":"ana@x.dev","senha":"uma senha bem comprida"}' localhost:8080/auth/cadastro
+curl -N -b /tmp/c localhost:8080/notificacoes/eventos
+```
+
+O `-N` desliga o buffer do curl: sem ele, os eventos só aparecem quando a
+conexão fecha — o mesmo sintoma do nginx com buffer. No navegador, DevTools →
+Network → a requisição `eventos` → aba **EventStream**. O protocolo inteiro está
+provado em `backend/test/realtime/sse_test.go`, sem stack nenhuma.
+
+📚 [HTML Living Standard — Server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html) — a especificação; a seção do formato do stream e a da reconexão são curtas e valem a leitura
+📚 [MDN — Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) · [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource) — o lado do navegador, inclusive o `withCredentials`
+📚 [http.ResponseController](https://pkg.go.dev/net/http#ResponseController) — `Flush` e os deadlines por resposta, que é como o Go escreve um stream
+📚 [proxy_buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering) · [X-Accel-Buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ignore_headers) — por que o nginx segura a resposta, e como ela pede para não ser segurada
+📝 [Cloudflare — conexões e timeouts](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/) — os 100 s que o batimento precisa vencer
 
 ### Log de eventos (o outbox)
 
@@ -760,6 +854,17 @@ Três decisões que valem entender:
   para um provedor que volta do ar não receber tudo no mesmo segundo
   (`domain/email/email.go`).
 
+O **email de uma notificação** usa a mesma fila, com três diferenças
+(`usecase/board/notificacoes.go`): ele **espera** dois minutos antes de sair —
+quem está com o sistema aberto lê no sino, e o aviso lido cancela o email que
+ainda não saiu —; o worker **confere a notificação na hora de mandar**
+(`correio.Conferencia`), e não manda se ela foi lida, desfeita ou ficou fora do
+alcance de quem a recebeu; e há um **teto por quem recebe** (20 por dia), e não
+por quem pede, porque é a caixa de entrada do destinatário que se protege.
+Conferir na saída, e não cancelar em cada caminho que desfaz alguma coisa, é o
+que cobre de uma vez a atribuição desfeita, o prazo trocado e a pessoa removida
+do quadro.
+
 O cliente é o `net/smtp` da biblioteca padrão, com STARTTLS obrigatório em
 produção, e o texto vem de modelos versionados em `adapter/email/modelos/`,
 embutidos no binário. Em desenvolvimento o "provedor" é o **Mailpit**, que
@@ -810,6 +915,12 @@ o trabalho é retomável por construção — a passada seguinte pega o que sobr
 O `SELECT … LIMIT` no subselect usa `ctid`, o endereço físico da linha: o
 planejador vai direto nela, sem passar de novo pelo índice que o subselect já
 percorreu.
+
+As **notificações** entram na mesma faxina, com uma regra que não é fixa: a
+retenção é escolhida pelo dono de cada quadro (1 a 365 dias, 30 por padrão), e o
+`DELETE` a lê de `boards.retencao_notificacoes_dias` no próprio comando. O padrão
+vai como parâmetro, vindo do domínio — o quadro que nunca escolheu fica com
+`NULL` no banco, e "quanto vale o nunca escolheu" não é decisão do schema.
 
 ### Confirmação de ações destrutivas
 
@@ -999,6 +1110,11 @@ Duas armadilhas que a config resolve, e que valem para qualquer nginx em
 Docker: o `proxy_pass` com variável + `resolver 127.0.0.11` (sem eles, o nginx
 guarda o IP do boot e um container recriado fica inalcançável) e o `rewrite` no
 lugar da barra final do `proxy_pass`, que não funciona com variável.
+
+O stream das notificações tem rota própria na borda
+(`location = /api/notificacoes/eventos`), com `proxy_buffering off` e o mesmo
+timeout longo do `/ws`: com o buffer padrão, o nginx guardaria os avisos e os
+entregaria todos juntos — ver [SSE](#sse--o-sino-das-notificações).
 
 📚 [ngx_http_realip_module](https://nginx.org/en/docs/http/ngx_http_realip_module.html) · [proxy_pass](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass) · [WebSocket proxying](https://nginx.org/en/docs/http/websocket.html)
 📝 [nginx-unprivileged](https://github.com/nginx/docker-nginx-unprivileged) — a imagem que roda sem root, escutando na 8080

@@ -29,6 +29,7 @@ Cada seção segue o mesmo roteiro:
 | 🔗 | [Link público de acompanhamento](#-link-público-de-acompanhamento) |
 | 📜 | [Histórico do quadro](#-histórico-do-quadro) |
 | ⚡ | [Tempo real](#-tempo-real) |
+| 🔔 | [Notificações](#-notificações) |
 | 📱 | [No celular](#-no-celular) |
 | 🌗 | [Tema](#-tema) |
 | 📏 | [Limites, num lugar só](#-limites-num-lugar-só) |
@@ -56,8 +57,8 @@ Cada seção segue o mesmo roteiro:
 - `POST /auth/login` confere a senha e abre uma sessão; `POST /auth/logout` a
   apaga no servidor. A sessão é um cookie `HttpOnly`; o banco guarda só o
   SHA-256 do token.
-- O WebSocket aberto **revalida a sessão** a cada 30 segundos: sair em uma aba
-  derruba o tempo real das outras.
+- O WebSocket do quadro e o stream do sino **revalidam a sessão** a cada 30
+  segundos: sair em uma aba derruba o tempo real das outras.
 
 **Regras**
 
@@ -204,7 +205,8 @@ reenvia para a conta logada. O `/auth/me` diz `emailConfirmado`.
 - **Convites para você**: os convites em aberto para o email da conta, de
   qualquer quadro — com o quadro, **"de Ana"**, o papel e até quando valem, e os
   botões **Aceitar** (abre o quadro) e **Recusar** (com confirmação). Só aparece
-  para conta com o email confirmado.
+  para conta com o email confirmado. Um convite que chega com o painel aberto
+  aparece sozinho, sem recarregar — avisado pelo [sino](#-notificações).
 - **Seus quadros**: os quadros em que você é dona ou dono, com a data de
   criação e o botão **Apagar**.
 - **Compartilhados com você**: os quadros de outras pessoas em que você entrou
@@ -263,7 +265,7 @@ O cabeçalho mostra, da esquerda para a direita, o **estado** do quadro e as
 
 | Ação | Quem vê |
 |---|---|
-| **Ajustes** — etiquetas do quadro e fundo | editor e dono (o fundo, só o dono) |
+| **Ajustes** — etiquetas do quadro, fundo e retenção das notificações | editor e dono (fundo e retenção, só o dono) |
 | **Membros** e **Histórico** | todo membro |
 | **Compartilhar**, **Renomear**, **Apagar** | só o dono |
 | **+ Nova coluna** | editor e dono |
@@ -406,6 +408,8 @@ comenta.
   responde **422**, e não 404: quem pediu já enxerga o card, e esconder o motivo
   não protegeria nada. A regra é do domínio, e não do banco (a chave estrangeira
   aponta para a conta, porque "quem pode ser responsável" muda com a regra).
+  Quem passa a responder pelo card é **avisado** — no sino e por email (ver
+  [Notificações](#-notificações)).
   Sair do quadro **leva as atribuições junto**: mantê-las
   deixaria o nome de quem não tem mais acesso pendurado nos cards, e o filtro
   "meus cards" mostrando à pessoa removida cards que ela não abre mais.
@@ -423,7 +427,8 @@ comenta.
 ### Prazo
 
 - **Na tela**: a data de entrega; limpar tira o prazo. O card vencido fica em
-  destaque e entra no filtro "só vencidos".
+  destaque e entra no filtro "só vencidos". Na véspera, quem responde pelo card
+  recebe o aviso "o prazo de … vence amanhã" (ver [Notificações](#-notificações)).
 - **Por baixo**: `PATCH /cards/{id}/prazo` (`null` limpa).
 
 ### Checklists
@@ -468,7 +473,9 @@ comenta.
 ### Comentários
 
 - **Na tela**: a conversa do card, do mais antigo para o mais novo, em Markdown;
-  editar e apagar o próprio. O card mostra quantos comentários tem.
+  editar e apagar o próprio. O card mostra quantos comentários tem. **Mencionar**:
+  "@" no campo abre a lista de quem participa do quadro, e quem for chamado é
+  avisado (ver [Notificações](#-notificações)).
 - **Por baixo**: `GET`/`POST /cards/{id}/comentarios`, `PATCH`/`DELETE
   /comentarios/{id}`.
 - **Regras**: até 2.000 caracteres. Três regras diferentes, e confundi-las seria
@@ -518,7 +525,7 @@ e `lib/components/ModalDoCard.svelte`.
 | leitor | ✅ | — | ✅ | — |
 
 **Administrar** é convidar, trocar papel, remover, renomear e apagar o quadro,
-trocar o fundo e ligar o link público.
+trocar o fundo, escolher a retenção das notificações e ligar o link público.
 
 **Por baixo**: `GET /boards/{id}/membros`, `PATCH`/`DELETE
 /boards/{id}/membros/{usuarioId}`. Trocar o papel de alguém avisa a tela dela na
@@ -534,8 +541,8 @@ recarregar.
 - **Quem não participa recebe 404**, nunca 403: um 403 confirmaria que o quadro
   existe. O 403 fica para quem é membro e esbarra no próprio papel.
 - Papel desconhecido — dado estragado no banco — **não pode nada**.
-- Remover alguém leva as atribuições de responsável junto; o que a pessoa
-  escreveu fica.
+- Remover alguém leva as atribuições de responsável e os avisos dela sobre o
+  quadro junto; o que a pessoa escreveu fica.
 
 **No código**: `usecase/board/membros.go`, `domain/membro`,
 `routes/painel/quadros/[id]/membros/+page.svelte`.
@@ -570,7 +577,8 @@ link do convite, apresentado por quem está logado na conta daquele email.
 4. **Aceitar convite** — e o quadro abre. No painel, ele passa a aparecer em
    **"Compartilhados com você"**, com o nome do dono.
    - Com o email da conta **confirmado**, nem precisa do link: o convite também
-     está em **"Convites para você"**, no painel, com **Aceitar** e **Recusar**.
+     está em **"Convites para você"**, no painel, com **Aceitar** e **Recusar**,
+     e o [sino](#-notificações) avisa que ele chegou.
 5. Logado na **conta errada**, o convite não é aceito, e a tela oferece **Sair e
    entrar com outra conta**, voltando ao convite.
 
@@ -768,9 +776,111 @@ eventos que o tempo real já usa.
   não têm tabela e morrem com o processo.
 - Até **5 conexões por conta** e **100 no total**; o logout derruba o socket em
   até 30 segundos.
+- O sino do cabeçalho tem conexão própria, de mão única (SSE) — ver
+  [Notificações](#-notificações).
 
 **No código**: `adapter/http/ws`, `adapter/realtime/{hub,despachante}`,
 `lib/realtime/conexao.svelte.ts`, `lib/realtime/reconciliacao.ts`.
+
+---
+
+## 🔔 Notificações
+
+**Na tela**
+
+O **sino** do cabeçalho, em toda página logada, mostra quantos avisos pedem
+atenção. Abri-lo mostra a lista, do mais novo para o mais antigo:
+
+| Aviso | Quando nasce | Para quem |
+|---|---|---|
+| **"Ana convidou você para o quadro X"** | alguém convida o email da conta | quem já tem conta com aquele email — e só depois de confirmá-lo |
+| **"Ana pôs você como responsável por Y"** | alguém marca a pessoa como responsável pelo card | quem passou a responder pelo card |
+| **"Ana mencionou você em Y"**, com o começo do comentário | um comentário chama a pessoa pelo nome | quem foi mencionado |
+| **"O prazo de Y vence amanhã"** | o prazo do card entra nas últimas 24 horas | cada responsável pelo card |
+
+- **Clicar** num aviso o marca como lido e leva ao lugar dele: o card aberto por
+  cima do quadro, ou os convites do painel. **Marcar todas como lidas** zera o
+  número.
+- O aviso que **deixou de valer** continua na lista, apagado, dizendo por quê:
+  "você não responde mais por este card", "o prazo mudou", "você recusou", "o
+  convite foi cancelado", "o convite venceu". Ele não conta no número.
+- O número **muda sozinho**, sem recarregar, em todas as abas abertas; ler numa
+  aba apaga o número nas outras.
+- **Mencionar**: no campo de comentário, "@" abre a lista de quem participa do
+  quadro (procura sem acento e por qualquer parte do nome); escolher alguém
+  escreve o nome completo.
+- **Por email** também — para atribuição, menção e prazo —, **dois minutos
+  depois**, e só se a pessoa ainda não leu no sistema: quem está olhando não
+  recebe o mesmo aviso de novo na caixa de entrada. O link do email abre o aviso:
+  leva ao card se ele ainda vale, ou diz **"Este aviso não vale mais"** e por
+  quê. Sem sessão, o link passa pelo login e volta.
+- O **dono** escolhe, em **Ajustes**, por quantos dias as notificações lidas do
+  quadro ficam guardadas.
+
+**Por baixo**
+
+- O aviso é **gravado na mesma transação** do que o causou: a atribuição que
+  comita leva o aviso junto, e a que falha não deixa aviso nem email para trás. O
+  prazo, que nenhuma ação causa, é avisado pelo **vigia de prazos**, que olha o
+  relógio em segundo plano e é acordado quando alguém marca um prazo ou passa a
+  responder por um card.
+- O sino lê `GET /notificacoes`; marcar é `POST /notificacoes/{id}/lida` ou
+  `POST /notificacoes/lidas`; o link do email abre `/notificacoes/{id}`, que
+  consulta `GET /notificacoes/{id}`.
+- O tempo real é um **stream SSE** (`GET /notificacoes/eventos`) que só diz a
+  contagem; a lista é relida pela tela. Uma queda de conexão não perde nada — a
+  próxima leitura já é a verdade inteira.
+- **Se o aviso ainda vale é lido do estado atual**, a cada consulta — não há
+  marca gravada de "não vale mais" para algum caminho esquecer de escrever.
+- O email vai pelo mesmo outbox do convite, e o worker **confere o aviso na hora
+  de mandar**: lido, desfeito ou fora do alcance de quem o recebeu, o email é
+  cancelado.
+- O diagrama e as decisões estão em
+  [arquitetura.md](arquitetura.md#as-notificações-gravadas-no-banco-avisadas-por-sse).
+
+**Regras**
+
+- **Quem causa não é avisado**: atribuir a si mesmo ou se mencionar não gera
+  aviso.
+- **Atribuir quem já respondia** pelo card não avisa de novo — nem atribuir de
+  novo, depois de desatribuir por engano, enquanto a pessoa não leu o primeiro
+  aviso.
+- **Menção** é "@" seguido do **nome completo** de quem participa (sem diferença
+  de maiúsculas), ou só do **primeiro nome**, quando uma pessoa só do quadro o tem.
+  O "@" de um email ("bruno@exemplo.com") não conta. Dois "Ana Silva" no quadro
+  são chamados os dois — não há o que digitar a mais —; "@Ana" com duas Anas não
+  chama ninguém. Só quem participa do quadro é avisado.
+- **Editar o comentário acompanha o texto**: retirar a menção apaga o aviso (e o
+  email que ainda não saiu), acrescentar avisa, e apagar o comentário leva o
+  aviso junto.
+- **O convite no sino** segue a regra do painel: só aparece para conta com o
+  email confirmado. Aceito, recusado, revogado ou vencido, ele deixa de contar. A
+  notificação do convite não manda email: o convite já tem o dele.
+- **O prazo** avisa uma vez por data. Adiar o prazo encerra o aviso antigo e
+  avisa de novo quando a nova data chegar; card sem responsável não avisa
+  ninguém; prazo que já passou não avisa — o card já aparece vencido. O
+  stacktrack não sabe qual coluna é "pronto": um card terminado com prazo ainda
+  avisa, e o jeito é tirar o prazo dele.
+- **Sair do quadro** apaga os avisos da pessoa sobre ele.
+- **Email**: até **20 por pessoa em 24 horas**; além disso, os avisos continuam
+  no sino e o email para — alguém atribuindo trinta cards de uma vez não enche a
+  caixa de entrada de outra pessoa. O email leva **só títulos** (do quadro e do
+  card): nada do texto do comentário nem da descrição.
+- **Retenção**: as lidas ficam o número de dias escolhido pelo dono (1 a 365; 30
+  quando ele nunca escolheu); as não lidas que ainda valem ficam até serem lidas,
+  por no máximo um ano; as que deixaram de valer saem depois da retenção. A troca
+  fica no [histórico](#-histórico-do-quadro), com o nome de quem a fez. Só o dono
+  troca (**403** para os demais).
+
+**No código**: `usecase/board/notificacoes.go` e `prazos.go`,
+`usecase/notificacao`, `domain/notificacao`, `domain/comentario/mencao.go`,
+`adapter/http/sse`, `adapter/realtime/campainha`,
+`adapter/repository/notificacao_postgres.go`; no frontend,
+`lib/components/SinoDeNotificacoes.svelte`, `lib/components/CampoComMencoes.svelte`,
+`lib/stores/notificacoes.svelte.ts`, `lib/realtime/notificacoes.svelte.ts`,
+`lib/notificacoes.ts`, `lib/mencoes.ts` e `routes/notificacoes/[id]`. Os testes:
+`e2e/notificacoes.spec.ts` (N1–N10), `test/repository/notificacao_test.go`
+(S1–S15) e `test/realtime/sse_test.go` (P1–P10).
 
 ---
 
@@ -822,6 +932,11 @@ eventos que o tempo real já usa.
 | emails de convite por conta, em 24 h | 30 |
 | emails por convite / intervalo entre eles | 5 / 2 minutos |
 | conexões de tempo real | 5 por conta, 100 no total |
+| streams do sino (notificações) | 10 por conta, 200 no total |
+| emails de notificação | 20 por pessoa, em 24 h |
+| espera do email de notificação | 2 minutos (ler antes cancela) |
+| retenção das notificações lidas | 1 a 365 dias, escolhida pelo dono (30 por padrão) |
+| idade máxima de uma notificação | 1 ano |
 | reordenações seguidas no mesmo ponto | ~750 (aí a lista precisa de [reparo](producao.md#manutenção-do-banco)) |
 
 **Disco sem margem** (menos de 2 GiB ou de 10% livres no volume dos anexos):

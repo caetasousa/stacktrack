@@ -78,7 +78,10 @@ Também entraram fora dessa sequência:
 - compartilhamento público por token;
 - confirmação própria para ações destrutivas;
 - suporte móvel e gestos de toque;
-- indicador de quem está editando uma coluna.
+- indicador de quem está editando uma coluna;
+- notificações (out/2026): o sino com convite, atribuição, menção e prazo,
+  avisado por SSE, com email que espera e é conferido na saída, e a retenção
+  escolhida pelo dono de cada quadro.
 
 ---
 
@@ -287,7 +290,18 @@ no painel. O resto, na ordem em que fazia sentido:
 | A11 | privacidade e ciclo de dados: exportar, apagar, reter | o que acontece com os dados de quem sai |
 | A12 | trocar nome, email e senha estando logado | hoje a troca de senha passa pela recuperação, e email e nome não mudam |
 
-E duas melhorias conhecidas, que não são critério de nada:
+E melhorias conhecidas, que não são critério de nada:
+
+- **Preferências de notificação**: hoje todo aviso de atribuição, menção e prazo
+  vai também por email, com espera e teto. Não há como a pessoa desligar o email
+  de um tipo, nem receber um resumo diário no lugar de um email por aviso — o
+  primeiro pedido provável quando o volume crescer, e o que mais economiza a
+  cota do provedor.
+- **Avisar quem convidou** quando o convite é aceito ou recusado: hoje isso só
+  aparece no histórico do quadro.
+- **O prazo não sabe o que é "pronto"**: um card terminado com prazo continua
+  avisando na véspera. Resolver pede que o quadro saiba qual coluna encerra o
+  fluxo, o que não existe.
 
 - **Derrubar o WebSocket no instante em que o acesso muda**, e não na
   revalidação seguinte (até 30 s). Exige um canal de invalidação que só faz

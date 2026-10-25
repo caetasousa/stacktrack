@@ -8,7 +8,6 @@ import (
 	"stacktrack/internal/domain/etiqueta"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // EtiquetaPostgres persiste etiquetas e a aplicação delas nos cards.
@@ -131,18 +130,18 @@ func (r *EtiquetaPostgres) UltimaPosicao(ctx context.Context, boardID string) (f
 	return ultima, err
 }
 
-// Aplicar pendura a etiqueta no card. Aplicar de novo não é erro: a violação da
-// chave primária composta é engolida porque o resultado pretendido — card com
-// aquela etiqueta — já vale.
+// Aplicar pendura a etiqueta no card. Aplicar de novo não é erro: o resultado
+// pretendido — card com aquela etiqueta — já vale.
+//
+// ON CONFLICT, e não a violação capturada, pela mesma razão de
+// ResponsavelPostgres.Atribuir: dentro da transação, o INSERT recusado já a
+// abortou.
 func (r *EtiquetaPostgres) Aplicar(ctx context.Context, cardID, etiquetaID string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO card_etiquetas (card_id, etiqueta_id, criado_em) VALUES ($1, $2, $3)`,
+		`INSERT INTO card_etiquetas (card_id, etiqueta_id, criado_em) VALUES ($1, $2, $3)
+		 ON CONFLICT (card_id, etiqueta_id) DO NOTHING`,
 		cardID, etiquetaID, time.Now(),
 	)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacaoUnique {
-		return nil
-	}
 	return err
 }
 

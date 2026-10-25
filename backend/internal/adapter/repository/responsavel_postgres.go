@@ -2,12 +2,9 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	ucboard "stacktrack/internal/usecase/board"
-
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ResponsavelPostgres persiste quem é responsável por cada card.
@@ -23,17 +20,19 @@ func NovoResponsavelPostgres(pool Fonte) *ResponsavelPostgres {
 // Atribuir marca a pessoa como responsável pelo card.
 //
 // Atribuir quem já é responsável não é erro: o resultado pretendido já vale, e
-// a chave primária composta é quem garante isso. Tratar a violação aqui evita
-// que a tela precise saber o estado antes de agir.
+// a chave primária composta é quem garante isso — o que evita que a tela
+// precise saber o estado antes de agir.
+//
+// ON CONFLICT, e não a violação capturada: dentro da unidade de trabalho, o
+// INSERT recusado aborta a transação inteira, e engolir o erro só adiava a
+// falha para o comando seguinte — o evento do quadro —, que respondia
+// "current transaction is aborted".
 func (r *ResponsavelPostgres) Atribuir(ctx context.Context, cardID, usuarioID string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO card_responsaveis (card_id, usuario_id, criado_em) VALUES ($1, $2, $3)`,
+		`INSERT INTO card_responsaveis (card_id, usuario_id, criado_em) VALUES ($1, $2, $3)
+		 ON CONFLICT (card_id, usuario_id) DO NOTHING`,
 		cardID, usuarioID, time.Now(),
 	)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacaoUnique {
-		return nil
-	}
 	return err
 }
 

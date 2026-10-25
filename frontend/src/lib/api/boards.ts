@@ -132,6 +132,11 @@ export interface BoardDetalhado {
 	// de escrever. O token do link não vem aqui — ele é do dono, e sai por
 	// $lib/api/publicacao.
 	publico: boolean;
+	/**
+	 * Por quantos dias as notificações lidas deste quadro ficam guardadas —
+	 * escolhido pelo dono, já resolvido para o padrão quando ele nunca escolheu.
+	 */
+	retencaoNotificacoesDias: number;
 	colunas: Coluna[];
 	// As etiquetas do quadro inteiro: o card carrega só os ids delas.
 	etiquetas: Etiqueta[];

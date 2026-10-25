@@ -72,6 +72,12 @@ export function definirFundo(boardId: string, fundo: Fundo): Promise<Board> {
 	return apiPatch<{ fundo: Fundo }, Board>(`/boards/${boardId}/fundo`, { fundo });
 }
 
+// definirRetencao troca por quantos dias as notificações lidas do quadro ficam
+// guardadas. Só o dono; a faixa permitida é conferida pelo servidor.
+export function definirRetencao(boardId: string, dias: number): Promise<Board> {
+	return apiPatch<{ dias: number }, Board>(`/boards/${boardId}/retencao-notificacoes`, { dias });
+}
+
 // --- etiquetas ------------------------------------------------------------
 
 export function criarEtiqueta(boardId: string, nome: string, cor: Cor): Promise<Etiqueta> {

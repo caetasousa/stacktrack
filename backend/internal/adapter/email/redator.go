@@ -16,6 +16,7 @@ import (
 
 	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/notificacao"
 	ucauth "stacktrack/internal/usecase/auth"
 	ucboard "stacktrack/internal/usecase/board"
 )
@@ -42,6 +43,8 @@ type Redator struct {
 	htmlDeRecuperacao  *htemplate.Template
 	textoDeConfirmacao *ttemplate.Template
 	htmlDeConfirmacao  *htemplate.Template
+	textoDeNotificacao *ttemplate.Template
+	htmlDeNotificacao  *htemplate.Template
 	fuso               *time.Location
 }
 
@@ -59,6 +62,8 @@ func NovoRedator() *Redator {
 		htmlDeRecuperacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/recuperacao.html")),
 		textoDeConfirmacao: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/confirmacao.txt")),
 		htmlDeConfirmacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/confirmacao.html")),
+		textoDeNotificacao: ttemplate.Must(ttemplate.ParseFS(modelos, "modelos/notificacao.txt")),
+		htmlDeNotificacao:  htemplate.Must(htemplate.ParseFS(modelos, "modelos/notificacao.html")),
 		fuso:               fuso,
 	}
 }
@@ -162,6 +167,60 @@ func (r *Redator) Confirmacao(d ucauth.DadosDoEmailDeConfirmacao) (demail.Mensag
 		Texto:   texto.String(),
 		HTML:    html.String(),
 	}, nil
+}
+
+// Notificacao redige o email de uma notificação: atribuição, menção ou prazo.
+//
+// Um modelo só para os três, com a frase montada aqui: o que muda entre eles é
+// uma frase e o convite à ação, e três pares de arquivos quase iguais
+// divergiriam no primeiro ajuste de redação. A frase leva títulos escritos por
+// usuários — no assunto eles passam por LimparCabecalho, e no HTML pelo escape
+// do html/template, como no convite.
+//
+// Só títulos, nunca o texto do comentário nem a descrição do card: ver
+// ucboard.DadosDoEmailDeNotificacao.
+func (r *Redator) Notificacao(d ucboard.DadosDoEmailDeNotificacao) (demail.Mensagem, error) {
+	autor := demail.LimparCabecalho(d.Autor)
+	if autor == "" {
+		autor = "Alguém"
+	}
+	card := demail.LimparCabecalho(d.TituloCard)
+	quadro := demail.LimparCabecalho(d.TituloQuadro)
+	curto := encurtar(card, maximoDoTituloNoAssunto)
+
+	var assunto, frase, acao string
+	switch d.Tipo {
+	case notificacao.TipoAtribuicao:
+		assunto = fmt.Sprintf("%s pôs você como responsável por “%s”", autor, curto)
+		frase = fmt.Sprintf("%s pôs você como responsável pelo card “%s”, no quadro “%s”.", autor, card, quadro)
+		acao = "Para abrir o card:"
+	case notificacao.TipoMencao:
+		assunto = fmt.Sprintf("%s mencionou você em “%s”", autor, curto)
+		frase = fmt.Sprintf("%s mencionou você num comentário do card “%s”, no quadro “%s”.", autor, card, quadro)
+		acao = "Para ler o comentário:"
+	case notificacao.TipoPrazo:
+		// A data no fuso de Brasília: o prazo é gravado ao meio-dia daqui, e em
+		// UTC ele cairia no dia seguinte sempre que fosse gravado à noite.
+		dia := d.Prazo.In(r.fuso)
+		assunto = fmt.Sprintf("O prazo de “%s” vence em %s", curto, dia.Format("02/01"))
+		frase = fmt.Sprintf("O prazo do card “%s”, no quadro “%s”, vence em %s — e você é uma das pessoas responsáveis por ele.",
+			card, quadro, dia.Format("02/01/2006"))
+		acao = "Para abrir o card:"
+	default:
+		return demail.Mensagem{}, fmt.Errorf("a notificação do tipo %q não tem email", d.Tipo)
+	}
+
+	dados := map[string]any{
+		"Assunto": assunto, "Frase": frase, "Acao": acao, "Link": d.Link, "Quadro": quadro,
+	}
+	var texto, html bytes.Buffer
+	if err := r.textoDeNotificacao.Execute(&texto, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o texto da notificação: %w", err)
+	}
+	if err := r.htmlDeNotificacao.Execute(&html, dados); err != nil {
+		return demail.Mensagem{}, fmt.Errorf("redigir o HTML da notificação: %w", err)
+	}
+	return demail.Mensagem{Para: d.Para, Assunto: assunto, Texto: texto.String(), HTML: html.String()}, nil
 }
 
 func encurtar(texto string, maximo int) string {

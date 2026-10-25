@@ -69,6 +69,13 @@ type Escrita struct {
 	// email para funcionar: um provedor fora do ar não pode impedir ninguém de
 	// trabalhar.
 	Emails RepositorioEmail
+	// Notificacoes são os avisos pessoais. Participam da MESMA transação do
+	// que os causou: a atribuição que comita leva o aviso junto, e a que cai
+	// não deixa aviso para trás.
+	//
+	// Nil fora da unidade de trabalho — os testes de regra —, e aí ninguém é
+	// avisado, que é o resultado neutro.
+	Notificacoes RepositorioNotificacao
 }
 
 // EscritaAtomica grava a mudança e o evento que a descreve na MESMA transação.

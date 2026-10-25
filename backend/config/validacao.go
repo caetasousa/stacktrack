@@ -206,6 +206,11 @@ func validarInteiros(anotar func(string, ...any)) {
 		{"WS_CONEXOES_POR_CONTA", 1, 100_000},
 		{"WS_CONEXOES_SIMULTANEAS", 1, 100_000},
 		{"WS_HANDSHAKES_POR_MINUTO", 1, 1_000_000},
+		{"SSE_CONEXOES_POR_CONTA", 1, 100_000},
+		{"SSE_CONEXOES_SIMULTANEAS", 1, 100_000},
+		{"SSE_ABERTURAS_POR_MINUTO", 1, 1_000_000},
+		{"NOTIFICACAO_ESPERA_EMAIL_SEG", 0, 3600},
+		{"PRAZOS_INTERVALO_SEG", 10, 86_400},
 		{"FAXINA_INTERVALO_MIN", 1, 10_080},
 		{"FAXINA_PRAZO_SEG", 1, 3600},
 		{"DISCO_MINIMO_BYTES", 0, 1 << 60},
@@ -238,6 +243,9 @@ func validarInteiros(anotar func(string, ...any)) {
 	if ConexoesPorConta() > ConexoesSimultaneas() {
 		anotar("WS_CONEXOES_POR_CONTA nao pode ser maior que WS_CONEXOES_SIMULTANEAS")
 	}
+	if SSEConexoesPorConta() > SSEConexoesSimultaneas() {
+		anotar("SSE_CONEXOES_POR_CONTA nao pode ser maior que SSE_CONEXOES_SIMULTANEAS")
+	}
 	if MinimoDeDiscoLivreBytes() == 0 && MinimoDeDiscoLivrePorCem() == 0 {
 		anotar("DISCO_MINIMO_BYTES e DISCO_MINIMO_POR_CEM nao podem estar ambos em zero")
 	}
@@ -261,6 +269,9 @@ func validarTetos(anotar func(string, ...any)) {
 		"WS_CONEXOES_POR_CONTA":             ConexoesPorConta(),
 		"WS_CONEXOES_SIMULTANEAS":           ConexoesSimultaneas(),
 		"WS_HANDSHAKES_POR_MINUTO":          HandshakesPorMinuto(),
+		"SSE_CONEXOES_POR_CONTA":            SSEConexoesPorConta(),
+		"SSE_CONEXOES_SIMULTANEAS":          SSEConexoesSimultaneas(),
+		"SSE_ABERTURAS_POR_MINUTO":          SSEAberturasPorMinuto(),
 	}
 	for nome, teto := range tetos {
 		if teto <= 0 {

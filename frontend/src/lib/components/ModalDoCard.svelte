@@ -5,6 +5,7 @@
 	import { ApiError } from '$lib/api/client';
 	import { editarCard, type Cor, type Etiqueta } from '$lib/api/boards';
 	import SeletorDeCor from './SeletorDeCor.svelte';
+	import CampoComMencoes from './CampoComMencoes.svelte';
 	import {
 		anexarArquivo,
 		anexarLink,
@@ -192,6 +193,9 @@
 	// partir do que já vem em cada card.
 	let membros = $state<Membro[]>([]);
 	const responsaveisAtuais = $derived(new Set(card?.responsaveis.map((r) => r.usuarioId) ?? []));
+	// Quem pode ser mencionado num comentário: quem participa, menos quem
+	// escreve — o servidor também não avisa o autor de nada.
+	const mencionaveis = $derived(membros.filter((m) => m.usuarioId !== sessao.usuario?.id));
 
 	async function buscarMembros(boardId: string, propagar: boolean): Promise<Membro[]> {
 		try {
@@ -793,12 +797,12 @@
 											onsubmit={(e) => salvarComentario(e, comentario.id)}
 											class="mt-1 space-y-2"
 										>
-											<textarea
-												class="campo text-sm"
-												bind:value={textoEmEdicao}
-												rows="3"
-												maxlength="2000"
-												aria-label="Editar comentário"></textarea>
+											<CampoComMencoes
+												bind:valor={textoEmEdicao}
+												pessoas={mencionaveis}
+												linhas={3}
+												rotulo="Editar comentário"
+											/>
 											<div class="flex gap-2">
 												<button type="submit" class="botao w-auto px-3 py-1 text-xs">Salvar</button>
 												<button
@@ -836,13 +840,12 @@
 					<!-- Comentar exige só PARTICIPAÇÃO, não papel de edição: acompanhar
 					     e responder é ver, não mexer. Por isso não há podeEditar aqui. -->
 					<form onsubmit={enviarComentario} class="mt-3 space-y-2">
-						<textarea
-							class="campo text-sm"
-							bind:value={textoDoComentario}
-							rows="2"
-							maxlength="2000"
-							placeholder="Escrever um comentário — aceita markdown"
-							aria-label="Novo comentário"></textarea>
+						<CampoComMencoes
+							bind:valor={textoDoComentario}
+							pessoas={mencionaveis}
+							placeholder="Escrever um comentário — aceita markdown e @menções"
+							rotulo="Novo comentário"
+						/>
 						{#if textoDoComentario.trim()}
 							<button type="submit" class="botao w-auto px-4 py-1.5 text-xs">Comentar</button>
 						{/if}

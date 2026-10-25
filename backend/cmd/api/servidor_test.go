@@ -19,10 +19,15 @@
 //	H6 o quadro aceito não aparece na listagem de quem foi convidado, ou aparece
 //	   sem dizer de quem é;
 //	H7 a montagem não liga a confirmação de email ao cadastro, ou as rotas de
-//	   "Convites para você" deixam passar conta sem email confirmado.
+//	   "Convites para você" deixam passar conta sem email confirmado;
+//	H8 a montagem não liga as notificações: a atribuição não chega pelo stream
+//	   SSE a quem foi atribuído, o email não sai com o link da notificação, as
+//	   rotas do sino deixam ler o aviso de outra pessoa, ou a retenção pode ser
+//	   trocada por quem não é dono.
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -148,6 +153,9 @@ func subirServidor(t *testing.T, smtp *smtpfalso.Servidor) *httptest.Server {
 		// O intervalo de produção, para o H5 poder esbarrar nele.
 		"CONVITE_INTERVALO_REENVIO_SEG": "120",
 		"EMAIL_INTERVALO_MS":            "200",
+		// O email de notificação sai na hora: a espera é provada no teste de
+		// integração, com relógio de mentira.
+		"NOTIFICACAO_ESPERA_EMAIL_SEG": "0",
 	}
 	if smtp != nil {
 		host, porta := smtp.Endereco()
@@ -415,5 +423,166 @@ func TestConvitesNaContaSoDepoisDeConfirmarOEmail(t *testing.T) {
 	id := convites[0].(map[string]any)["id"].(string)
 	if status, aceito, _ := bia.pedir(http.MethodPost, "/meus-convites/"+id+"/aceitar", map[string]string{}); status != http.StatusOK || aceito["id"] != quadro["id"] {
 		t.Fatalf("aceitar pelo painel: %d %v", status, aceito)
+	}
+}
+
+// eventoDoStream é um bloco do SSE: o nome do evento e os dados.
+type eventoDoStream struct {
+	nome  string
+	dados map[string]any
+}
+
+// abrirStream abre o SSE das notificações com a sessão da pessoa e passa a ler
+// os eventos numa goroutine — o que o EventSource do navegador faz.
+func (p *pessoa) abrirStream(t *testing.T) <-chan eventoDoStream {
+	t.Helper()
+	// Sem Timeout: o do cliente comum cortaria o stream no meio da leitura.
+	cliente := &http.Client{Jar: p.cliente.Jar}
+	resp, err := cliente.Get(p.base + "/notificacoes/eventos")
+	if err != nil {
+		t.Fatalf("abrir o stream: %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("stream: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	eventos := make(chan eventoDoStream, 16)
+	go func() {
+		defer close(eventos)
+		leitor := bufio.NewReader(resp.Body)
+		var atual eventoDoStream
+		for {
+			linha, err := leitor.ReadString('\n')
+			if err != nil {
+				return
+			}
+			linha = strings.TrimRight(linha, "\r\n")
+			switch {
+			case strings.HasPrefix(linha, "event: "):
+				atual.nome = strings.TrimPrefix(linha, "event: ")
+			case strings.HasPrefix(linha, "data: "):
+				_ = json.Unmarshal([]byte(strings.TrimPrefix(linha, "data: ")), &atual.dados)
+			case linha == "" && atual.nome != "":
+				eventos <- atual
+				atual = eventoDoStream{}
+			}
+		}
+	}()
+	return eventos
+}
+
+// naoLidasNoStream espera o próximo evento de notificações e devolve o número.
+func naoLidasNoStream(t *testing.T, eventos <-chan eventoDoStream) int {
+	t.Helper()
+	select {
+	case e, aberto := <-eventos:
+		if !aberto || e.nome != "notificacoes" {
+			t.Fatalf("esperado um evento de notificações, veio %+v (aberto: %v)", e, aberto)
+		}
+		return int(e.dados["naoLidas"].(float64))
+	case <-time.After(5 * time.Second):
+		t.Fatal("nenhum evento no stream em 5 s")
+		return 0
+	}
+}
+
+var linkDaNotificacao = regexp.MustCompile(`http://localhost:5173/notificacoes/([0-9a-f-]{36})`)
+
+// H8
+func TestNotificacaoDeUmaPontaAOutra(t *testing.T) {
+	smtp := smtpfalso.Iniciar(t)
+	srv := subirServidor(t, smtp)
+
+	ana := novaPessoa(t, srv)
+	ana.cadastrar("Ana", emailUnico("ana"))
+	_, quadro, _ := ana.pedir(http.MethodPost, "/boards", map[string]string{"titulo": "Lançamento"})
+	boardID := quadro["id"].(string)
+	_, coluna, _ := ana.pedir(http.MethodPost, "/boards/"+boardID+"/colunas", map[string]string{"titulo": "A fazer"})
+	_, card, _ := ana.pedir(http.MethodPost, "/colunas/"+coluna["id"].(string)+"/cards",
+		map[string]string{"titulo": "Migrar o banco"})
+	cardID := card["id"].(string)
+
+	emailDoBruno := emailUnico("bruno")
+	bruno := novaPessoa(t, srv)
+	bruno.cadastrar("Bruno", emailDoBruno)
+	_, convite, _ := ana.pedir(http.MethodPost, "/boards/"+boardID+"/membros",
+		map[string]string{"email": emailDoBruno, "papel": "editor"})
+	token := strings.TrimPrefix(convite["link"].(string), "http://localhost:5173/convite/")
+	if status, corpo, _ := bruno.pedir(http.MethodPost, "/convites/"+token+"/aceitar", map[string]string{}); status != http.StatusOK {
+		t.Fatalf("aceitar: %d %v", status, corpo)
+	}
+	_, eu, _ := bruno.pedir(http.MethodGet, "/auth/me", nil)
+	brunoID := eu["id"].(string)
+
+	stream := bruno.abrirStream(t)
+	if n := naoLidasNoStream(t, stream); n != 0 {
+		t.Fatalf("o stream abriu com %d não lidas, esperado 0", n)
+	}
+
+	if status, corpo, _ := ana.pedir(http.MethodPut, "/cards/"+cardID+"/responsaveis/"+brunoID, nil); status != http.StatusNoContent && status != http.StatusOK {
+		t.Fatalf("atribuir: %d %v", status, corpo)
+	}
+	if n := naoLidasNoStream(t, stream); n != 1 {
+		t.Fatalf("H8: depois da atribuição o stream disse %d, esperado 1", n)
+	}
+
+	status, lista, _ := bruno.pedir(http.MethodGet, "/notificacoes", nil)
+	if status != http.StatusOK {
+		t.Fatalf("listar: %d %v", status, lista)
+	}
+	itens := lista["notificacoes"].([]any)
+	if len(itens) != 1 {
+		t.Fatalf("H8: sino do Bruno = %v", itens)
+	}
+	aviso := itens[0].(map[string]any)
+	if aviso["tipo"] != "atribuicao" || aviso["autor"] != "Ana" || aviso["card"] != "Migrar o banco" ||
+		aviso["cardId"] != cardID || aviso["situacao"] != "vigente" {
+		t.Errorf("H8: aviso = %v", aviso)
+	}
+	id := aviso["id"].(string)
+
+	// O email sai com o link da notificação, e não do card.
+	var achado []string
+	fim := time.Now().Add(10 * time.Second)
+	for achado == nil && time.Now().Before(fim) {
+		for _, r := range emailsPara(smtp, emailDoBruno) {
+			if m := linkDaNotificacao.FindStringSubmatch(r.Ler(t).Texto); m != nil {
+				achado = m
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if achado == nil || achado[1] != id {
+		t.Fatalf("H8: o email da atribuição não trouxe o link da notificação (%v)", achado)
+	}
+
+	carla := novaPessoa(t, srv)
+	carla.cadastrar("Carla", emailUnico("carla"))
+	if status, _, _ := carla.pedir(http.MethodGet, "/notificacoes/"+id, nil); status != http.StatusNotFound {
+		t.Errorf("H8: outra pessoa leu o aviso do Bruno: %d", status)
+	}
+	if status, _, _ := carla.pedir(http.MethodPost, "/notificacoes/"+id+"/lida", nil); status != http.StatusNotFound {
+		t.Errorf("H8: outra pessoa marcou o aviso do Bruno: %d", status)
+	}
+
+	if status, _, _ := bruno.pedir(http.MethodPost, "/notificacoes/"+id+"/lida", nil); status != http.StatusNoContent {
+		t.Fatalf("marcar lida: %d", status)
+	}
+	if n := naoLidasNoStream(t, stream); n != 0 {
+		t.Errorf("H8: depois de ler, o stream disse %d, esperado 0", n)
+	}
+
+	// A retenção: só o dono troca, e o quadro passa a dizê-la.
+	if status, _, _ := bruno.pedir(http.MethodPatch, "/boards/"+boardID+"/retencao-notificacoes", map[string]int{"dias": 7}); status != http.StatusForbidden {
+		t.Errorf("H8: o editor trocou a retenção: %d", status)
+	}
+	if status, corpo, _ := ana.pedir(http.MethodPatch, "/boards/"+boardID+"/retencao-notificacoes", map[string]int{"dias": 0}); status != http.StatusBadRequest {
+		t.Errorf("H8: retenção zero: %d %v", status, corpo)
+	}
+	if status, corpo, _ := ana.pedir(http.MethodPatch, "/boards/"+boardID+"/retencao-notificacoes", map[string]int{"dias": 7}); status != http.StatusOK {
+		t.Fatalf("H8: a dona não trocou a retenção: %d %v", status, corpo)
+	}
+	if _, detalhe, _ := ana.pedir(http.MethodGet, "/boards/"+boardID, nil); detalhe["retencaoNotificacoesDias"] != float64(7) {
+		t.Errorf("H8: o quadro diz retenção %v, esperado 7", detalhe["retencaoNotificacoesDias"])
 	}
 }

@@ -15,6 +15,7 @@ import (
 	dcor "stacktrack/internal/domain/cor"
 	detiqueta "stacktrack/internal/domain/etiqueta"
 	"stacktrack/internal/domain/membro"
+	dnotificacao "stacktrack/internal/domain/notificacao"
 	"stacktrack/internal/domain/ordem"
 	ucauth "stacktrack/internal/usecase/auth"
 	ucboard "stacktrack/internal/usecase/board"
@@ -118,8 +119,9 @@ func (h *BoardHandler) Detalhar(w http.ResponseWriter, r *http.Request) {
 		ID: detalhado.Board.ID, Titulo: detalhado.Board.Titulo,
 		Revisao: detalhado.Revisao,
 		Papel:   string(detalhado.Papel), Fundo: detalhado.Board.FundoEfetivo(),
-		Publico: detalhado.Publico,
-		Colunas: colunas, Etiquetas: paraEtiquetasResponse(detalhado.Etiquetas),
+		Publico:                  detalhado.Publico,
+		RetencaoNotificacoesDias: detalhado.Board.RetencaoDeNotificacoes(),
+		Colunas:                  colunas, Etiquetas: paraEtiquetasResponse(detalhado.Etiquetas),
 	})
 }
 
@@ -421,6 +423,7 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	case errors.Is(err, dboard.ErrTituloObrigatorio),
 		errors.Is(err, dboard.ErrTituloLongo),
 		errors.Is(err, dboard.ErrFundoInvalido),
+		errors.Is(err, dnotificacao.ErrRetencaoInvalida),
 		errors.Is(err, dcard.ErrTituloObrigatorio),
 		errors.Is(err, dcard.ErrTituloLongo),
 		errors.Is(err, dcard.ErrDescricaoLonga),
@@ -515,6 +518,29 @@ func (h *BoardHandler) DefinirFundo(w http.ResponseWriter, r *http.Request) {
 	b, err := h.quadros.DefinirFundo(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Fundo)
 	if err != nil {
 		responderErroDeQuadro(w, r, "erro ao trocar o fundo", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.BoardResponse{
+		ID: b.ID, Titulo: b.Titulo, Papel: string(membro.PapelDono),
+		Fundo: b.FundoEfetivo(), CriadoEm: b.CriadoEm,
+	})
+}
+
+// DefinirRetencao troca por quantos dias as notificações lidas do quadro ficam
+// guardadas. Só o dono; 400 fora da faixa permitida.
+func (h *BoardHandler) DefinirRetencao(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.RetencaoRequest](w, r)
+	if !ok {
+		return
+	}
+
+	b, err := h.quadros.DefinirRetencaoDeNotificacoes(r.Context(), chi.URLParam(r, "boardID"), usuarioID, req.Dias)
+	if err != nil {
+		responderErroDeQuadro(w, r, "erro ao trocar a retenção das notificações", err)
 		return
 	}
 	responderJSON(w, http.StatusOK, dto.BoardResponse{

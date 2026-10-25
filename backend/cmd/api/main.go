@@ -201,6 +201,7 @@ func ready(
 	guarda *armazem.Guarda,
 	entregador *despachante.Despachante,
 	salas *hub.Hub,
+	streams interface{ Abertas() int },
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancelar := context.WithTimeout(r.Context(), timeoutReady)
@@ -243,6 +244,9 @@ func ready(
 				"quadrosObservados":     estadoDaEntrega.QuadrosObservados,
 				"atrasoMaximoRevisoes":  estadoDaEntrega.AtrasoMaximo,
 				"derrubadosPorLentidao": derrubados,
+				// Quantas telas estão com o stream das notificações aberto.
+				// Zero com gente usando é o sintoma de "o sino não atualiza".
+				"streamsDeNotificacao": streams.Abertas(),
 			},
 		}
 		if !podeEscrever {

@@ -41,7 +41,8 @@ func NovoEmailPostgres(pool Fonte, cifra cifraDeEmail) *EmailPostgres {
 }
 
 const camposDoEnvio = `id, modelo, chave_deduplicacao, estado, tentativas, proxima_em, criado_em,
-	enviado_em, expira_em, COALESCE(ultimo_erro, ''), autor_id, COALESCE(convite_id::text, '')`
+	enviado_em, expira_em, COALESCE(ultimo_erro, ''), autor_id, COALESCE(convite_id::text, ''),
+	COALESCE(notificacao_id::text, '')`
 
 // Enfileirar grava a intenção de envio com a mensagem cifrada.
 //
@@ -60,12 +61,13 @@ func (r *EmailPostgres) Enfileirar(ctx context.Context, e *demail.Envio, m demai
 	_, err = r.db.Exec(ctx,
 		`INSERT INTO email_outbox (id, modelo, chave_deduplicacao, payload_cifrado, estado,
 		                           tentativas, proxima_em, criado_em, enviado_em, expira_em,
-		                           ultimo_erro, autor_id, convite_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, '')::uuid)
+		                           ultimo_erro, autor_id, convite_id, notificacao_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, '')::uuid,
+		         NULLIF($14, '')::uuid)
 		 ON CONFLICT (chave_deduplicacao) DO NOTHING`,
 		e.ID, e.Modelo, e.ChaveDeduplicacao, cifrado, string(e.Estado),
 		e.Tentativas, e.ProximaEm, e.CriadoEm, e.EnviadoEm, e.ExpiraEm,
-		e.UltimoErro, e.AutorID, e.ConviteID,
+		e.UltimoErro, e.AutorID, e.ConviteID, e.NotificacaoID,
 	)
 	return err
 }
@@ -84,13 +86,41 @@ func (r *EmailPostgres) CancelarDoConvite(ctx context.Context, conviteID string,
 // ContarDoAutorDesde conta os envios que a conta pediu a partir de `desde` —
 // cancelados inclusive: convidar e revogar em laço não pode ser um jeito de
 // contornar a cota.
+//
+// Os emails de notificação ficam de fora: eles têm teto próprio, por quem
+// RECEBE (ContarDeNotificacaoDesde), e atribuir cards não pode gastar a cota de
+// convites de quem atribui.
 func (r *EmailPostgres) ContarDoAutorDesde(ctx context.Context, autorID string, desde time.Time) (int, error) {
 	var n int
 	err := r.db.QueryRow(ctx,
-		`SELECT count(*) FROM email_outbox WHERE autor_id = $1 AND criado_em >= $2`,
+		`SELECT count(*) FROM email_outbox
+		  WHERE autor_id = $1 AND criado_em >= $2 AND notificacao_id IS NULL`,
 		autorID, desde,
 	).Scan(&n)
 	return n, err
+}
+
+// ContarDeNotificacaoDesde conta os emails de notificação que a pessoa recebeu
+// — ou ia receber — a partir de `desde`. Cancelados inclusive, pela mesma razão
+// da cota de convites: atribuir e desatribuir em laço não pode contornar o teto.
+func (r *EmailPostgres) ContarDeNotificacaoDesde(ctx context.Context, usuarioID string, desde time.Time) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx,
+		`SELECT count(*) FROM email_outbox e JOIN notificacoes n ON n.id = e.notificacao_id
+		  WHERE n.usuario_id = $1 AND e.criado_em >= $2`,
+		usuarioID, desde,
+	).Scan(&n)
+	return n, err
+}
+
+// Cancelar tira um envio da fila e apaga a mensagem. É o que o worker faz com o
+// email de uma notificação que, na hora de sair, já não tem o que avisar.
+func (r *EmailPostgres) Cancelar(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE email_outbox SET estado = $2, payload_cifrado = NULL WHERE id = $1 AND estado = $3`,
+		id, string(demail.EstadoCancelado), string(demail.EstadoPendente),
+	)
+	return err
 }
 
 // DoConvite devolve os envios de um convite, do mais recente para o mais antigo.
@@ -172,7 +202,7 @@ func (r *EmailPostgres) Reservar(ctx context.Context, agora time.Time, limite in
 		var cifrado []byte
 		if err := linhas.Scan(&e.ID, &e.Modelo, &e.ChaveDeduplicacao, &estado, &e.Tentativas,
 			&e.ProximaEm, &e.CriadoEm, &e.EnviadoEm, &e.ExpiraEm, &e.UltimoErro, &e.AutorID,
-			&e.ConviteID, &cifrado); err != nil {
+			&e.ConviteID, &e.NotificacaoID, &cifrado); err != nil {
 			return nil, err
 		}
 		e.Estado = demail.Estado(estado)
@@ -268,7 +298,8 @@ func lerEnvio(linha pgx.Row) (demail.Envio, error) {
 	var e demail.Envio
 	var estado string
 	err := linha.Scan(&e.ID, &e.Modelo, &e.ChaveDeduplicacao, &estado, &e.Tentativas,
-		&e.ProximaEm, &e.CriadoEm, &e.EnviadoEm, &e.ExpiraEm, &e.UltimoErro, &e.AutorID, &e.ConviteID)
+		&e.ProximaEm, &e.CriadoEm, &e.EnviadoEm, &e.ExpiraEm, &e.UltimoErro, &e.AutorID, &e.ConviteID,
+		&e.NotificacaoID)
 	e.Estado = demail.Estado(estado)
 	return e, err
 }

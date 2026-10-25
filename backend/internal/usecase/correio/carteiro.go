@@ -32,6 +32,22 @@ type Fila interface {
 	MarcarEnviado(ctx context.Context, id string, tentativas int, em time.Time) error
 	Adiar(ctx context.Context, id string, tentativas int, proxima time.Time, erro string) error
 	MarcarFalhou(ctx context.Context, id string, tentativas int, erro string) error
+	// Cancelar tira o envio da fila sem tentar: a mensagem deixou de fazer
+	// sentido antes de sair.
+	Cancelar(ctx context.Context, id string) error
+}
+
+// Conferencia responde, na hora de o email de uma notificação sair, se ainda
+// há o que avisar.
+//
+// A pergunta é feita AQUI, e não por quem desfaz o fato, de propósito. O email
+// fica na fila alguns minutos, e nesse tempo a pessoa pode ler o aviso no
+// sistema, a atribuição pode ser desfeita, o prazo trocado, a pessoa removida
+// do quadro. Cancelar o email em cada um desses caminhos exigiria lembrar dele
+// em todos — e o caminho esquecido mandaria um email sobre algo que já não
+// vale. Conferindo na saída, todos ficam cobertos por uma regra só.
+type Conferencia interface {
+	AindaVale(ctx context.Context, notificacaoID string, agora time.Time) (bool, error)
 }
 
 // Enviador entrega uma mensagem ao provedor. A recusa definitiva vem
@@ -46,6 +62,9 @@ type Carteiro struct {
 	enviador Enviador
 	log      *slog.Logger
 	relogio  func() time.Time
+	// conferencia confere os emails de notificação antes de mandar. Nil manda
+	// sem conferir — o caso dos testes que não têm notificação nenhuma.
+	conferencia Conferencia
 
 	intervalo time.Duration
 	// porPassada é quantos envios cada volta pega. O volume é de convites, e
@@ -78,6 +97,12 @@ func NovoCarteiro(fila Fila, enviador Enviador, log *slog.Logger) *Carteiro {
 // tempo em vez de dormir.
 func (c *Carteiro) ComRelogio(relogio func() time.Time) *Carteiro {
 	c.relogio = relogio
+	return c
+}
+
+// ComConferencia liga a conferência dos emails de notificação.
+func (c *Carteiro) ComConferencia(conferencia Conferencia) *Carteiro {
+	c.conferencia = conferencia
 	return c
 }
 
@@ -140,6 +165,26 @@ func (c *Carteiro) Passada(ctx context.Context) (int, error) {
 func (c *Carteiro) entregar(ctx context.Context, item Reservado) bool {
 	e := item.Envio
 	tentativas := e.Tentativas + 1
+
+	if e.NotificacaoID != "" && c.conferencia != nil {
+		vale, err := c.conferencia.AindaVale(ctx, e.NotificacaoID, c.relogio())
+		if err != nil {
+			// Sem a resposta, não manda: a reserva vence e o envio volta à fila
+			// para a próxima passada perguntar de novo.
+			c.log.Warn("não foi possível conferir a notificação do email",
+				slog.String("envio", e.ID), slog.String("erro", err.Error()))
+			return false
+		}
+		if !vale {
+			if err := c.fila.Cancelar(ctx, e.ID); err != nil {
+				c.log.Warn("não foi possível cancelar o email da notificação",
+					slog.String("envio", e.ID), slog.String("erro", err.Error()))
+			}
+			c.log.Info("email de notificação cancelado: lida, desfeita ou fora de alcance",
+				slog.String("envio", e.ID), slog.String("modelo", e.Modelo))
+			return false
+		}
+	}
 
 	err := item.ErroDeLeitura
 	if err == nil {

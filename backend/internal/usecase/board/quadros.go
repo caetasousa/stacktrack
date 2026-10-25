@@ -20,6 +20,7 @@ import (
 type QuadroUseCase struct {
 	eventos
 	exclusoes
+	notificacoes
 	boards       RepositorioBoard
 	membros      RepositorioMembro
 	colunas      RepositorioColuna
@@ -295,6 +296,40 @@ func (uc *QuadroUseCase) DefinirFundo(ctx context.Context, boardID, usuarioID, f
 	return b, nil
 }
 
+// DefinirRetencaoDeNotificacoes troca por quantos dias as notificações lidas
+// do quadro ficam guardadas. Só o dono: é uma decisão sobre o dado de todo
+// mundo que participa, e fica no histórico com o nome de quem a tomou.
+//
+// Retorna notificacao.ErrRetencaoInvalida fora da faixa permitida.
+func (uc *QuadroUseCase) DefinirRetencaoDeNotificacoes(ctx context.Context, boardID, usuarioID string, dias int) (*dboard.Board, error) {
+	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
+		return nil, err
+	}
+
+	b, err := uc.boards.BuscarPorID(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, dboard.ErrNaoEncontrado
+	}
+	anterior := b.RetencaoDeNotificacoes()
+	if err := b.DefinirRetencaoDeNotificacoes(dias); err != nil {
+		return nil, err
+	}
+	if err := uc.escreverEPublicar(ctx, evento.QuadroRetencaoNotificacoes, boardID, usuarioID,
+		DadosDoQuadro{RetencaoDias: dias, RetencaoDiasAnterior: anterior},
+		uc.escrita(), func(e Escrita) error {
+			if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
+				return err
+			}
+			return e.Boards.DefinirRetencaoDeNotificacoes(ctx, b.ID, dias, b.AtualizadoEm)
+		}); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
 // Renomear troca o título do quadro. Exige papel de administração (dono).
 func (uc *QuadroUseCase) Renomear(ctx context.Context, boardID, usuarioID, titulo string) (*dboard.Board, error) {
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
@@ -331,7 +366,7 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 	if _, err := acessoDeAdministracao(ctx, uc.membros, boardID, usuarioID); err != nil {
 		return err
 	}
-	var orfaos []string
+	var orfaos, tocados []string
 	apagar := func(e Escrita) error {
 		if err := revalidarAdministracao(ctx, e, boardID, usuarioID); err != nil {
 			return err
@@ -339,6 +374,11 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 		var err error
 		orfaos, err = e.Anexos.CaminhosDeArquivoDoBoard(ctx, boardID)
 		if err != nil {
+			return err
+		}
+		// Os avisos sobre o quadro vão pelo CASCADE; quem os tinha precisa ver
+		// o sino mudar.
+		if tocados, err = uc.destinatariosDoQuadro(ctx, e, boardID); err != nil {
 			return err
 		}
 		// O outbox guarda o board_id sem chave estrangeira justamente para esta
@@ -362,6 +402,7 @@ func (uc *QuadroUseCase) Apagar(ctx context.Context, boardID, usuarioID string) 
 	// que só podem responder 404. Por isso este sinal é efêmero e nasce somente
 	// DEPOIS do commit bem-sucedido.
 	uc.publicarEfemero(evento.QuadroApagado, boardID, usuarioID, nil)
+	uc.depois(tocados...)
 	return nil
 }
 

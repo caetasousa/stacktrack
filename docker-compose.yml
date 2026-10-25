@@ -66,6 +66,9 @@ services:
       RATE_LIMIT_PUBLICO_POR_MINUTO: ${RATE_LIMIT_PUBLICO_POR_MINUTO:-500}
       RATE_LIMIT_SESSAO_DESCONHECIDA: ${RATE_LIMIT_SESSAO_DESCONHECIDA:-500}
       WS_HANDSHAKES_POR_MINUTO: ${WS_HANDSHAKES_POR_MINUTO:-200}
+      # Cada página carregada abre o stream do sino, e a suíte E2E carrega
+      # centenas delas do mesmo IP.
+      SSE_ABERTURAS_POR_MINUTO: ${SSE_ABERTURAS_POR_MINUTO:-1000}
       # O email de desenvolvimento vai SEMPRE para o Mailpit, e não lê o .env
       # de propósito: a suíte E2E convida dezenas de endereços inventados por
       # execução, e com um provedor de verdade cada `make test-e2e` gastaria a
@@ -83,6 +86,14 @@ services:
       # minutos) a faria esperar. Zero só é aceito fora de produção.
       CONVITE_INTERVALO_REENVIO_SEG: 0
       EMAIL_INTERVALO_MS: 1000
+      # O email de notificação sai na hora, em vez de esperar dois minutos pela
+      # chance de a pessoa ler no sistema: quem testa quer ver o email no
+      # Mailpit. A espera (e o cancelamento por leitura) está provada no teste
+      # de integração, com relógio de mentira.
+      NOTIFICACAO_ESPERA_EMAIL_SEG: 0
+      # O vigia de prazos olha o relógio a cada 5 segundos, e não a cada dez
+      # minutos: a suíte E2E marca um prazo para amanhã e espera o aviso.
+      PRAZOS_INTERVALO_SEG: 5
     volumes:
       - ./backend:/app
       # Os arquivos anexados vão para um volume próprio, e NÃO para dentro de

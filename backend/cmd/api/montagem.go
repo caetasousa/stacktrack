@@ -24,8 +24,11 @@ import (
 	ucboard "stacktrack/internal/usecase/board"
 	"stacktrack/internal/usecase/correio"
 	"stacktrack/internal/usecase/manutencao"
+	ucnotificacao "stacktrack/internal/usecase/notificacao"
 
+	"stacktrack/internal/adapter/http/sse"
 	"stacktrack/internal/adapter/http/ws"
+	"stacktrack/internal/adapter/realtime/campainha"
 	"stacktrack/internal/adapter/realtime/despachante"
 	"stacktrack/internal/adapter/realtime/hub"
 
@@ -38,7 +41,10 @@ import (
 type aplicacao struct {
 	roteador *chi.Mux
 	sala     *hub.Hub
-	pool     *pgxpool.Pool
+	// campainha é a sala das telas abertas de cada pessoa, para o SSE das
+	// notificações. Fecha junto com o hub, pela mesma razão.
+	campainha *campainha.Campainha
+	pool      *pgxpool.Pool
 	// trabalhos são os laços de segundo plano — despachante de eventos, faxina,
 	// worker de email —, todos parando quando o contexto acaba.
 	trabalhos []func(context.Context)
@@ -51,9 +57,11 @@ func (a *aplicacao) rodarTrabalhos(ctx context.Context) {
 	}
 }
 
-// fecharTempoReal derruba as conexões de WebSocket, antes do Shutdown HTTP.
+// fecharTempoReal derruba as conexões de WebSocket e os streams de
+// notificação, antes do Shutdown HTTP.
 func (a *aplicacao) fecharTempoReal() {
 	a.sala.Fechar()
+	a.campainha.Fechar()
 }
 
 // fechar devolve as conexões do banco. Por último, depois de tudo o que as usa.
@@ -110,6 +118,9 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	// O log de eventos é repositório como os outros: escreve o outbox e, desde a
 	// fase 11, também É a fonte do histórico — o feed é um read model sobre ele.
 	logDeEventos := repository.NovoEventoPostgres(banco)
+	// Os avisos pessoais: criados pelos casos de uso do quadro, lidos pelo sino,
+	// conferidos pelo worker de email e limpos pela faxina.
+	notificacaoRepo := repository.NovoNotificacaoPostgres(banco)
 
 	// armazém de anexos: disco, num volume próprio. O binário não vai para o
 	// banco — incharia backup e restore de um schema que guarda texto curto no
@@ -217,11 +228,33 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		uc.ComEscritaAtomica(unidadeDeTrabalho)
 	}
 
+	// As NOTIFICAÇÕES: o aviso pessoal de quem foi convidado, posto como
+	// responsável, mencionado num comentário ou tem um prazo chegando.
+	//
+	// A campainha é a sala das telas abertas de cada pessoa; o notificador
+	// grava o aviso na mesma transação do que o causou e, depois do commit,
+	// toca a campainha. Quem só é avisado com o passar do tempo — o prazo — é o
+	// vigia, que olha o relógio em segundo plano e é acordado quando um prazo
+	// é marcado ou alguém passa a responder por um card.
+	salaDasNotificacoes := campainha.Nova()
+	notificador := ucboard.NovoNotificador(salaDasNotificacoes)
+	for _, uc := range []interface{ ComNotificador(*ucboard.Notificador) }{
+		quadroUC, colunaUC, cardUC, responsavelUC, comentarioUC, membroUC,
+	} {
+		uc.ComNotificador(notificador)
+	}
+	vigiaDePrazos := ucboard.NovoVigiaDePrazos(notificacaoRepo, unidadeDeTrabalho, notificador, slog.Default()).
+		ComIntervalo(config.IntervaloDoVigiaDePrazos())
+	notificador.ComVigiaDePrazos(vigiaDePrazos.Acordar)
+	app.trabalhos = append(app.trabalhos, vigiaDePrazos.Rodar)
+	notificacaoUC := ucnotificacao.Novo(notificacaoRepo, salaDasNotificacoes)
+
 	// O envio de email dos convites e da recuperação de senha. Ligado só com
 	// SMTP configurado; sem ele, o convite nasce com o link manual, e a
 	// recuperação responde como sempre, sem mandar nada.
 	membroUC.ComIntervaloDeReenvio(config.IntervaloEntreReenvios())
-	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, unidadeDeAuth, membroUC, recuperarUC, confirmarUC)
+	emailRepo, err := ligarCorreio(app, banco, unidadeDeTrabalho, unidadeDeAuth, membroUC, recuperarUC, confirmarUC,
+		notificador, notificacaoRepo)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -247,6 +280,30 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	membroHandler := handler.NovoMembroHandler(membroUC, config.OrigemFrontend(), identidadeDoContexto)
 	extrasHandler := handler.NovoExtrasHandler(etiquetaUC, checklistUC, anexoUC, responsavelUC, comentarioUC, atividadeUC, identidadeDoContexto)
 	publicacaoHandler := handler.NovoPublicacaoHandler(publicacaoUC, config.OrigemFrontend(), identidadeDoContexto)
+	notificacaoHandler := handler.NovoNotificacaoHandler(notificacaoUC, identidadeDoContexto)
+
+	// O stream das notificações (SSE). Um GET que não termina: a sessão viaja
+	// no cookie como em qualquer requisição, e a reconferência periódica é a
+	// mesma do WebSocket — o logout derruba o stream.
+	sseHandler := sse.NovoHandler(
+		salaDasNotificacoes,
+		notificacaoUC.ContarNaoLidas,
+		func(ctx context.Context) (string, bool) {
+			id, ok := middleware.IdentidadeDoContexto(ctx)
+			return id.UsuarioID, ok
+		},
+		func(ctx context.Context, token string) bool {
+			_, err := validarSessaoUC.Executar(ctx, token)
+			return err == nil
+		},
+		handler.NomeCookieSessao(config.CookieSeguro()),
+		slog.Default(),
+	).ComLimites(
+		config.SSEConexoesPorConta(),
+		config.SSEConexoesSimultaneas(),
+		config.SSEAberturasPorMinuto(),
+		time.Minute,
+	)
 
 	// OriginPatterns com a origem do frontend, e nada além: WebSocket NÃO
 	// obedece CORS, então sem esta lista qualquer site que a vítima visitar
@@ -306,7 +363,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	// DELETE e login/logout continuam para permitir recuperacao.
 	r.Use(middleware.PorteiroDeDisco(guardaDoDisco, slog.Default()))
 	r.Get("/health", health)
-	r.Get("/ready", ready(banco, guardaDoDisco, entregador, salaDeEventos))
+	r.Get("/ready", ready(banco, guardaDoDisco, entregador, salaDeEventos, sseHandler))
 
 	r.Route("/auth", func(r chi.Router) {
 		// As respostas daqui entregam identidade e cookie de sessão — nenhuma
@@ -387,10 +444,12 @@ func montar(ctx context.Context) (*aplicacao, error) {
 
 	// O WebSocket exige sessao, mas fica fora do teto de requisicoes por sessao:
 	// ocupacao e reconexao ja tem limites proprios, e uma conexao dura horas.
+	// O stream das notificacoes, pelo mesmo motivo.
 	r.Group(func(r chi.Router) {
 		r.Use(autenticacao.Autenticar)
 		r.Use(middleware.SemCache)
 		r.Get("/ws", wsHandler.Acompanhar)
+		r.Get("/notificacoes/eventos", sseHandler.Acompanhar)
 	})
 
 	// Tudo daqui para baixo exige sessão. O teto por sessão fica no grupo, e
@@ -431,6 +490,9 @@ func montar(ctx context.Context) (*aplicacao, error) {
 				r.Post("/convites/{conviteID}/reenviar", membroHandler.ReenviarConvite)
 
 				r.Patch("/fundo", boardHandler.DefinirFundo)
+				// Por quantos dias as notificações lidas do quadro ficam
+				// guardadas. Só o dono.
+				r.Patch("/retencao-notificacoes", boardHandler.DefinirRetencao)
 
 				// O link público. As três exigem papel de dono — o token é o
 				// segredo, e quem o recebe pode repassá-lo a quem quiser.
@@ -480,6 +542,16 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		})
 
 		r.Post("/convites/{token}/aceitar", membroHandler.AceitarConvite)
+
+		// O sino de cada pessoa. O stream de tempo real fica fora deste grupo,
+		// junto do /ws, porque não cabe no teto de requisições por sessão.
+		r.Get("/notificacoes", notificacaoHandler.Listar)
+		r.Post("/notificacoes/lidas", notificacaoHandler.MarcarTodasLidas)
+		r.Route("/notificacoes/{notificacaoID}", func(r chi.Router) {
+			r.Use(middleware.IDsDaURLValidos)
+			r.Get("/", notificacaoHandler.Detalhar)
+			r.Post("/lida", notificacaoHandler.MarcarLida)
+		})
 
 		// Os convites para o email da conta, no painel. Prefixo próprio, e não
 		// `/convites/{id}`: lá o segmento é o TOKEN do link, aqui é o id — e o
@@ -547,7 +619,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	)
 
 	faxineiros := []manutencao.Faxineiro{
-		sessionRepo, conviteRepo,
+		sessionRepo, conviteRepo, notificacaoRepo,
 		repository.NovoRecuperacaoPostgres(banco), repository.NovoConfirmacaoPostgres(banco),
 		coletor,
 	}
@@ -562,12 +634,13 @@ func montar(ctx context.Context) (*aplicacao, error) {
 
 	app.roteador = r
 	app.sala = salaDeEventos
+	app.campainha = salaDasNotificacoes
 	return app, nil
 }
 
-// ligarCorreio liga o envio de email dos convites, da recuperação de senha e da
-// confirmação de conta, se o SMTP estiver configurado. Devolve o outbox (nil
-// com o envio desligado), que a faxina também precisa.
+// ligarCorreio liga o envio de email dos convites, da recuperação de senha, da
+// confirmação de conta e das notificações, se o SMTP estiver configurado.
+// Devolve o outbox (nil com o envio desligado), que a faxina também precisa.
 func ligarCorreio(
 	app *aplicacao,
 	banco repository.Fonte,
@@ -576,9 +649,11 @@ func ligarCorreio(
 	membros *ucboard.MembroUseCase,
 	recuperacao *ucauth.RecuperarSenhaUseCase,
 	confirmacao *ucauth.ConfirmarEmailUseCase,
+	notificador *ucboard.Notificador,
+	notificacoes *repository.NotificacaoPostgres,
 ) (*repository.EmailPostgres, error) {
 	if !config.EmailLigado() {
-		slog.Warn("envio de email desligado: SMTP_HOST vazio — os convites saem só com o link manual, e a recuperação de senha não manda nada")
+		slog.Warn("envio de email desligado: SMTP_HOST vazio — os convites saem só com o link manual, a recuperação de senha não manda nada e as notificações ficam só no sino")
 		return nil, nil
 	}
 
@@ -602,12 +677,16 @@ func ligarCorreio(
 	carteiro := correio.NovoCarteiro(emails, aemail.NovoEnviadorSMTP(aemail.ConfigSMTP{
 		Host: smtp.Host, Porta: smtp.Porta, Usuario: smtp.Usuario, Senha: smtp.Senha,
 		STARTTLS: smtp.STARTTLS, Remetente: smtp.Remetente, NomeDoRemetente: smtp.NomeDoRemetente,
-	}), slog.Default()).ComIntervalo(config.IntervaloDoCarteiro())
+	}), slog.Default()).ComIntervalo(config.IntervaloDoCarteiro()).
+		// O email de uma notificação confere, na hora de sair, se ela ainda
+		// vale: lida, desfeita ou fora do alcance de quem a recebeu, ele não sai.
+		ComConferencia(notificacoes)
 
 	redator := aemail.NovoRedator()
 	membros.ComCorreio(emails, redator, config.OrigemFrontend(), carteiro.Acordar)
 	recuperacao.ComCorreio(redator, config.OrigemFrontend(), carteiro.Acordar)
 	confirmacao.ComCorreio(redator, config.OrigemFrontend(), carteiro.Acordar)
+	notificador.ComEmail(redator, config.OrigemFrontend(), config.EsperaDoEmailDeNotificacao(), carteiro.Acordar)
 	app.trabalhos = append(app.trabalhos, carteiro.Rodar)
 
 	slog.Info("envio de email ligado",

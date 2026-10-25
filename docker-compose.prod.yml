@@ -274,6 +274,20 @@ configs:
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $$host;
 
+        # O stream das notificações (SSE): um GET cuja resposta não termina.
+        # Sem buffer — o nginx guardaria os avisos e os entregaria todos juntos,
+        # atrasados —, e com o mesmo timeout longo do /ws. A API também manda
+        # X-Accel-Buffering: no; os dois juntos não dependem de alguém lembrar
+        # do outro. O batimento da API (25 s) fica abaixo deste timeout e dos
+        # 100 s em que a Cloudflare derruba resposta parada.
+        location = /api/notificacoes/eventos {
+          rewrite ^/api(/.*)$$ $$1 break;
+          proxy_pass $$api;
+          proxy_buffering off;
+          proxy_cache off;
+          proxy_read_timeout 1h;
+        }
+
         # /api/* na MESMA origem que o front, com o prefixo removido — é o que
         # faz o cookie __Host- valer e a CSP em `connect-src 'self'`. O /ws
         # passa por aqui, por isso o Upgrade e o timeout longo.

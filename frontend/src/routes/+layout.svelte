@@ -3,9 +3,11 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { sessao } from '$lib/stores/session.svelte';
+	import { sino } from '$lib/stores/notificacoes.svelte';
 	import { tema } from '$lib/stores/tema.svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import SeletorTema from '$lib/components/SeletorTema.svelte';
+	import SinoDeNotificacoes from '$lib/components/SinoDeNotificacoes.svelte';
 	import DialogoDeConfirmacao from '$lib/components/DialogoDeConfirmacao.svelte';
 
 	let { children } = $props();
@@ -15,6 +17,15 @@
 		// saber qual é, para o botão mostrar o ícone certo.
 		tema.sincronizar();
 		sessao.carregar();
+	});
+
+	// O sino acompanha a sessão: liga quando alguém entra, troca de conexão se
+	// outra conta entrar na mesma aba, e desliga ao sair — sem isso, a aba
+	// continuaria ouvindo as notificações de quem já saiu.
+	$effect(() => {
+		const usuario = sessao.usuario;
+		if (usuario) sino.iniciar(usuario.id);
+		else sino.parar();
 	});
 
 	async function encerrar() {
@@ -36,6 +47,7 @@
 				{:else if sessao.usuario}
 					<a href="/painel" class="px-2 py-1 text-mute hover:text-ink">Painel</a>
 					<span class="hidden px-2 text-xs text-mute sm:inline">{sessao.usuario.nome}</span>
+					<SinoDeNotificacoes />
 					<button onclick={encerrar} class="cursor-pointer px-2 py-1 text-mute hover:text-ink">
 						Sair
 					</button>

@@ -54,6 +54,11 @@ type DadosDoQuadro struct {
 	Titulo         string `json:"titulo,omitempty"`
 	TituloAnterior string `json:"tituloAnterior,omitempty"`
 	Fundo          string `json:"fundo,omitempty"`
+	// RetencaoDias e RetencaoDiasAnterior são a retenção das notificações
+	// depois e antes da troca — a anterior já resolvida para o padrão, quando o
+	// quadro nunca tinha escolhido.
+	RetencaoDias         int `json:"retencaoDias,omitempty"`
+	RetencaoDiasAnterior int `json:"retencaoDiasAnterior,omitempty"`
 }
 
 // DadosDaEtiqueta é o payload dos eventos de etiqueta do quadro.

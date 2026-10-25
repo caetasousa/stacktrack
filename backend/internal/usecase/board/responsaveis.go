@@ -2,15 +2,20 @@ package board
 
 import (
 	"context"
+	"time"
 
 	dcard "stacktrack/internal/domain/card"
 	"stacktrack/internal/domain/evento"
 	dmembro "stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/notificacao"
+
+	"github.com/google/uuid"
 )
 
 // ResponsavelUseCase resolve quem responde por cada card.
 type ResponsavelUseCase struct {
 	eventos
+	notificacoes
 	membros      RepositorioMembro
 	colunas      RepositorioColuna
 	cards        RepositorioCard
@@ -54,16 +59,22 @@ func (uc *ResponsavelUseCase) Listar(ctx context.Context, cardID, usuarioID stri
 // Atribuir duas vezes não é erro: a chave primária composta já garante uma
 // linha só, e o resultado pretendido — a pessoa responsável por aquele card —
 // já vale.
+//
+// Quem passa a responder pelo card é avisado — no sino e por email —, na mesma
+// transação. Não é avisado quem atribui a si mesmo, quem já respondia pelo
+// card, nem quem ainda tem, sem ler, o aviso da mesma atribuição: atribuir,
+// desatribuir e atribuir de novo por engano não pode virar três avisos.
 func (uc *ResponsavelUseCase) Atribuir(ctx context.Context, cardID, alvoID, usuarioID string) error {
 	boardID, err := uc.conferirAlvo(ctx, cardID, alvoID, usuarioID)
 	if err != nil {
 		return err
 	}
+	var avisado string
 	// O nome do alvo é resolvido pela lista de MEMBROS, e não pela lista de
 	// responsáveis do card: no instante do payload a atribuição ainda não
 	// aconteceu (ela acontece dentro da transação, logo abaixo), então buscá-la
 	// ali devolveria vazio e o evento sairia sem dizer quem foi atribuído.
-	return uc.escreverEPublicarNoCard(ctx, evento.ResponsavelAtribuido, boardID, cardID, usuarioID,
+	if err := uc.escreverEPublicarNoCard(ctx, evento.ResponsavelAtribuido, boardID, cardID, usuarioID,
 		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: uc.nomeNoQuadro(ctx, boardID, alvoID)},
 		uc.escrita(), func(e Escrita) error {
 			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
@@ -79,11 +90,40 @@ func (uc *ResponsavelUseCase) Atribuir(ctx context.Context, cardID, alvoID, usua
 			if vinculo == nil {
 				return dmembro.ErrNaoEMembro
 			}
-			return e.Responsaveis.Atribuir(ctx, cardID, alvoID)
-		})
+			jaRespondia, err := respondePeloCard(ctx, e, cardID, alvoID)
+			if err != nil {
+				return err
+			}
+			if err := e.Responsaveis.Atribuir(ctx, cardID, alvoID); err != nil {
+				return err
+			}
+			if jaRespondia || alvoID == usuarioID || !uc.avisando(e) {
+				return nil
+			}
+			pendente, err := e.Notificacoes.ExisteNaoLida(ctx, alvoID, notificacao.TipoAtribuicao, cardID)
+			if err != nil || pendente {
+				return err
+			}
+			if _, err := uc.avisar(ctx, e,
+				notificacao.NovaDeAtribuicao(uuid.NewString(), alvoID, boardID, cardID, usuarioID, time.Now())); err != nil {
+				return err
+			}
+			avisado = alvoID
+			return nil
+		}); err != nil {
+		return err
+	}
+	uc.depois(avisado)
+	// Quem passou a responder por um card que vence amanhã precisa saber agora.
+	uc.acordarVigia()
+	return nil
 }
 
 // Desatribuir tira a pessoa da responsabilidade do card. Exige papel de edição.
+//
+// O aviso da atribuição não é apagado: ele deixa de valer sozinho, porque o que
+// vale é lido do estado atual, e o sino da pessoa é tocado para ela ver o
+// número cair. O email dele que ainda não saiu é cancelado na saída.
 func (uc *ResponsavelUseCase) Desatribuir(ctx context.Context, cardID, alvoID, usuarioID string) error {
 	boardID, err := uc.carregarComAcessoDeEdicao(ctx, cardID, usuarioID)
 	if err != nil {
@@ -92,14 +132,33 @@ func (uc *ResponsavelUseCase) Desatribuir(ctx context.Context, cardID, alvoID, u
 	// O nome é resolvido ANTES da remoção: depois dela a pessoa já não está na
 	// lista do card, e o evento sairia sem dizer quem saiu.
 	nome := uc.nomeDe(ctx, cardID, alvoID)
-	return uc.escreverEPublicarNoCard(ctx, evento.ResponsavelRemovido, boardID, cardID, usuarioID,
+	if err := uc.escreverEPublicarNoCard(ctx, evento.ResponsavelRemovido, boardID, cardID, usuarioID,
 		DadosDoCard{CardID: cardID, Titulo: tituloDoCard(ctx, uc.cards, cardID), Alvo: nome},
 		uc.escrita(), func(e Escrita) error {
 			if err := revalidarEdicao(ctx, e, boardID, usuarioID); err != nil {
 				return err
 			}
 			return e.Responsaveis.Remover(ctx, cardID, alvoID)
-		})
+		}); err != nil {
+		return err
+	}
+	uc.depois(alvoID)
+	return nil
+}
+
+// respondePeloCard confere, dentro da transação, se a pessoa já responde pelo
+// card — atribuir de novo quem já estava não é fato novo, e não avisa ninguém.
+func respondePeloCard(ctx context.Context, e Escrita, cardID, usuarioID string) (bool, error) {
+	atuais, err := e.Responsaveis.DoCard(ctx, cardID)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range atuais {
+		if r.UsuarioID == usuarioID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // nomeDe resolve o nome de quem responde pelo card, para o payload do evento.

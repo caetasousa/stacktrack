@@ -176,7 +176,10 @@ export interface EmailRecebido {
 export const ASSUNTO = {
 	convite: 'convidou você',
 	recuperacao: 'senha nova',
-	confirmacao: 'Confirme seu email'
+	confirmacao: 'Confirme seu email',
+	atribuicao: 'pôs você como responsável',
+	mencao: 'mencionou você',
+	prazo: 'O prazo de'
 } as const;
 
 /**
@@ -250,6 +253,80 @@ export async function confirmarConta(req: APIRequestContext, conta: Conta): Prom
 export function linkDoConvite(email: EmailRecebido): string {
 	const achado = /https?:\/\/\S+?\/convite\/[A-Za-z0-9_-]+/.exec(email.texto);
 	if (!achado) throw new Error(`o email "${email.assunto}" não traz link de convite`);
+	return achado[0];
+}
+
+/** cabecalhoDe é o cookie de sessão da conta, para as chamadas pela API. */
+export function cabecalhoDe(conta: Conta) {
+	return { Cookie: `${conta.cookie.name}=${conta.cookie.value}` };
+}
+
+/** idDe devolve o id da conta, que as rotas de responsável pedem na URL. */
+export async function idDe(req: APIRequestContext, conta: Conta): Promise<string> {
+	const resp = await req.get(`${API}/auth/me`, { headers: cabecalhoDe(conta) });
+	if (!resp.ok()) throw new Error(`/auth/me de ${conta.nome}: ${resp.status()}`);
+	return ((await resp.json()) as { id: string }).id;
+}
+
+/** criarCard cria um card no fim da coluna, pela API. */
+export async function criarCard(
+	req: APIRequestContext,
+	quem: Conta,
+	colunaId: string,
+	titulo: string
+): Promise<{ id: string }> {
+	const resp = await req.post(`${API}/colunas/${colunaId}/cards`, {
+		data: { titulo, descricao: '', cor: '' },
+		headers: cabecalhoDe(quem)
+	});
+	if (!resp.ok()) throw new Error(`criar card: ${resp.status()} ${await resp.text()}`);
+	return (await resp.json()) as { id: string };
+}
+
+/** atribuir põe `alvoId` como responsável pelo card, pela API. */
+export async function atribuir(
+	req: APIRequestContext,
+	quem: Conta,
+	cardId: string,
+	alvoId: string
+) {
+	const resp = await req.put(`${API}/cards/${cardId}/responsaveis/${alvoId}`, {
+		headers: cabecalhoDe(quem)
+	});
+	if (!resp.ok()) throw new Error(`atribuir: ${resp.status()} ${await resp.text()}`);
+}
+
+/** desatribuir tira `alvoId` da responsabilidade do card, pela API. */
+export async function desatribuir(
+	req: APIRequestContext,
+	quem: Conta,
+	cardId: string,
+	alvoId: string
+) {
+	const resp = await req.delete(`${API}/cards/${cardId}/responsaveis/${alvoId}`, {
+		headers: cabecalhoDe(quem)
+	});
+	if (!resp.ok()) throw new Error(`desatribuir: ${resp.status()} ${await resp.text()}`);
+}
+
+/** definirPrazo marca a data de entrega do card, pela API. */
+export async function definirPrazo(
+	req: APIRequestContext,
+	quem: Conta,
+	cardId: string,
+	prazo: string
+) {
+	const resp = await req.patch(`${API}/cards/${cardId}/prazo`, {
+		data: { prazo },
+		headers: cabecalhoDe(quem)
+	});
+	if (!resp.ok()) throw new Error(`prazo: ${resp.status()} ${await resp.text()}`);
+}
+
+/** linkDaNotificacao tira do texto do email o link do aviso. */
+export function linkDaNotificacao(email: EmailRecebido): string {
+	const achado = /https?:\/\/\S+?\/notificacoes\/[0-9a-f-]{36}/.exec(email.texto);
+	if (!achado) throw new Error(`o email "${email.assunto}" não traz o link da notificação`);
 	return achado[0];
 }
 

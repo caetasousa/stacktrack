@@ -300,6 +300,15 @@ type FundoRequest struct {
 // Validar checa o formato dos campos informados.
 func (r FundoRequest) Validar() error { return validate.Struct(r) }
 
+// RetencaoRequest é o corpo de PATCH /boards/{id}/retencao-notificacoes. A
+// faixa permitida é conferida pelo domínio, que é quem a conhece.
+type RetencaoRequest struct {
+	Dias int `json:"dias" validate:"required"`
+}
+
+// Validar checa o formato dos campos informados.
+func (r RetencaoRequest) Validar() error { return validate.Struct(r) }
+
 // ColunaResponse é uma coluna com os cards dela, já em ordem.
 type ColunaResponse struct {
 	ID      string         `json:"id"`
@@ -325,7 +334,11 @@ type BoardDetalhadoResponse struct {
 	// só para o dono: quem digita num card precisa saber que aquilo está à vista
 	// de fora ANTES de digitar. O token do link não vem aqui — ele é do dono, e
 	// sai por GET /boards/{id}/publicacao.
-	Publico   bool               `json:"publico"`
-	Colunas   []ColunaResponse   `json:"colunas"`
-	Etiquetas []EtiquetaResponse `json:"etiquetas"`
+	Publico bool `json:"publico"`
+	// RetencaoNotificacoesDias é por quantos dias as notificações lidas deste
+	// quadro ficam guardadas — já resolvido para o padrão, quando o dono nunca
+	// escolheu.
+	RetencaoNotificacoesDias int                `json:"retencaoNotificacoesDias"`
+	Colunas                  []ColunaResponse   `json:"colunas"`
+	Etiquetas                []EtiquetaResponse `json:"etiquetas"`
 }

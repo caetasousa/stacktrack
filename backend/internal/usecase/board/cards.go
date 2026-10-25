@@ -22,6 +22,7 @@ import (
 type CardUseCase struct {
 	eventos
 	exclusoes
+	notificacoes
 	boards       RepositorioBoard
 	membros      RepositorioMembro
 	colunas      RepositorioColuna
@@ -176,6 +177,18 @@ func (uc *CardUseCase) DefinirPrazo(ctx context.Context, cardID, usuarioID strin
 		}); err != nil {
 		return nil, err
 	}
+	// O aviso do prazo antigo deixa de valer sozinho, e quem responde pelo card
+	// precisa ver o sino mudar; o prazo novo, se vence amanhã, avisa já.
+	if uc.notificador != nil {
+		if responsaveis, err := uc.responsaveis.DoCard(ctx, c.ID); err == nil {
+			ids := make([]string, 0, len(responsaveis))
+			for _, r := range responsaveis {
+				ids = append(ids, r.UsuarioID)
+			}
+			uc.depois(ids...)
+		}
+		uc.acordarVigia()
+	}
 	return c, nil
 }
 
@@ -289,7 +302,7 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 	// O título vai no evento porque o card não estará mais lá para respondê-lo:
 	// "apagou um card" é bem menos útil que "apagou Migração", e depois do
 	// DELETE não há de onde tirar o nome.
-	var orfaos []string
+	var orfaos, tocados []string
 	dados := &DadosDoCard{CardID: cardID, Titulo: c.Titulo}
 	if err := uc.escreverEPublicarNoCard(ctx, evento.CardApagado, boardID, cardID, usuarioID,
 		dados,
@@ -315,10 +328,16 @@ func (uc *CardUseCase) Apagar(ctx context.Context, cardID, usuarioID string) err
 			if err := registrarExclusaoDeArquivos(ctx, e, boardID, orfaos); err != nil {
 				return err
 			}
+			// Os avisos sobre o card vão pelo CASCADE; quem os tinha precisa ver o
+			// sino mudar.
+			if tocados, err = uc.destinatariosDoQuadro(ctx, e, boardID); err != nil {
+				return err
+			}
 			return e.Cards.Apagar(ctx, cardID)
 		}); err != nil {
 		return err
 	}
+	uc.depois(tocados...)
 	return nil
 }
 

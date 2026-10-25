@@ -137,6 +137,11 @@ describe('fraseNoQuadro', () => {
 			'renomeou o quadro de "Velho" para "Novo"'
 		],
 		['quadro.fundo', { fundo: 'oceano' }, 'mudou o fundo do quadro para oceano'],
+		[
+			'quadro.retencao_notificacoes',
+			{ retencaoDias: 7, retencaoDiasAnterior: 30 },
+			'passou a guardar as notificações lidas por 7 dias (antes, 30)'
+		],
 		['quadro.publicado', undefined, 'publicou o quadro por link'],
 		['quadro.publicacao_revogada', undefined, 'revogou o link público do quadro'],
 		['etiqueta.criada', { nome: 'urgente' }, 'criou a etiqueta "urgente"'],

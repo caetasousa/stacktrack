@@ -74,6 +74,18 @@ func (r *Boards) DefinirFundo(ctx context.Context, id, fundo string, em time.Tim
 	return nil
 }
 
+// DefinirRetencaoDeNotificacoes existe só para o fake continuar satisfazendo a
+// porta: ele é legado e não cresce — a retenção é testada contra o banco.
+func (r *Boards) DefinirRetencaoDeNotificacoes(ctx context.Context, id string, dias int, em time.Time) error {
+	if r.ErroForcado != nil {
+		return r.ErroForcado
+	}
+	if b, ok := r.porID[id]; ok {
+		b.RetencaoNotificacoesDias, b.AtualizadoEm = dias, em
+	}
+	return nil
+}
+
 func (r *Boards) BuscarPorID(ctx context.Context, id string) (*board.Board, error) {
 	if r.ErroForcado != nil {
 		return nil, r.ErroForcado

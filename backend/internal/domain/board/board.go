@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"stacktrack/internal/domain/notificacao"
 )
 
 // TamanhoMaximoTitulo é o limite de caracteres do título do quadro.
@@ -64,6 +66,32 @@ type Board struct {
 	// Zero é o quadro que ainda não teve mutação numerada (recém-criado, ou
 	// anterior à migration que criou a coluna).
 	Revisao int64
+	// RetencaoNotificacoesDias é por quantos dias as notificações LIDAS deste
+	// quadro ficam guardadas, escolhido pelo dono. Zero é o quadro que nunca
+	// escolheu, e vale o padrão — ver RetencaoDeNotificacoes.
+	RetencaoNotificacoesDias int
+}
+
+// RetencaoDeNotificacoes devolve a retenção a usar, resolvendo o "nunca
+// escolheu" para o padrão. O padrão vive no domínio, e não num DEFAULT do
+// banco, pela mesma razão do fundo.
+func (b *Board) RetencaoDeNotificacoes() int {
+	if b.RetencaoNotificacoesDias == 0 {
+		return notificacao.RetencaoPadraoDias
+	}
+	return b.RetencaoNotificacoesDias
+}
+
+// DefinirRetencaoDeNotificacoes troca por quantos dias as notificações lidas
+// do quadro ficam guardadas. Retorna notificacao.ErrRetencaoInvalida fora da
+// faixa, sem mudar nada.
+func (b *Board) DefinirRetencaoDeNotificacoes(dias int) error {
+	if err := notificacao.ValidarRetencao(dias); err != nil {
+		return err
+	}
+	b.RetencaoNotificacoesDias = dias
+	b.AtualizadoEm = time.Now()
+	return nil
 }
 
 // FundoEfetivo devolve o fundo a usar, resolvendo o vazio para o padrão. O

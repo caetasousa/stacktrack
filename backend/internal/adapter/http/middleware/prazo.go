@@ -44,6 +44,10 @@ func Prazo(comum, upload time.Duration) func(http.Handler) http.Handler {
 
 			ctx, cancelar := context.WithTimeout(r.Context(), limite)
 			defer cancelar()
+			// O contexto de fora fica guardado para a única saída prevista:
+			// a resposta longa do SSE, que pede para sair do prazo por
+			// LiberarDoPrazo. Ver lá por que não basta ignorar o deadline.
+			ctx = context.WithValue(ctx, chaveDoContextoSemPrazo{}, r.Context())
 
 			// O vigia e a checagem final ficam AQUI, e não num middleware
 			// separado por fora. Tentei separá-los e o teste mostrou por que
@@ -81,6 +85,43 @@ func Prazo(comum, upload time.Duration) func(http.Handler) http.Handler {
 				"erro": "a requisição demorou demais; tente de novo",
 			})
 		})
+	}
+}
+
+type chaveDoContextoSemPrazo struct{}
+
+// LiberarDoPrazo tira uma resposta LONGA do teto de Prazo e devolve o contexto
+// com que ela deve viver: com os valores da requisição (identidade, request
+// id), sem deadline, e cancelado quando o cliente desconecta — ou quando quem
+// chamou usa o cancel devolvido.
+//
+// Existe para o SSE, que é um GET comum cuja resposta não termina: o handshake
+// do WebSocket tem a saída dele (o Hijack), e uma resposta que continua sendo
+// escrita não tem. A saída é EXPLÍCITA, chamada pelo handler que foi feito
+// para viver horas — e nunca decidida por cabeçalho do cliente, que daria a
+// qualquer requisição um jeito de escapar do teto.
+//
+// Limpa também os deadlines de leitura e de escrita do socket. O de leitura não
+// é detalhe: no HTTP/1.1 o servidor fica lendo o socket em segundo plano para
+// perceber o cliente que fechou, e essa leitura esbarrando no deadline seria
+// tomada por desconexão — a resposta cairia nos mesmos dez segundos. Quem chama
+// passa a dar prazo a cada escrita.
+func LiberarDoPrazo(w http.ResponseWriter, r *http.Request) (context.Context, context.CancelFunc) {
+	controle := http.NewResponseController(w)
+	_ = controle.SetReadDeadline(time.Time{})
+	_ = controle.SetWriteDeadline(time.Time{})
+
+	pai, ok := r.Context().Value(chaveDoContextoSemPrazo{}).(context.Context)
+	if !ok {
+		// Fora de Prazo (nos testes do handler, por exemplo), o contexto da
+		// requisição já é o que se quer.
+		pai = r.Context()
+	}
+	ctx, cancelar := context.WithCancel(context.WithoutCancel(r.Context()))
+	parar := context.AfterFunc(pai, cancelar)
+	return ctx, func() {
+		parar()
+		cancelar()
 	}
 }
 

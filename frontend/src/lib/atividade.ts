@@ -33,6 +33,9 @@ export interface DadosDoEvento {
 	papel?: string;
 	papelAnterior?: string;
 	fundo?: string;
+	/** A retenção das notificações do quadro, depois e antes da troca. */
+	retencaoDias?: number;
+	retencaoDiasAnterior?: number;
 	/**
 	 * Origem de um evento de MANUTENÇÃO — o comando que rodou, sem pessoa por
 	 * trás. `autorId` vem vazio nesses casos, e é isso que ele significa.
@@ -194,6 +197,11 @@ export function fraseNoQuadro(a: Atividade): string {
 				: `renomeou o quadro para "${d.titulo}"`;
 		case 'quadro.fundo':
 			return d.fundo ? `mudou o fundo do quadro para ${d.fundo}` : 'mudou o fundo do quadro';
+		case 'quadro.retencao_notificacoes':
+			return d.retencaoDias
+				? `passou a guardar as notificações lidas por ${d.retencaoDias} dias` +
+						(d.retencaoDiasAnterior ? ` (antes, ${d.retencaoDiasAnterior})` : '')
+				: 'mudou por quanto tempo as notificações lidas ficam guardadas';
 		case 'quadro.publicado':
 			return 'publicou o quadro por link';
 		case 'quadro.publicacao_revogada':

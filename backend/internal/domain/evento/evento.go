@@ -43,6 +43,10 @@ const (
 	QuadroCriado    Tipo = "quadro.criado"
 	QuadroRenomeado Tipo = "quadro.renomeado"
 	QuadroFundo     Tipo = "quadro.fundo"
+	// QuadroRetencaoNotificacoes é o dono trocando por quantos dias as
+	// notificações lidas do quadro ficam guardadas. Vai para o histórico: é uma
+	// decisão sobre o dado de todo mundo que participa, e precisa ter autor.
+	QuadroRetencaoNotificacoes Tipo = "quadro.retencao_notificacoes"
 	// QuadroApagado é o único evento terminal e efêmero: o DELETE leva o log
 	// persistido por cascata, então ele só pode ser emitido depois do commit.
 	QuadroApagado Tipo = "quadro.apagado"

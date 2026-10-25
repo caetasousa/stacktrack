@@ -136,6 +136,9 @@ type Envio struct {
 	AutorID           string
 	// ConviteID é o convite que a mensagem entrega, quando é o caso.
 	ConviteID string
+	// NotificacaoID é a notificação que a mensagem avisa, quando é o caso. O
+	// worker a confere na hora de entregar: lida ou desfeita, o email não sai.
+	NotificacaoID string
 }
 
 // NovoEnvio cria a intenção de mandar uma mensagem agora, valendo até expiraEm.

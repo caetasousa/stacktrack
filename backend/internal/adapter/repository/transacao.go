@@ -197,6 +197,29 @@ func (u *UnidadeDeTrabalho) ExcluirQuadro(
 	return traduzirErroDeConcorrencia(tx.Commit(ctx))
 }
 
+// EscreverSemEvento grava, com os mesmos tetos das demais escritas, o que não é
+// estado de quadro nenhum: os avisos do vigia de prazos, que nenhuma mutação
+// causou. Sem lock de quadro, sem revisão e sem evento — ver
+// ucboard.TransacaoSemEvento para o porquê de nenhum dos três fazer falta.
+//
+// A transação existe pelo par aviso + email: os dois valem juntos, e um aviso
+// gravado sem o email dele (ou o contrário) não teria conserto.
+func (u *UnidadeDeTrabalho) EscreverSemEvento(ctx context.Context, mudanca func(ucboard.Escrita) error) error {
+	tx, err := u.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // sem efeito depois do commit
+
+	if err := u.aplicarTetos(ctx, tx); err != nil {
+		return err
+	}
+	if err := mudanca(u.escritaDe(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // aplicarTetos define lock_timeout e statement_timeout SÓ para esta transação.
 //
 // SET LOCAL, e não SET: o pool reaproveita conexões, e um SET comum vazaria o
@@ -273,6 +296,7 @@ func repositoriosDe(tx pgx.Tx) ucboard.Escrita {
 		Comentarios:  &ComentarioPostgres{db: tx},
 		Exclusoes:    &ExclusaoDeArquivoPostgres{db: tx},
 		Publicacoes:  &PublicacaoPostgres{db: tx},
+		Notificacoes: &NotificacaoPostgres{db: tx},
 	}
 }
 

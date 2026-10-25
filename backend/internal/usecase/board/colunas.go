@@ -15,6 +15,7 @@ import (
 type ColunaUseCase struct {
 	eventos
 	exclusoes
+	notificacoes
 	membros RepositorioMembro
 	colunas RepositorioColuna
 	// anexos e armazem existem só para a LIMPEZA do disco ao apagar: o cascata
@@ -127,7 +128,7 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 	if err != nil {
 		return err
 	}
-	var orfaos []string
+	var orfaos, tocados []string
 	dados := &DadosDaColuna{ColunaID: colunaID, Titulo: c.Titulo, Cor: string(c.Cor)}
 	if err := uc.escreverEPublicar(ctx, evento.ColunaApagada, c.BoardID, usuarioID,
 		dados,
@@ -150,10 +151,16 @@ func (uc *ColunaUseCase) Apagar(ctx context.Context, colunaID, usuarioID string)
 			if err := registrarExclusaoDeArquivos(ctx, e, c.BoardID, orfaos); err != nil {
 				return err
 			}
+			// Os avisos sobre os cards da coluna vão pelo CASCADE; quem os tinha
+			// precisa ver o sino mudar.
+			if tocados, err = uc.destinatariosDoQuadro(ctx, e, c.BoardID); err != nil {
+				return err
+			}
 			return e.Colunas.Apagar(ctx, colunaID)
 		}); err != nil {
 		return err
 	}
+	uc.depois(tocados...)
 	return nil
 }
 

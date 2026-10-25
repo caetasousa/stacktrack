@@ -25,9 +25,10 @@ func NovoBoardPostgres(pool Fonte) *BoardPostgres {
 // Salvar persiste um quadro novo.
 func (r *BoardPostgres) Salvar(ctx context.Context, b *board.Board) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO boards (id, titulo, fundo, criado_em, atualizado_em)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		b.ID, b.Titulo, vazioParaNulo(b.Fundo), b.CriadoEm, b.AtualizadoEm,
+		`INSERT INTO boards (id, titulo, fundo, retencao_notificacoes_dias, criado_em, atualizado_em)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		b.ID, b.Titulo, vazioParaNulo(b.Fundo), zeroParaNulo(int64(b.RetencaoNotificacoesDias)),
+		b.CriadoEm, b.AtualizadoEm,
 	)
 	return err
 }
@@ -61,14 +62,26 @@ func (r *BoardPostgres) DefinirFundo(ctx context.Context, id, fundo string, em t
 	return err
 }
 
+// DefinirRetencaoDeNotificacoes grava SÓ a retenção. Ver Renomear para o porquê
+// de ser estreito.
+func (r *BoardPostgres) DefinirRetencaoDeNotificacoes(ctx context.Context, id string, dias int, em time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE boards SET retencao_notificacoes_dias = $2, atualizado_em = $3 WHERE id = $1`,
+		id, dias, em,
+	)
+	return err
+}
+
 // BuscarPorID retorna (quadro, nil) quando encontra e (nil, nil) quando não existe.
 func (r *BoardPostgres) BuscarPorID(ctx context.Context, id string) (*board.Board, error) {
 	var b board.Board
 	var fundo *string
 	var revisao *int64
+	var retencao *int
 	err := r.db.QueryRow(ctx,
-		`SELECT id, titulo, fundo, criado_em, atualizado_em, revisao FROM boards WHERE id = $1`, id,
-	).Scan(&b.ID, &b.Titulo, &fundo, &b.CriadoEm, &b.AtualizadoEm, &revisao)
+		`SELECT id, titulo, fundo, criado_em, atualizado_em, revisao, retencao_notificacoes_dias
+		   FROM boards WHERE id = $1`, id,
+	).Scan(&b.ID, &b.Titulo, &fundo, &b.CriadoEm, &b.AtualizadoEm, &revisao, &retencao)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -81,6 +94,11 @@ func (r *BoardPostgres) BuscarPorID(ctx context.Context, id string) (*board.Boar
 	// incremento usa.
 	if revisao != nil {
 		b.Revisao = *revisao
+	}
+	// NULL é o quadro que nunca escolheu: o zero do domínio, que resolve para o
+	// padrão em RetencaoDeNotificacoes.
+	if retencao != nil {
+		b.RetencaoNotificacoesDias = *retencao
 	}
 	return &b, nil
 }

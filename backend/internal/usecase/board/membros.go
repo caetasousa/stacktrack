@@ -10,6 +10,7 @@ import (
 	demail "stacktrack/internal/domain/email"
 	"stacktrack/internal/domain/evento"
 	"stacktrack/internal/domain/membro"
+	"stacktrack/internal/domain/notificacao"
 	dusuario "stacktrack/internal/domain/usuario"
 	"stacktrack/internal/pkg/token"
 
@@ -25,6 +26,7 @@ var errParticipacaoMudou = errors.New("a participação mudou enquanto o convite
 // e remover.
 type MembroUseCase struct {
 	eventos
+	notificacoes
 	membros      RepositorioMembro
 	convites     RepositorioConvite
 	usuarios     buscadorUsuario
@@ -199,6 +201,10 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 	// transação do quadro precisa ser curta. Ele só entra na fila lá dentro,
 	// junto com o convite.
 	agora := time.Now()
+	// Quem já tem conta com o email também é avisado no sino. A conta é
+	// resolvida sob o lock, junto com o resto, e o aviso só aparece para ela
+	// depois de o email estar confirmado — a mesma regra do painel.
+	var avisado string
 	var mensagem *emailDoConvite
 	if uc.correio != nil {
 		if mensagem, err = uc.redigirConvite(ctx, c, t, usuarioID, agora); err != nil {
@@ -275,12 +281,21 @@ func (uc *MembroUseCase) Convidar(ctx context.Context, boardID, usuarioID, email
 			if err := e.Convites.Salvar(ctx, c); err != nil {
 				return err
 			}
-			entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora)
+			if entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora); err != nil {
+				return err
+			}
+			if convidadoSobLock == nil {
+				return nil
+			}
+			avisado = convidadoSobLock.ID
+			_, err = uc.avisar(ctx, e,
+				notificacao.NovaDeConvite(uuid.NewString(), convidadoSobLock.ID, boardID, c.ID, usuarioID, agora))
 			return err
 		}); err != nil {
 		return nil, err
 	}
 	uc.avisarCorreio(entrega)
+	uc.depois(avisado)
 	return &ResultadoConvite{Convite: c, Token: t, Entrega: entrega}, nil
 }
 
@@ -324,6 +339,7 @@ func (uc *MembroUseCase) ReenviarConvite(ctx context.Context, boardID, conviteID
 	}
 
 	entrega := EntregaManual
+	var avisado string
 	err = uc.escreverEPublicar(ctx, evento.ConviteReenviado, c.BoardID, usuarioID,
 		DadosDoMembro{Email: dusuario.MascararEmail(c.Email), Papel: string(c.Papel)},
 		uc.escrita(), func(e Escrita) error {
@@ -351,7 +367,22 @@ func (uc *MembroUseCase) ReenviarConvite(ctx context.Context, boardID, conviteID
 				return err
 			}
 			var err error
-			entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora)
+			if entrega, err = enfileirarNaTransacao(ctx, e, mensagem, usuarioID, agora); err != nil {
+				return err
+			}
+			// Quem criou a conta depois do convite passa a vê-lo no sino agora.
+			// Para quem já tinha o aviso, a chave impede um segundo — e o sino
+			// toca do mesmo jeito, porque o convite vencido voltou a valer.
+			if !uc.avisando(e) {
+				return nil
+			}
+			conta, err := e.Usuarios.BuscarPorEmail(ctx, c.Email)
+			if err != nil || conta == nil {
+				return err
+			}
+			avisado = conta.ID
+			_, err = uc.avisar(ctx, e,
+				notificacao.NovaDeConvite(uuid.NewString(), conta.ID, c.BoardID, c.ID, usuarioID, agora))
 			return err
 		})
 	if errors.Is(err, dconvite.ErrJaResolvido) {
@@ -361,6 +392,7 @@ func (uc *MembroUseCase) ReenviarConvite(ctx context.Context, boardID, conviteID
 		return nil, err
 	}
 	uc.avisarCorreio(entrega)
+	uc.depois(avisado)
 	return &ResultadoConvite{Convite: c, Token: t, Entrega: entrega}, nil
 }
 
@@ -466,6 +498,11 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 	// A regra do último dono é reconferida sob o lock, pela mesma razão de
 	// AlterarPapel: duas remoções simultâneas passavam as duas pela validação
 	// feita contra leituras independentes.
+	//
+	// Os avisos da pessoa sobre o quadro saem junto, pela mesma razão das
+	// atribuições: quem saiu não vê mais nada dele, e um aviso que reaparecesse
+	// num retorno ao quadro, meses depois, falaria de um passado que não é mais
+	// dela.
 	if err := uc.escreverEPublicar(ctx, evento.MembroRemovido, boardID, usuarioID,
 		DadosDoMembro{Nome: nomeDoAlvo, Email: emailDoAlvo},
 		uc.escrita(), func(e Escrita) error {
@@ -482,10 +519,16 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 			if err := e.Responsaveis.RemoverDoBoard(ctx, boardID, alvoID); err != nil {
 				return err
 			}
+			if uc.avisando(e) {
+				if err := e.Notificacoes.RemoverDoQuadro(ctx, boardID, alvoID); err != nil {
+					return err
+				}
+			}
 			return e.Membros.Remover(ctx, boardID, alvoID)
 		}); err != nil {
 		return err
 	}
+	uc.depois(alvoID)
 	return nil
 }
 
@@ -513,6 +556,9 @@ func (uc *MembroUseCase) RevogarConvite(ctx context.Context, conviteID, usuarioI
 	}
 
 	agora := time.Now()
+	// O aviso no sino de quem foi convidado deixa de valer sozinho — o que vale
+	// é lido do convite —, mas o sino precisa ser tocado para o número cair.
+	var avisado string
 	err = uc.escreverEPublicar(ctx, evento.ConviteRevogado, c.BoardID, usuarioID,
 		DadosDoMembro{Email: dusuario.MascararEmail(c.Email), Papel: string(c.Papel)},
 		uc.escrita(), func(e Escrita) error {
@@ -523,12 +569,26 @@ func (uc *MembroUseCase) RevogarConvite(ctx context.Context, conviteID, usuarioI
 				return err
 			}
 			// O email que ainda não saiu levaria um link que acabou de morrer.
-			return cancelarEmailsDoConvite(ctx, e, conviteID, agora)
+			if err := cancelarEmailsDoConvite(ctx, e, conviteID, agora); err != nil {
+				return err
+			}
+			if !uc.avisando(e) {
+				return nil
+			}
+			conta, err := e.Usuarios.BuscarPorEmail(ctx, c.Email)
+			if err == nil && conta != nil {
+				avisado = conta.ID
+			}
+			return err
 		})
 	if errors.Is(err, dconvite.ErrJaResolvido) {
 		return dconvite.ErrInvalido
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	uc.depois(avisado)
+	return nil
 }
 
 // DetalharConvite descreve um convite a partir do token, SEM exigir sessão —
@@ -654,7 +714,13 @@ func (uc *MembroUseCase) RecusarRecebido(ctx context.Context, conviteID, usuario
 	if errors.Is(err, dconvite.ErrJaResolvido) {
 		return dconvite.ErrInvalido
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// As outras abas de quem recusou precisam ver o aviso do convite parar de
+	// contar.
+	uc.depois(usuarioID)
+	return nil
 }
 
 // contaConfirmada busca a conta e exige o email confirmado.
@@ -797,6 +863,8 @@ func (uc *MembroUseCase) aceitar(ctx context.Context, c *dconvite.Convite, usuar
 	if err != nil {
 		return nil, "", err
 	}
+	// O aviso do convite deixou de contar, e as outras abas precisam ver.
+	uc.depois(usuarioID)
 	return b, papelFinal, nil
 }
 

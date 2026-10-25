@@ -5,6 +5,7 @@
 	import { apagarBoard, criarBoard } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
 	import { aceitarRecebido, recusarRecebido, type ConviteRecebido } from '$lib/api/membros';
+	import { sino } from '$lib/stores/notificacoes.svelte';
 
 	let { data } = $props();
 
@@ -97,6 +98,16 @@
 		}
 	}
 
+	// Um convite novo — ou um que deixou de valer — chega pelo sino. O painel
+	// relê os convites e os quadros sem a pessoa precisar recarregar.
+	let versaoVista = sino.versao;
+	$effect(() => {
+		const versao = sino.versao;
+		if (versao === versaoVista) return;
+		versaoVista = versao;
+		void invalidateAll();
+	});
+
 	const formatarData = (iso: string) =>
 		new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -162,7 +173,7 @@
 {/if}
 
 {#if data.recebidos.length > 0}
-	<section class="mt-8" aria-labelledby="titulo-recebidos">
+	<section id="convites" class="mt-8 scroll-mt-6" aria-labelledby="titulo-recebidos">
 		<h2 id="titulo-recebidos" class="text-xs font-semibold tracking-widest text-mute uppercase">
 			Convites para você
 		</h2>

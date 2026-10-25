@@ -1,0 +1,8 @@
+{{.Frase}}
+
+{{.Acao}}
+{{.Link}}
+
+Você recebe este aviso porque participa do quadro "{{.Quadro}}" no stacktrack. Se o que ele diz deixar de valer — a atribuição desfeita, o comentário apagado, o prazo trocado —, o link avisa.
+
+— stacktrack

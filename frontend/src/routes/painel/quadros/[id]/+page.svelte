@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { confirmar } from '$lib/confirmar.svelte';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
 	import {
 		apagarBoard,
 		criarColuna,
@@ -14,6 +15,7 @@
 		apagarEtiqueta,
 		criarEtiqueta,
 		definirFundo,
+		definirRetencao,
 		editarEtiqueta,
 		moverCard,
 		moverColuna
@@ -334,6 +336,40 @@
 	const podeEditar = $derived(data.quadro.papel === 'dono' || data.quadro.papel === 'editor');
 	const podeAdministrar = $derived(data.quadro.papel === 'dono');
 
+	// Vindo de uma notificação (`?card=`), o card do link abre por cima do
+	// quadro. O parâmetro sai da URL logo em seguida: um F5 depois de fechar o
+	// modal não pode reabri-lo, e o histórico não ganha uma entrada a mais.
+	let cardDoLinkAberto = '';
+	$effect(() => {
+		const pedido = page.url.searchParams.get('card');
+		const quadro = data.quadro;
+		if (!pedido) {
+			cardDoLinkAberto = '';
+			return;
+		}
+		if (pedido === cardDoLinkAberto) return;
+		cardDoLinkAberto = pedido;
+		untrack(() => {
+			if (quadro.colunas.some((c) => c.cards.some((card) => card.id === pedido))) {
+				cardAberto = pedido;
+			} else {
+				erro = 'o card do link não está mais neste quadro — pode ter sido apagado';
+			}
+			const limpa = new URL(page.url);
+			limpa.searchParams.delete('card');
+			replaceState(limpa, page.state);
+		});
+	});
+
+	// Os prazos oferecidos para a retenção das notificações. O servidor aceita
+	// qualquer número entre 1 e 365; a lista só evita que alguém digite 3650.
+	const PRAZOS_DE_RETENCAO = [7, 15, 30, 60, 90, 180, 365];
+	const opcoesDeRetencao = $derived(
+		[...new Set([...PRAZOS_DE_RETENCAO, data.quadro.retencaoNotificacoesDias])].sort(
+			(a, b) => a - b
+		)
+	);
+
 	const cores: Cor[] = ['cinza', 'vermelho', 'laranja', 'amarelo', 'verde', 'azul', 'roxo', 'rosa'];
 	const nomeDoFundo: Record<Fundo, string> = {
 		padrao: 'Padrão',
@@ -503,6 +539,15 @@
 			await recarregar();
 		} catch (e) {
 			tratar(e, 'não foi possível trocar o fundo');
+		}
+	}
+
+	async function trocarRetencao(dias: number) {
+		try {
+			await definirRetencao(data.quadro.id, dias);
+			await recarregar();
+		} catch (e) {
+			tratar(e, 'não foi possível trocar a retenção das notificações');
 		}
 	}
 
@@ -818,6 +863,27 @@
 						</button>
 					{/each}
 				</div>
+			</div>
+
+			<div class="border-t border-hairline pt-5">
+				<h2 class="text-sm font-semibold text-ink">Notificações</h2>
+				<p class="mt-1 text-xs text-mute">
+					Depois de lidas, as notificações deste quadro somem do sino de quem participa depois de
+					algum tempo. As não lidas ficam até serem lidas, por no máximo um ano.
+				</p>
+				<label class="mt-3 flex flex-wrap items-center gap-2 text-xs text-body">
+					Guardar as lidas por
+					<select
+						class="campo w-auto py-1 text-xs"
+						value={data.quadro.retencaoNotificacoesDias}
+						onchange={(e) => trocarRetencao(Number(e.currentTarget.value))}
+						aria-label="Por quantos dias guardar as notificações lidas"
+					>
+						{#each opcoesDeRetencao as dias (dias)}
+							<option value={dias}>{dias} dias</option>
+						{/each}
+					</select>
+				</label>
 			</div>
 		{/if}
 	</section>

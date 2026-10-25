@@ -48,6 +48,9 @@ type RepositorioBoard interface {
 	Salvar(ctx context.Context, b *dboard.Board) error
 	Renomear(ctx context.Context, id, titulo string, em time.Time) error
 	DefinirFundo(ctx context.Context, id, fundo string, em time.Time) error
+	// DefinirRetencaoDeNotificacoes grava SÓ a retenção, pela mesma razão de
+	// Renomear e DefinirFundo.
+	DefinirRetencaoDeNotificacoes(ctx context.Context, id string, dias int, em time.Time) error
 	BuscarPorID(ctx context.Context, id string) (*dboard.Board, error)
 	Apagar(ctx context.Context, id string) error
 	// ListarDoUsuario devolve os quadros de que o usuário participa, com o
@@ -305,7 +308,12 @@ type RepositorioEmail interface {
 	// convite, e apaga o conteúdo delas. Não é erro não haver nenhuma.
 	CancelarDoConvite(ctx context.Context, conviteID string, em time.Time) error
 	// ContarDoAutorDesde é a base da cota diária: quantos envios a conta pediu.
+	// Os emails de notificação ficam de fora — atribuir cards não pode gastar a
+	// cota de convites de quem atribui.
 	ContarDoAutorDesde(ctx context.Context, autorID string, desde time.Time) (int, error)
+	// ContarDeNotificacaoDesde é a base do teto diário de emails de notificação
+	// que uma pessoa RECEBE.
+	ContarDeNotificacaoDesde(ctx context.Context, usuarioID string, desde time.Time) (int, error)
 	// DoConvite devolve os envios de um convite, do mais recente para o mais
 	// antigo.
 	DoConvite(ctx context.Context, conviteID string) ([]demail.Envio, error)

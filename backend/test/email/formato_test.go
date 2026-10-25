@@ -1,4 +1,5 @@
-// O FORMATO dos emails do sistema — convite e recuperação de senha.
+// O FORMATO dos emails do sistema — convite, recuperação de senha,
+// confirmação e notificações.
 //
 // Função pura, cujo resultado o usuário vê: por isso o teste roda sem Docker.
 // Como isto quebra:
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	aemail "stacktrack/internal/adapter/email"
+	"stacktrack/internal/domain/notificacao"
 )
 
 func TestOsEmailsTemFormatoDeMensagemPessoalENaoDePromocao(t *testing.T) {
@@ -38,6 +40,13 @@ func TestOsEmailsTemFormatoDeMensagemPessoalENaoDePromocao(t *testing.T) {
 		"convite":     {convite.HTML, dadosDeConvite().Link},
 		"recuperação": {recuperacao.HTML, dadosDeRecuperacao().Link},
 		"confirmação": {confirmacao.HTML, dadosDeConfirmacao().Link},
+	}
+	for _, tipo := range []notificacao.Tipo{notificacao.TipoAtribuicao, notificacao.TipoMencao, notificacao.TipoPrazo} {
+		m, err := redator.Notificacao(dadosDeNotificacao(tipo))
+		if err != nil {
+			t.Fatalf("redigir notificação de %s: %v", tipo, err)
+		}
+		casos["notificação de "+string(tipo)] = struct{ html, link string }{m.HTML, dadosDeNotificacao(tipo).Link}
 	}
 	// O que transforma uma mensagem em "newsletter" aos olhos do classificador.
 	marcasDePromocao := []string{"<table", "<img", "<h1", "background", "border-radius", "text-transform", "letter-spacing"}

@@ -19,6 +19,7 @@ export type TipoDeEvento =
 	| 'quadro.criado'
 	| 'quadro.renomeado'
 	| 'quadro.fundo'
+	| 'quadro.retencao_notificacoes'
 	| 'quadro.apagado'
 	| 'quadro.publicado'
 	| 'quadro.publicacao_revogada'

@@ -22,9 +22,13 @@ if (!existsSync(arquivoDeResultados)) {
 const resultados = JSON.parse(readFileSync(arquivoDeResultados, 'utf8'));
 
 // Os cenários, na ordem do catálogo: | E4 | como quebra | o que o usuário vê |
+//
+// Os espaços em volta de cada célula variam: o alinhamento da tabela põe dois
+// depois de "A1" e um depois de "A10". Com um espaço fixo na expressão, todo id
+// de um dígito sumia do resumo e o teste dele aparecia como "sem cenário".
 const cenarios = [];
 for (const linha of readFileSync(join(pasta, 'CENARIOS.md'), 'utf8').split('\n')) {
-	const m = /^\| ([A-Z]\d+) \| (.+?) \| (.+?) \|$/.exec(linha);
+	const m = /^\|\s*([A-Z]\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/.exec(linha);
 	if (m) cenarios.push({ id: m[1], quebra: m[2] });
 }
 

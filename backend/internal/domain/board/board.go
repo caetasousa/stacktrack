@@ -26,6 +26,15 @@ var (
 	ErrNaoEncontrado = errors.New("quadro não encontrado")
 )
 
+// MaximoDeQuadrosPorConta é o teto de quadros de que uma conta é dona no plano
+// gratuito. Conta só os que ela criou ou de que virou dona: participar de
+// quadros alheios não tem teto.
+const MaximoDeQuadrosPorConta = 100
+
+// ErrQuadrosDemais é retornado quando a conta já é dona de
+// MaximoDeQuadrosPorConta quadros.
+var ErrQuadrosDemais = errors.New("você chegou ao limite de quadros: apague um que não usa mais para criar outro")
+
 // FundoPadrao é o fundo de quem nunca escolheu um.
 const FundoPadrao = "padrao"
 

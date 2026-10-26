@@ -107,3 +107,39 @@ type ConviteRecebidoResponse struct {
 type ConvitesRecebidosResponse struct {
 	Convites []ConviteRecebidoResponse `json:"convites"`
 }
+
+// AbrirDominioRequest é o corpo de PUT /boards/{id}/dominio: só o papel. O
+// domínio não vem no corpo — é sempre o do email confirmado de quem pede.
+type AbrirDominioRequest struct {
+	Papel string `json:"papel" validate:"required,oneof=editor leitor"`
+}
+
+// Validar checa o formato dos campos informados.
+func (r AbrirDominioRequest) Validar() error {
+	return validate.Struct(r)
+}
+
+// DominioResponse é a porta do domínio do quadro, como o dono a vê.
+//
+// Disponivel é o domínio que ele pode abrir; vazio, Impedimento diz por quê
+// ("email_nao_confirmado" ou "email_pessoal"), para a tela explicar o que fazer.
+type DominioResponse struct {
+	Dominio     string `json:"dominio"`
+	Papel       string `json:"papel"`
+	Disponivel  string `json:"disponivel"`
+	Impedimento string `json:"impedimento,omitempty"`
+}
+
+// QuadroDoDominioResponse é um quadro aberto ao domínio de quem pergunta.
+type QuadroDoDominioResponse struct {
+	ID            string `json:"id"`
+	Titulo        string `json:"titulo"`
+	Dono          string `json:"dono"`
+	Papel         string `json:"papel"`
+	Participantes int    `json:"participantes"`
+}
+
+// QuadrosDoDominioResponse é o corpo de GET /meu-dominio/quadros.
+type QuadrosDoDominioResponse struct {
+	Quadros []QuadroDoDominioResponse `json:"quadros"`
+}

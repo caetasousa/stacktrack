@@ -107,18 +107,18 @@ quadro, card que passou a ser dela, menção num comentário e prazo chegando. A
 notificação é gravada no banco, e o tempo real (SSE) só avisa que algo mudou;
 quem não estava olhando encontra tudo ao voltar.
 
-| id  | Como quebra                                                                                           | O que o usuário vê                                                         |
-| --- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| N1  | a pessoa é posta como responsável e o sino dela não muda sem recarregar                              | só descobre o card novo quando dá F5, ou nunca                             |
-| N2  | o email da atribuição não sai, ou o link dele não abre o card                                         | quem estava fora não fica sabendo, ou chega a um quadro sem saber qual card |
-| N3  | desfazer a atribuição deixa a notificação contando, e o link do email abre como se ainda valesse      | o sino cobra um trabalho que já não é da pessoa                            |
-| N4  | a menção num comentário não chega a quem foi mencionado, ou o campo não ajuda a mencionar quem participa | a pessoa chamada nunca lê o recado                                         |
-| N5  | o convite para uma conta confirmada não aparece no sino, ou o clique não leva aos convites            | o convite fica escondido no email                                          |
-| N6  | o convite recusado ou revogado continua contando no sino                                             | um aviso que não leva a nada                                               |
-| N7  | ler numa aba não apaga o aviso nas outras abas da mesma conta                                         | a outra aba insiste num número que já foi lido                             |
-| N8  | o prazo que vence amanhã não avisa quem responde pelo card                                            | o prazo estoura sem ninguém ser lembrado                                   |
-| N9  | a retenção das notificações não é gravada, ou qualquer membro consegue trocá-la                        | o dono escolhe 7 dias e elas ficam para sempre; ou um editor decide por ele |
-| N10 | o link de notificação de quem não está logado se perde no login                                       | entra e cai no painel, sem saber o que o email queria mostrar              |
+| id  | Como quebra                                                                                              | O que o usuário vê                                                          |
+| --- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| N1  | a pessoa é posta como responsável e o sino dela não muda sem recarregar                                  | só descobre o card novo quando dá F5, ou nunca                              |
+| N2  | o email da atribuição não sai, ou o link dele não abre o card                                            | quem estava fora não fica sabendo, ou chega a um quadro sem saber qual card |
+| N3  | desfazer a atribuição deixa a notificação contando, e o link do email abre como se ainda valesse         | o sino cobra um trabalho que já não é da pessoa                             |
+| N4  | a menção num comentário não chega a quem foi mencionado, ou o campo não ajuda a mencionar quem participa | a pessoa chamada nunca lê o recado                                          |
+| N5  | o convite para uma conta confirmada não aparece no sino, ou o clique não leva aos convites               | o convite fica escondido no email                                           |
+| N6  | o convite recusado ou revogado continua contando no sino                                                 | um aviso que não leva a nada                                                |
+| N7  | ler numa aba não apaga o aviso nas outras abas da mesma conta                                            | a outra aba insiste num número que já foi lido                              |
+| N8  | o prazo que vence amanhã não avisa quem responde pelo card                                               | o prazo estoura sem ninguém ser lembrado                                    |
+| N9  | a retenção das notificações não é gravada, ou qualquer membro consegue trocá-la                          | o dono escolhe 7 dias e elas ficam para sempre; ou um editor decide por ele |
+| N10 | o link de notificação de quem não está logado se perde no login                                          | entra e cai no painel, sem saber o que o email queria mostrar               |
 
 O que não passa pela tela — a notificação e o email no mesmo commit, o email
 que espera e é cancelado quando a pessoa lê antes, o teto diário de emails, a
@@ -129,11 +129,32 @@ protocolo do SSE (cabeçalhos, batimento, sessão encerrada, limites) está em
 
 ## I. Uso institucional
 
-| id  | Como quebra                                                                        | O que o usuário vê                                         |
-| --- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| I1  | os Termos de Uso e a Política de Privacidade não existem, ou não há como chegar a eles | quem vai criar conta não sabe com o que está concordando  |
-| I2  | a página inicial vende o projeto como de estudo ou fala de engenharia               | "código aberto", "Argon2id": o produto parece um protótipo |
-| I3  | um endereço errado cai na página de erro crua do framework                          | um número e uma frase em inglês, sem caminho de volta      |
+| id  | Como quebra                                                                                | O que o usuário vê                                                  |
+| --- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| I1  | os Termos de Uso e a Política de Privacidade não existem, ou não há como chegar a eles     | quem vai criar conta não sabe com o que está concordando            |
+| I2  | a página inicial vende o projeto como de estudo ou fala de engenharia                      | "código aberto", "Argon2id": o produto parece um protótipo          |
+| I4  | a página inicial e os textos legais falam de "uma instituição", e não de empresas aderindo | a empresa não entende que pode usar, nem quem responde pelo serviço |
+| I3  | um endereço errado cai na página de erro crua do framework                                 | um número e uma frase em inglês, sem caminho de volta               |
+
+## O. Empresas: entrada pelo domínio do email
+
+Sem conta de empresa: quem abre um quadro ao domínio é o dono, e o domínio é o
+do email confirmado dele — é isso que prova que a empresa é dele.
+
+| id  | Como quebra                                                                                   | O que o usuário vê                                                  |
+| --- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| O1  | o dono abre o quadro ao domínio e a colega do mesmo domínio não o encontra no painel          | a empresa volta a convidar uma pessoa por vez                       |
+| O2  | a colega entra com papel diferente do escolhido, ou a entrada não fica registrada para o dono | leitor que edita; o dono não sabe quem entrou nem por onde          |
+| O3  | quem é de outro domínio, ou ainda não confirmou o email, vê ou entra no quadro                | o quadro da empresa aberto a quem cadastrou um email que não é dele |
+| O4  | um domínio de email pessoal (gmail, outlook…) pode ser aberto                                 | o quadro aberto a qualquer pessoa com conta no Gmail                |
+| O5  | quem o dono removeu volta sozinho pelo domínio                                                | remover alguém não tira ninguém                                     |
+| O6  | fechar o domínio não esconde o quadro de quem ainda não entrou                                | o dono fecha e a porta continua aberta                              |
+
+O teto de participantes (100 por quadro, pelo domínio e por convite), a corrida
+de duas entradas simultâneas e o teto de quadros por conta estão em
+`backend/test/repository/dominio_test.go`: encher um quadro com cem contas pela
+tela não cabe no teto de requisições por IP. A lista de domínios pessoais está
+em `backend/internal/domain/dominio`.
 
 ## F. Recuperar a senha
 

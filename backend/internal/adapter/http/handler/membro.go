@@ -8,6 +8,7 @@ import (
 
 	"stacktrack/internal/adapter/http/dto"
 	dconvite "stacktrack/internal/domain/convite"
+	"stacktrack/internal/domain/dominio"
 	"stacktrack/internal/domain/membro"
 	ucauth "stacktrack/internal/usecase/auth"
 	ucboard "stacktrack/internal/usecase/board"
@@ -262,6 +263,103 @@ func (h *MembroHandler) RecusarRecebido(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ConsultarDominio devolve a porta do domínio do quadro e o domínio que o dono
+// pode abrir. Só o dono (404 para quem não participa, 403 para quem não é dono).
+func (h *MembroHandler) ConsultarDominio(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	acesso, err := h.membros.ConsultarDominio(r.Context(), chi.URLParam(r, "boardID"), usuarioID)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao consultar o domínio", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraDominioResponse(acesso))
+}
+
+// AbrirDominio abre o quadro ao domínio do email do dono. 422 para email não
+// confirmado ou pessoal; 400 para papel que não seja editor ou leitor.
+func (h *MembroHandler) AbrirDominio(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	req, ok := decodificarJSON[dto.AbrirDominioRequest](w, r)
+	if !ok {
+		return
+	}
+	acesso, err := h.membros.AbrirAoDominio(r.Context(), chi.URLParam(r, "boardID"), usuarioID, membro.Papel(req.Papel))
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao abrir o quadro ao domínio", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, paraDominioResponse(acesso))
+}
+
+// FecharDominio fecha a porta do domínio (204). Quem já entrou continua.
+func (h *MembroHandler) FecharDominio(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	if err := h.membros.FecharAoDominio(r.Context(), chi.URLParam(r, "boardID"), usuarioID); err != nil {
+		responderErroDeMembro(w, r, "erro ao fechar o domínio", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// QuadrosDoMeuDominio devolve os quadros abertos ao domínio da conta de que ela
+// ainda não participa — lista vazia para email não confirmado ou pessoal.
+func (h *MembroHandler) QuadrosDoMeuDominio(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	quadros, err := h.membros.QuadrosDoMeuDominio(r.Context(), usuarioID)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao listar os quadros do domínio", err)
+		return
+	}
+	lista := make([]dto.QuadroDoDominioResponse, 0, len(quadros))
+	for _, q := range quadros {
+		lista = append(lista, dto.QuadroDoDominioResponse{
+			ID: q.ID, Titulo: q.Titulo, Dono: q.Dono, Papel: string(q.Papel), Participantes: q.Participantes,
+		})
+	}
+	responderJSON(w, http.StatusOK, dto.QuadrosDoDominioResponse{Quadros: lista})
+}
+
+// EntrarPeloDominio põe a conta no quadro aberto ao domínio dela e devolve o
+// quadro, como o aceite de convite. 404 para quem não tem direito de entrar;
+// 422 para o quadro cheio.
+func (h *MembroHandler) EntrarPeloDominio(w http.ResponseWriter, r *http.Request) {
+	usuarioID, ok := h.usuario(w, r)
+	if !ok {
+		return
+	}
+	b, papel, err := h.membros.EntrarPeloDominio(r.Context(), chi.URLParam(r, "boardID"), usuarioID)
+	if err != nil {
+		responderErroDeMembro(w, r, "erro ao entrar pelo domínio", err)
+		return
+	}
+	responderJSON(w, http.StatusOK, dto.BoardResponse{
+		ID: b.ID, Titulo: b.Titulo, Papel: string(papel), CriadoEm: b.CriadoEm,
+	})
+}
+
+func paraDominioResponse(a *ucboard.AcessoPorDominio) dto.DominioResponse {
+	resposta := dto.DominioResponse{Dominio: a.Dominio, Papel: string(a.Papel), Disponivel: a.Disponivel}
+	switch {
+	case errors.Is(a.Impedimento, dominio.ErrEmailNaoConfirmado):
+		resposta.Impedimento = "email_nao_confirmado"
+	case a.Impedimento != nil:
+		resposta.Impedimento = "email_pessoal"
+	}
+	return resposta
+}
+
 func (h *MembroHandler) usuario(w http.ResponseWriter, r *http.Request) (string, bool) {
 	identidade, ok := h.identidadeDoContexto(r)
 	if !ok {
@@ -330,8 +428,16 @@ func responderErroDeMembro(w http.ResponseWriter, r *http.Request, contexto stri
 		responderErro(w, http.StatusBadRequest, err.Error())
 	// 422, como a cota de anexo: o pedido está bem formado, o que não cabe é
 	// mais um convite em aberto neste quadro.
-	case errors.Is(err, dconvite.ErrPendentesDemais):
+	case errors.Is(err, dconvite.ErrPendentesDemais),
+		errors.Is(err, membro.ErrQuadroCheio):
 		responderErro(w, http.StatusUnprocessableEntity, err.Error())
+	// 422: o pedido está bem formado; o que falta é a conta poder abrir o
+	// próprio domínio.
+	case errors.Is(err, dominio.ErrEmailNaoConfirmado),
+		errors.Is(err, dominio.ErrDominioPessoal):
+		responderErro(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, dominio.ErrPapelDoDominio):
+		responderErro(w, http.StatusBadRequest, err.Error())
 	// 429: o mesmo convite acabou de sair, e reenviar agora só trocaria o link
 	// do email que a pessoa talvez esteja abrindo.
 	case errors.Is(err, dconvite.ErrReenvioCedoDemais):

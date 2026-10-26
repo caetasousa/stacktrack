@@ -1,7 +1,12 @@
 import { error } from '@sveltejs/kit';
 import { exigirAutenticacao } from '$lib/auth-guard';
 import { detalharBoard, type BoardDetalhado } from '$lib/api/boards';
-import { listarParticipacao, type Participacao } from '$lib/api/membros';
+import {
+	consultarDominio,
+	listarParticipacao,
+	type Participacao,
+	type PortaDoDominio
+} from '$lib/api/membros';
 import { ApiError } from '$lib/api/client';
 import type { PageLoad } from './$types';
 
@@ -9,7 +14,12 @@ export const ssr = false;
 
 export const load: PageLoad = async ({
 	params
-}): Promise<{ quadro: BoardDetalhado; participacao: Participacao; usuarioId: string }> => {
+}): Promise<{
+	quadro: BoardDetalhado;
+	participacao: Participacao;
+	porta: PortaDoDominio | null;
+	usuarioId: string;
+}> => {
 	const usuario = await exigirAutenticacao();
 
 	try {
@@ -19,7 +29,9 @@ export const load: PageLoad = async ({
 			detalharBoard(params.id),
 			listarParticipacao(params.id)
 		]);
-		return { quadro, participacao, usuarioId: usuario.id };
+		// A porta do domínio é assunto só do dono — para os outros a API diria 403.
+		const porta = quadro.papel === 'dono' ? await consultarDominio(params.id) : null;
+		return { quadro, participacao, porta, usuarioId: usuario.id };
 	} catch (e) {
 		if (e instanceof ApiError && e.status === 404) {
 			throw error(404, 'Quadro não encontrado');

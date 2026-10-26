@@ -164,6 +164,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 	checklistUC := ucboard.NovoChecklistUseCase(membroRepo, colunaRepo, cardRepo, checklistRepo)
 	anexoUC := ucboard.NovoAnexoUseCase(membroRepo, colunaRepo, cardRepo, anexoRepo, armazemAnexos)
 	membroUC := ucboard.NovoMembroUseCase(membroRepo, conviteRepo, usuarioRepo, boardRepo, responsavelRepo)
+	membroUC.ComDominios(repository.NovoDominioPostgres(banco))
 	responsavelUC := ucboard.NovoResponsavelUseCase(membroRepo, colunaRepo, cardRepo, responsavelRepo)
 	comentarioUC := ucboard.NovoComentarioUseCase(membroRepo, colunaRepo, cardRepo, comentarioRepo)
 	atividadeUC := ucboard.NovoAtividadeUseCase(membroRepo, colunaRepo, cardRepo, logDeEventos)
@@ -494,6 +495,15 @@ func montar(ctx context.Context) (*aplicacao, error) {
 				// guardadas. Só o dono.
 				r.Patch("/retencao-notificacoes", boardHandler.DefinirRetencao)
 
+				// A porta do domínio: o dono abre o quadro a quem tem email do
+				// domínio dele. Consultar, abrir e fechar são do dono; entrar é
+				// de quem tem o email do domínio — e por isso não exige
+				// participar, ao contrário de toda outra rota daqui.
+				r.Get("/dominio", membroHandler.ConsultarDominio)
+				r.Put("/dominio", membroHandler.AbrirDominio)
+				r.Delete("/dominio", membroHandler.FecharDominio)
+				r.Post("/entrar", membroHandler.EntrarPeloDominio)
+
 				// O link público. As três exigem papel de dono — o token é o
 				// segredo, e quem o recebe pode repassá-lo a quem quiser.
 				r.Get("/publicacao", publicacaoHandler.Consultar)
@@ -556,6 +566,7 @@ func montar(ctx context.Context) (*aplicacao, error) {
 		// Os convites para o email da conta, no painel. Prefixo próprio, e não
 		// `/convites/{id}`: lá o segmento é o TOKEN do link, aqui é o id — e o
 		// aceite daqui exige o email confirmado no lugar do token.
+		r.Get("/meu-dominio/quadros", membroHandler.QuadrosDoMeuDominio)
 		r.Get("/meus-convites", membroHandler.ListarRecebidos)
 		r.Route("/meus-convites/{conviteID}", func(r chi.Router) {
 			r.Use(middleware.IDsDaURLValidos)

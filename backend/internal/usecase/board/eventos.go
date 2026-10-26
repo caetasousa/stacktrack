@@ -76,6 +76,10 @@ type Escrita struct {
 	// Nil fora da unidade de trabalho — os testes de regra —, e aí ninguém é
 	// avisado, que é o resultado neutro.
 	Notificacoes RepositorioNotificacao
+	// Dominios é a abertura do quadro ao domínio e os bloqueios de quem foi
+	// tirado. Nil fora da unidade de trabalho: aí ninguém entra pelo domínio,
+	// e remover não bloqueia — não há porta para fechar.
+	Dominios RepositorioDominio
 }
 
 // EscritaAtomica grava a mudança e o evento que a descreve na MESMA transação.

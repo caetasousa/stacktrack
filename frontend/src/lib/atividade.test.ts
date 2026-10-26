@@ -155,6 +155,19 @@ describe('fraseNoQuadro', () => {
 		['item.criado', { titulo: 'Card', alvo: 'passo 1' }, 'acrescentou "passo 1" a "Card"'],
 		['membro.adicionado', { nome: 'Ana', papel: 'editor' }, 'adicionou Ana ao quadro como editor'],
 		['membro.entrou', { papel: 'editor' }, 'entrou no quadro como editor'],
+		// Sem convite, a frase diz por onde a pessoa entrou: quem lê o histórico
+		// não procura um convite que não existiu.
+		[
+			'membro.entrou',
+			{ papel: 'leitor', dominio: 'acme.com.br' },
+			'entrou pelo domínio @acme.com.br como leitor'
+		],
+		[
+			'quadro.dominio_aberto',
+			{ dominio: 'acme.com.br', papel: 'editor' },
+			'abriu o quadro a quem tem email @acme.com.br, como editor'
+		],
+		['quadro.dominio_fechado', { dominio: 'acme.com.br' }, 'fechou o quadro a @acme.com.br'],
 		// Manutenção não tem pessoa por trás: a frase precisa dizer isso, senão
 		// a auditoria manda procurar um culpado que não existe.
 		[

@@ -35,7 +35,16 @@ var (
 	// ErrNaoEMembro é retornado quando a pessoa alvo da operação não participa
 	// do quadro.
 	ErrNaoEMembro = errors.New("esta pessoa não participa do quadro")
+	// ErrQuadroCheio é retornado quando o quadro já tem MaximoPorQuadro
+	// participantes.
+	ErrQuadroCheio = errors.New("o quadro chegou ao limite de participantes")
 )
+
+// MaximoPorQuadro é o teto de participantes de um quadro no plano gratuito.
+// Vale para o convite aceito e para a entrada pelo domínio, contado sob o lock
+// do quadro: contado antes, duas entradas simultâneas ocupariam juntas a
+// última vaga.
+const MaximoPorQuadro = 100
 
 // Membro é o vínculo entre uma pessoa e um quadro.
 type Membro struct {

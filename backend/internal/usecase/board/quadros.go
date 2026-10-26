@@ -84,11 +84,28 @@ func NovoQuadroUseCase(
 }
 
 // Criar cria um quadro e vincula quem criou como dono no mesmo commit. Retorna
-// os erros de validação de título do domínio.
+// os erros de validação de título do domínio e dboard.ErrQuadrosDemais quando a
+// conta já é dona de dboard.MaximoDeQuadrosPorConta quadros.
 func (uc *QuadroUseCase) Criar(ctx context.Context, usuarioID, titulo string) (*dboard.Board, error) {
 	b, err := dboard.Novo(uuid.NewString(), titulo)
 	if err != nil {
 		return nil, err
+	}
+	// Contado fora de lock: não há linha da CONTA para travar, e o pior caso —
+	// duas criações simultâneas passando o teto por um quadro — não vale uma
+	// trava a mais em toda criação.
+	resumos, err := uc.boards.ListarDoUsuario(ctx, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	donos := 0
+	for _, r := range resumos {
+		if r.Papel == membro.PapelDono {
+			donos++
+		}
+	}
+	if donos >= dboard.MaximoDeQuadrosPorConta {
+		return nil, dboard.ErrQuadrosDemais
 	}
 	vinculo, err := membro.Novo(b.ID, usuarioID, membro.PapelDono)
 	if err != nil {

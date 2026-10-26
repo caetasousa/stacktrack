@@ -36,6 +36,8 @@ export interface DadosDoEvento {
 	/** A retenção das notificações do quadro, depois e antes da troca. */
 	retencaoDias?: number;
 	retencaoDiasAnterior?: number;
+	// O domínio aberto, ou por onde a pessoa entrou sem convite.
+	dominio?: string;
 	/**
 	 * Origem de um evento de MANUTENÇÃO — o comando que rodou, sem pessoa por
 	 * trás. `autorId` vem vazio nesses casos, e é isso que ele significa.
@@ -202,6 +204,10 @@ export function fraseNoQuadro(a: Atividade): string {
 				? `passou a guardar as notificações lidas por ${d.retencaoDias} dias` +
 						(d.retencaoDiasAnterior ? ` (antes, ${d.retencaoDiasAnterior})` : '')
 				: 'mudou por quanto tempo as notificações lidas ficam guardadas';
+		case 'quadro.dominio_aberto':
+			return `abriu o quadro a quem tem email @${d.dominio}` + (d.papel ? `, como ${d.papel}` : '');
+		case 'quadro.dominio_fechado':
+			return d.dominio ? `fechou o quadro a @${d.dominio}` : 'fechou o quadro à empresa';
 		case 'quadro.publicado':
 			return 'publicou o quadro por link';
 		case 'quadro.publicacao_revogada':
@@ -263,6 +269,9 @@ export function fraseNoQuadro(a: Atividade): string {
 				? `adicionou ${quem} ao quadro como ${d.papel}`
 				: `adicionou ${quem} ao quadro`;
 		case 'membro.entrou':
+			if (d.dominio) {
+				return `entrou pelo domínio @${d.dominio}` + (d.papel ? ` como ${d.papel}` : '');
+			}
 			return d.papel ? `entrou no quadro como ${d.papel}` : 'entrou no quadro';
 		case 'membro.papel':
 			return d.papelAnterior

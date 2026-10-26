@@ -71,6 +71,37 @@ type RepositorioMembro interface {
 	Participantes(ctx context.Context, boardID string) ([]Participante, error)
 }
 
+// QuadroDoDominio é um quadro aberto ao domínio de alguém, como o painel o
+// mostra em "Da sua empresa".
+type QuadroDoDominio struct {
+	ID     string
+	Titulo string
+	// Dono é o nome do dono mais antigo, como no painel.
+	Dono string
+	// Papel é o papel com que a pessoa entra.
+	Papel         membro.Papel
+	Participantes int
+}
+
+// RepositorioDominio guarda a abertura dos quadros ao domínio do email e quem
+// o dono tirou do quadro.
+type RepositorioDominio interface {
+	// Definir grava SÓ o domínio e o papel de quem entra por ele. Domínio
+	// vazio fecha o quadro.
+	Definir(ctx context.Context, boardID, dominio string, papel membro.Papel, em time.Time) error
+	// DoQuadro devolve o domínio e o papel; vazios quando o quadro está fechado.
+	DoQuadro(ctx context.Context, boardID string) (string, membro.Papel, error)
+	// AbertosPara devolve os quadros abertos ao domínio de que a pessoa não
+	// participa e de que não foi tirada.
+	AbertosPara(ctx context.Context, dominio, usuarioID string) ([]QuadroDoDominio, error)
+	// Bloquear registra que a pessoa foi tirada do quadro. Bloquear de novo
+	// não é erro.
+	Bloquear(ctx context.Context, boardID, usuarioID string, em time.Time) error
+	// Desbloquear apaga o registro. Desbloquear quem não está bloqueado não é erro.
+	Desbloquear(ctx context.Context, boardID, usuarioID string) error
+	Bloqueado(ctx context.Context, boardID, usuarioID string) (bool, error)
+}
+
 // RepositorioPublicacao guarda o link público de cada quadro.
 //
 // Não tem Atualizar: o token de uma publicação não muda. Gerar um link novo é

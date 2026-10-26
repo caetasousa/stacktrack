@@ -415,7 +415,8 @@ func responderErroDeQuadro(w http.ResponseWriter, r *http.Request, contexto stri
 	// pode estar dentro do limite individual — o que não cabe é o conjunto. Um
 	// 413 mandaria a pessoa procurar um arquivo grande demais que não existe.
 	case errors.Is(err, danexo.ErrAnexosDemaisNoCard),
-		errors.Is(err, danexo.ErrCotaDoQuadroExcedida):
+		errors.Is(err, danexo.ErrCotaDoQuadroExcedida),
+		errors.Is(err, dboard.ErrQuadrosDemais):
 		responderErro(w, http.StatusUnprocessableEntity, err.Error())
 	// 415: o tipo do conteúdo é que não é aceito.
 	case errors.Is(err, danexo.ErrTipoNaoPermitido):

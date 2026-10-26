@@ -59,6 +59,9 @@ type DadosDoQuadro struct {
 	// quadro nunca tinha escolhido.
 	RetencaoDias         int `json:"retencaoDias,omitempty"`
 	RetencaoDiasAnterior int `json:"retencaoDiasAnterior,omitempty"`
+	// Dominio e Papel são o domínio aberto e o papel de quem entra por ele.
+	Dominio string `json:"dominio,omitempty"`
+	Papel   string `json:"papel,omitempty"`
 }
 
 // DadosDaEtiqueta é o payload dos eventos de etiqueta do quadro.
@@ -77,6 +80,9 @@ type DadosDoMembro struct {
 	Email         string `json:"email,omitempty"`
 	Papel         string `json:"papel,omitempty"`
 	PapelAnterior string `json:"papelAnterior,omitempty"`
+	// Dominio é o domínio por onde a pessoa entrou, quando ela entrou sem
+	// convite. Vazio no convite aceito.
+	Dominio string `json:"dominio,omitempty"`
 }
 
 // DadosDaManutencao é o payload dos eventos que NÃO têm pessoa por trás.

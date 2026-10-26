@@ -74,6 +74,23 @@ export async function apiPatch<TReq, TRes>(caminho: string, corpo: TReq): Promis
 	return resposta.json() as Promise<TRes>;
 }
 
+// apiPut é para trocar um estado inteiro de forma idempotente (abrir o quadro
+// ao domínio: repetir dá o mesmo resultado).
+export async function apiPut<TReq, TRes>(caminho: string, corpo: TReq): Promise<TRes> {
+	const resposta = await fetch(`${BASE_URL}${caminho}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify(corpo)
+	});
+
+	if (!resposta.ok) {
+		return parseErro(resposta);
+	}
+
+	return resposta.json() as Promise<TRes>;
+}
+
 // apiDelete é para remoções, que respondem 204 sem corpo.
 export async function apiDelete(caminho: string): Promise<void> {
 	const resposta = await fetch(`${BASE_URL}${caminho}`, {

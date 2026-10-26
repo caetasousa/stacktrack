@@ -183,3 +183,20 @@ O vigia de prazos usa o `idx_cards_prazo` que já existia desde o `V6`.
 inserir; ao ler o outbox, ela ignora `notificacao_id`. Um email de notificação
 ainda pendente durante um rollback sai sem a conferência da notificação — o
 pior caso é um aviso que já tinha sido lido chegar também por email.
+
+## `V23` — a entrada pelo domínio
+
+Duas mudanças **expansivas**, num deploy só:
+
+- `boards.dominio_acesso` e `boards.dominio_papel`, anuláveis e sempre juntas:
+  o domínio a que o dono abriu o quadro (o do email confirmado dele — derivado
+  pelo domínio, nunca digitado) e o papel de quem entra por ele. Nulas, o quadro
+  está fechado. Os quadros existentes ficam nulos, sem backfill: nenhum foi
+  aberto.
+- `board_bloqueios`, tabela nova: quem o dono removeu de um quadro. É o que
+  impede a pessoa removida de voltar sozinha pelo domínio; só um convite aceito
+  desfaz o bloqueio.
+
+**Rollback**: a versão anterior não conhece as colunas nem a tabela. Os quadros
+abertos continuam abertos no banco, mas sem rota que os mostre: ninguém entra
+pelo domínio até a versão nova voltar, e quem já entrou continua membro.

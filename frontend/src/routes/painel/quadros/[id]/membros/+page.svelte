@@ -4,8 +4,10 @@
 	import { ApiError } from '$lib/api/client';
 	import type { Papel } from '$lib/api/boards';
 	import {
+		abrirDominio,
 		alterarPapel,
 		convidar,
+		fecharDominio,
 		reenviarConvite,
 		removerMembro,
 		revogarConvite,
@@ -135,6 +137,47 @@
 			await recarregar();
 		} catch (e) {
 			falhar(e, 'não foi possível remover');
+		}
+	}
+
+	// --- a porta do domínio -----------------------------------------------------
+	//
+	// O dono abre o quadro a quem tem email confirmado do domínio dele: a colega
+	// encontra o quadro no painel e entra com um clique. O domínio não é
+	// digitado — é o do email do dono, e é isso que prova que a empresa é dele.
+	let papelDoDominio = $state<'editor' | 'leitor'>('editor');
+	let mexendoNaPorta = $state(false);
+
+	async function abrirPorta() {
+		erro = '';
+		mexendoNaPorta = true;
+		try {
+			await abrirDominio(data.quadro.id, papelDoDominio);
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível abrir o quadro à empresa');
+		} finally {
+			mexendoNaPorta = false;
+		}
+	}
+
+	async function fecharPorta(dominio: string) {
+		const ok = await confirmar({
+			titulo: `Fechar o quadro a @${dominio}?`,
+			detalhe:
+				'Quem ainda não entrou deixa de encontrá-lo. Quem já entrou continua — para tirar alguém, use Remover.',
+			acao: 'Fechar'
+		});
+		if (!ok) return;
+		erro = '';
+		mexendoNaPorta = true;
+		try {
+			await fecharDominio(data.quadro.id);
+			await recarregar();
+		} catch (e) {
+			falhar(e, 'não foi possível fechar o quadro à empresa');
+		} finally {
+			mexendoNaPorta = false;
 		}
 	}
 
@@ -279,6 +322,64 @@
 					</button>
 				</div>
 			</div>
+		{/if}
+	</section>
+{/if}
+
+{#if souDono && data.porta}
+	{@const porta = data.porta}
+	<section
+		class="mt-6 rounded-lg border border-hairline bg-surface p-5 shadow-ficha"
+		aria-labelledby="titulo-empresa"
+	>
+		<h2 id="titulo-empresa" class="text-sm font-semibold text-ink">Aberto à empresa</h2>
+		{#if porta.dominio}
+			<p class="mt-1 text-xs text-mute">
+				Quem tem email <b class="text-ink">@{porta.dominio}</b> confirmado encontra este quadro no
+				painel e entra sem convite, como <b class="text-ink">{porta.papel}</b>.
+			</p>
+			<button
+				type="button"
+				class="botao-secundario mt-4 w-auto px-4 py-1.5 text-xs"
+				disabled={mexendoNaPorta}
+				onclick={() => fecharPorta(porta.dominio)}
+			>
+				Fechar à empresa
+			</button>
+		{:else if porta.disponivel}
+			<p class="mt-1 text-xs text-mute">
+				Abra o quadro a quem tem email <b class="text-ink">@{porta.disponivel}</b> confirmado: a pessoa
+				encontra o quadro no painel e entra sem precisar de convite. Quem você remover não volta sozinho.
+			</p>
+			<div class="mt-4 flex flex-wrap items-center gap-2">
+				<select
+					class="campo w-auto shrink-0"
+					bind:value={papelDoDominio}
+					aria-label="Papel de quem entra pela empresa"
+				>
+					<option value="editor">Editor</option>
+					<option value="leitor">Leitor</option>
+				</select>
+				<button
+					type="button"
+					class="botao w-auto shrink-0 px-5"
+					disabled={mexendoNaPorta}
+					onclick={abrirPorta}
+				>
+					Abrir para @{porta.disponivel}
+				</button>
+			</div>
+		{:else if porta.impedimento === 'email_nao_confirmado'}
+			<p class="mt-1 text-xs text-mute">
+				Confirme o seu email para abrir este quadro a quem tem o mesmo domínio que você — é a
+				confirmação que prova que o domínio é seu.
+			</p>
+		{:else}
+			<p class="mt-1 text-xs text-mute">
+				Para abrir o quadro às pessoas da sua empresa, use uma conta com o email da empresa. Emails
+				pessoais (Gmail, Outlook…) não podem ser abertos: o quadro ficaria aberto a qualquer pessoa
+				com conta lá.
+			</p>
 		{/if}
 	</section>
 {/if}

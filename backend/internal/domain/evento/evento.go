@@ -47,6 +47,11 @@ const (
 	// notificações lidas do quadro ficam guardadas. Vai para o histórico: é uma
 	// decisão sobre o dado de todo mundo que participa, e precisa ter autor.
 	QuadroRetencaoNotificacoes Tipo = "quadro.retencao_notificacoes"
+	// QuadroDominioAberto e QuadroDominioFechado são o dono abrindo o quadro a
+	// quem tem email do domínio dele, e fechando. Vão para o histórico pela
+	// mesma razão da retenção: mudam quem pode entrar.
+	QuadroDominioAberto  Tipo = "quadro.dominio_aberto"
+	QuadroDominioFechado Tipo = "quadro.dominio_fechado"
 	// QuadroApagado é o único evento terminal e efêmero: o DELETE leva o log
 	// persistido por cascata, então ele só pode ser emitido depois do commit.
 	QuadroApagado Tipo = "quadro.apagado"

@@ -1,7 +1,7 @@
 // Tipos e chamadas da API de participação e convites.
 // Espelham backend/internal/adapter/http/dto/membro.go
 
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostVazio } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostVazio, apiPut } from './client';
 import type { Board, Papel } from './boards';
 
 export interface Membro {
@@ -133,4 +133,53 @@ export function aceitarRecebido(conviteId: string): Promise<Board> {
 /** recusarRecebido é o "não" pelo painel. */
 export function recusarRecebido(conviteId: string): Promise<void> {
 	return apiPostVazio(`/meus-convites/${encodeURIComponent(conviteId)}/recusar`);
+}
+
+// --- a porta do domínio -----------------------------------------------------
+//
+// O dono abre o quadro a quem tem email confirmado do domínio DELE — o domínio
+// nunca é digitado: a API o deriva do email da conta, e é isso que prova que a
+// empresa é de quem abre.
+
+/** Por que a conta não pode abrir o próprio domínio. */
+export type ImpedimentoDeDominio = 'email_nao_confirmado' | 'email_pessoal';
+
+export interface PortaDoDominio {
+	/** O domínio aberto; vazio, o quadro está fechado. */
+	dominio: string;
+	papel: Papel | '';
+	/** O domínio que o dono pode abrir; vazio, `impedimento` diz por quê. */
+	disponivel: string;
+	impedimento?: ImpedimentoDeDominio;
+}
+
+export function consultarDominio(boardId: string): Promise<PortaDoDominio> {
+	return apiGet<PortaDoDominio>(`/boards/${boardId}/dominio`);
+}
+
+export function abrirDominio(boardId: string, papel: 'editor' | 'leitor'): Promise<PortaDoDominio> {
+	return apiPut<{ papel: Papel }, PortaDoDominio>(`/boards/${boardId}/dominio`, { papel });
+}
+
+export function fecharDominio(boardId: string): Promise<void> {
+	return apiDelete(`/boards/${boardId}/dominio`);
+}
+
+/** QuadroDoDominio é um quadro aberto ao domínio da conta, em que ela ainda não está. */
+export interface QuadroDoDominio {
+	id: string;
+	titulo: string;
+	dono: string;
+	papel: Papel;
+	participantes: number;
+}
+
+/** listarQuadrosDoDominio devolve vazio para email não confirmado ou pessoal. */
+export async function listarQuadrosDoDominio(): Promise<QuadroDoDominio[]> {
+	return (await apiGet<{ quadros: QuadroDoDominio[] }>('/meu-dominio/quadros')).quadros;
+}
+
+/** entrarPeloDominio põe a conta no quadro e devolve o quadro para onde levá-la. */
+export function entrarPeloDominio(boardId: string): Promise<Board> {
+	return apiPost<Record<string, never>, Board>(`/boards/${boardId}/entrar`, {});
 }

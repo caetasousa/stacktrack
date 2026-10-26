@@ -41,9 +41,18 @@ export interface Conta {
 	cookie: { name: string; value: string };
 }
 
-/** criarConta cadastra e autentica, devolvendo o cookie de sessão. */
-export async function criarConta(req: APIRequestContext, nome: string): Promise<Conta> {
-	const email = `${nome}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@teste.dev`;
+/**
+ * criarConta cadastra e autentica, devolvendo o cookie de sessão. O domínio do
+ * email é `teste.dev`, a não ser que o teste precise de uma empresa: aí cada
+ * teste usa um domínio só dele, para os quadros abertos de um não aparecerem
+ * no painel do outro.
+ */
+export async function criarConta(
+	req: APIRequestContext,
+	nome: string,
+	dominio = 'teste.dev'
+): Promise<Conta> {
+	const email = `${nome}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@${dominio}`;
 	const senha = 'Senha-de-teste!12345';
 
 	const cadastro = await req.post(`${API}/auth/cadastro`, { data: { nome, email, senha } });

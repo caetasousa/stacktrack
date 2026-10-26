@@ -37,6 +37,9 @@ type MembroUseCase struct {
 	correio *correioDeConvite
 	// intervaloDeReenvio é o mínimo entre dois emails do mesmo convite.
 	intervaloDeReenvio time.Duration
+	// dominios é a leitura da porta do domínio fora da transação. Ver
+	// ComDominios.
+	dominios RepositorioDominio
 }
 
 // NovoMembroUseCase cria uma instância de MembroUseCase com as dependências injetadas.
@@ -519,6 +522,13 @@ func (uc *MembroUseCase) Remover(ctx context.Context, boardID, usuarioID, alvoID
 			if err := e.Responsaveis.RemoverDoBoard(ctx, boardID, alvoID); err != nil {
 				return err
 			}
+			// Quem foi tirado não volta sozinho pela porta do domínio. O dono
+			// que sai por conta própria não é bloqueado: ninguém o tirou.
+			if e.Dominios != nil && alvoID != usuarioID {
+				if err := e.Dominios.Bloquear(ctx, boardID, alvoID, time.Now()); err != nil {
+					return err
+				}
+			}
 			if uc.avisando(e) {
 				if err := e.Notificacoes.RemoverDoQuadro(ctx, boardID, alvoID); err != nil {
 					return err
@@ -842,8 +852,24 @@ func (uc *MembroUseCase) aceitar(ctx context.Context, c *dconvite.Convite, usuar
 					papelFinal = existente.Papel
 					return e.Convites.Revogar(ctx, c.ID, agora)
 				}
+				// O teto é contado sob o lock: contado antes, dois aceites
+				// simultâneos ocupariam juntos a última vaga.
+				todos, err := e.Membros.Todos(ctx, c.BoardID)
+				if err != nil {
+					return err
+				}
+				if len(todos) >= membro.MaximoPorQuadro {
+					return membro.ErrQuadroCheio
+				}
 				if err := e.Convites.Aceitar(ctx, c.ID, agora); err != nil {
 					return err
+				}
+				// O convite é a decisão de quem administra: se a pessoa tinha
+				// sido tirada antes, o convite aceito a desbloqueia.
+				if e.Dominios != nil {
+					if err := e.Dominios.Desbloquear(ctx, c.BoardID, usuarioID); err != nil {
+						return err
+					}
 				}
 				vinculo, err := membro.Novo(c.BoardID, usuarioID, c.Papel)
 				if err != nil {

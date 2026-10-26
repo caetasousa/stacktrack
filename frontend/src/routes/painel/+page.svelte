@@ -4,7 +4,13 @@
 	import { reenviarConfirmacao } from '$lib/api/auth';
 	import { apagarBoard, criarBoard } from '$lib/api/boards';
 	import { ApiError } from '$lib/api/client';
-	import { aceitarRecebido, recusarRecebido, type ConviteRecebido } from '$lib/api/membros';
+	import {
+		aceitarRecebido,
+		entrarPeloDominio,
+		recusarRecebido,
+		type ConviteRecebido,
+		type QuadroDoDominio
+	} from '$lib/api/membros';
 	import { sino } from '$lib/stores/notificacoes.svelte';
 
 	let { data } = $props();
@@ -89,6 +95,24 @@
 		}
 	}
 
+	// --- quadros abertos ao domínio da conta ------------------------------------
+	//
+	// O dono abriu o quadro a quem tem email da empresa: a pessoa entra com um
+	// clique, sem convite, no papel que o dono escolheu.
+	async function entrar(q: QuadroDoDominio) {
+		erro = '';
+		respondendo = q.id;
+		try {
+			const quadro = await entrarPeloDominio(q.id);
+			await goto(`/painel/quadros/${quadro.id}`);
+		} catch (e) {
+			erro = e instanceof ApiError ? e.message : 'não foi possível entrar no quadro';
+			await invalidateAll();
+		} finally {
+			respondendo = '';
+		}
+	}
+
 	async function pedirConfirmacao() {
 		erro = '';
 		try {
@@ -156,8 +180,8 @@
 {#if !data.usuario.emailConfirmado}
 	<div class="mt-6 rounded-md border border-accent bg-accent-suave p-4 text-sm text-body">
 		<b class="font-semibold text-accent-texto">Confirme seu email.</b>
-		Com ele confirmado, os convites para os quadros de outras pessoas aparecem aqui, e não só por email.
-		Mandamos o link para {data.usuario.email} quando a conta foi criada.
+		Com ele confirmado, os convites para os quadros de outras pessoas e os quadros abertos à sua empresa
+		aparecem aqui. Mandamos o link para {data.usuario.email} quando a conta foi criada.
 		{#if confirmacaoPedida}
 			<p class="mt-2 text-mute">{confirmacaoPedida}</p>
 		{:else}
@@ -205,6 +229,43 @@
 							onclick={() => recusar(convite)}
 						>
 							Recusar
+						</button>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
+
+{#if data.daEmpresa.length > 0}
+	<section class="mt-8" aria-labelledby="titulo-empresa">
+		<h2 id="titulo-empresa" class="text-xs font-semibold tracking-widest text-mute uppercase">
+			Da sua empresa
+		</h2>
+		<p class="mt-1 text-xs text-mute">
+			Quadros abertos a quem tem email @{data.usuario.email.split('@')[1]}. Entre sem precisar de
+			convite.
+		</p>
+		<ul class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			{#each data.daEmpresa as quadro (quadro.id)}
+				<li
+					class="flex flex-col justify-between gap-4 rounded-lg border border-hairline bg-surface p-5 shadow-ficha"
+				>
+					<div>
+						<b class="text-sm font-semibold text-ink">{quadro.titulo}</b>
+						<p class="mt-1 text-xs text-mute">
+							{quadro.dono ? `de ${quadro.dono}` : 'de outra pessoa'} · {quadro.participantes}
+							{quadro.participantes === 1 ? 'pessoa' : 'pessoas'} · você entra como {quadro.papel}
+						</p>
+					</div>
+					<div>
+						<button
+							type="button"
+							class="botao w-auto px-4 py-1 text-xs"
+							disabled={respondendo === quadro.id}
+							onclick={() => entrar(quadro)}
+						>
+							Entrar
 						</button>
 					</div>
 				</li>
@@ -271,8 +332,8 @@
 			Compartilhados com você
 		</h2>
 		<p class="mt-1 text-xs text-mute">
-			Quadros de outras pessoas, em que você entrou por convite. Você vê e mexe só no quadro
-			compartilhado, conforme o seu papel nele.
+			Quadros de outras pessoas, em que você entrou por convite ou pelo domínio da empresa. Você vê
+			e mexe só no quadro compartilhado, conforme o seu papel nele.
 		</p>
 
 		<ul class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

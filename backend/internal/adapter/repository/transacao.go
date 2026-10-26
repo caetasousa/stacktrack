@@ -297,6 +297,7 @@ func repositoriosDe(tx pgx.Tx) ucboard.Escrita {
 		Exclusoes:    &ExclusaoDeArquivoPostgres{db: tx},
 		Publicacoes:  &PublicacaoPostgres{db: tx},
 		Notificacoes: &NotificacaoPostgres{db: tx},
+		Dominios:     &DominioPostgres{db: tx},
 	}
 }
 

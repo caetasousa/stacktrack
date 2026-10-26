@@ -32,6 +32,7 @@ Cada seção segue o mesmo roteiro:
 | 🔔 | [Notificações](#-notificações) |
 | 📱 | [No celular](#-no-celular) |
 | 🌗 | [Tema](#-tema) |
+| ⚖️ | [Termos, privacidade e páginas de erro](#️-termos-privacidade-e-páginas-de-erro) |
 | 📏 | [Limites, num lugar só](#-limites-num-lugar-só) |
 
 ---
@@ -905,6 +906,48 @@ atenção. Abri-lo mostra a lista, do mais novo para o mais antigo:
 - A escolha fica no navegador (`localStorage`) e é aplicada **antes** de a página
   pintar (`static/tema.js`), para não piscar a cor errada. Sem `localStorage`
   (janela privada), vale só na sessão.
+
+---
+
+## ⚖️ Termos, privacidade e páginas de erro
+
+**Na tela**
+
+- Todo rodapé leva aos **Termos de uso** (`/termos`) e à **Política de
+  privacidade** (`/privacidade`); o cadastro avisa, sob o botão, que criar a
+  conta é aceitar os dois.
+- A primeira tecla Tab de qualquer página mostra **"Pular para o conteúdo"**,
+  que leva o foco direto ao `<main>`, por cima do cabeçalho.
+- Endereço que não existe, quadro de que a pessoa não participa ou falha da API
+  caem numa página de erro com o caminho de volta — **Ir para o painel** para
+  quem está logado, **Ir para o início** para quem não está. Falha que não é 404
+  oferece também **Tentar de novo**.
+
+**Por baixo**
+
+- As duas páginas legais são texto estático, pré-renderizado, e não dependem da
+  API. A política descreve só o que o sistema faz de fato: os prazos dela (sessão
+  de 7 dias, link de recuperação de 1 hora, notificações de 1 a 365 dias,
+  convites e registros de email por 90 dias, backups por 7 dias) são os do
+  código e da infraestrutura. **Mudou um prazo lá, muda na política.**
+- Quando o `load` de uma página explica o 404 ("Convite inválido ou expirado"),
+  a explicação vira o título da página de erro; a frase genérica fica para o
+  endereço que não existe.
+- O 404 de um quadro alheio é a mesma página do endereço inexistente — a API não
+  diferencia os dois casos, de propósito, e a tela também não.
+
+**Regras**
+
+- Os dois textos são **rascunhos para revisão jurídica**: a identificação do
+  controlador dos dados, o canal do encarregado e o foro dependem da instituição
+  que oferece o sistema. Sem `EMAIL_DE_CONTATO` preenchido, as páginas mandam
+  procurar quem administra o acesso.
+- A página inicial e as legais falam com quem usa: nenhuma menção a GitHub,
+  "código aberto" ou nomes de algoritmo (o E2E `I2` confere).
+
+**No código**: `lib/instituicao.ts` (nome, email de contato e a data dos
+textos), `lib/components/PaginaLegal.svelte`, `routes/termos`,
+`routes/privacidade`, `routes/+error.svelte` e `e2e/institucional.spec.ts`.
 
 ---
 

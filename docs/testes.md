@@ -236,7 +236,8 @@ login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 `frontend/e2e/CENARIOS.md` é o catálogo de falhas — cada linha uma maneira
 concreta de uma funcionalidade quebrar para quem usa, por área (A tempo real,
 B auditoria, C link público, D celular, E convite e compartilhamento, F
-recuperação de senha, G confirmação de email, N notificações). Cada teste cita no
+recuperação de senha, G confirmação de email, I uso institucional, N
+notificações). Cada teste cita no
 título o id que cobre (`[E4] …`).
 
 `make test-e2e` termina rodando `frontend/e2e/resumo.mjs`, que cruza o catálogo
@@ -481,8 +482,9 @@ comparação de texto, roda no `go test ./...` de sempre.
 
 ## O que rodar antes de publicar
 
-Não há esteira — a disciplina é sua. O conjunto mínimo antes de buildar as
-imagens (ver [entrega-continua.md](entrega-continua.md)):
+Não há esteira — a disciplina é sua. O `make deploy` roda o `make verificar`
+sozinho; a integração e o E2E precisam de Docker e da stack local, e ficam
+antes dele (ver [entrega-continua.md](entrega-continua.md)):
 
 ```bash
 make verificar                        # gofmt, vet, migrations, -race, prettier, tipos, unidade

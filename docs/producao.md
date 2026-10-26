@@ -256,7 +256,8 @@ deploy seguinte.
 
 **O `.env` mora só no host.** Quem o escreve é o Ansible, a partir do vault
 cifrado, e não um heredoc copiado à mão. O modelo comentado, com a explicação de
-cada variável, é o [`.env.prod.example`](../.env.prod.example).
+cada variável, é o próprio template,
+[`env.j2`](../deploy/ansible/roles/stacktrack/templates/env.j2).
 
 **Arquivo que começa com ponto não aparece no `ls`.** Para conferir o resultado,
 `ls -la`:
@@ -299,25 +300,23 @@ asserção negativa que um teste de leitura nunca faria.
 
 ## 4️⃣ Publicar e implantar
 
-Os passos de build, push e `release` estão em
-[entrega-continua.md](entrega-continua.md). Em resumo, da sua máquina:
+Da sua máquina, com o commit no `origin/main`:
 
 ```bash
-sha=$(git rev-parse HEAD)
-# build + push das 3 imagens para ghcr.io/caetasousa/stacktrack-* (:$sha e :latest)
-make infra-apply                                   # se compose/backup.sh/papéis mudaram
-ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
+make deploy
 ```
 
-As imagens nascem **privadas**. Ou você as torna públicas em cada pacote
-(Packages → Package settings), ou o servidor autentica (o `make infra-apply` faz
-o `docker login` se `vault_ghcr_token` estiver no vault). O token de push
-precisa de `write:packages`; o de pull, só `read:packages`.
+Ele verifica, publica as três imagens no GHCR, roda o `make infra-apply` e o
+release, e confere que a versão nova está no ar — os passos estão em
+[entrega-continua.md](entrega-continua.md#2️⃣-implantar-make-deploy). Os
+pacotes do GHCR são **públicos**: o servidor puxa sem login. Num repositório
+novo eles nascem privados — torne-os públicos em cada pacote (Packages →
+Package settings) depois do primeiro push.
 
 ## 5️⃣ Conferir
 
-O `release` já checa `/api/health` e `/` no fim. O que ele não checa, e você
-deve:
+O `make deploy` já confere a versão no ar e o `/api/health`. O que ele não
+checa, e você deve:
 
 ```bash
 # no servidor (ssh -p 2222 stacktrack@127.0.0.1)
@@ -345,19 +344,17 @@ nenhum dos `curl` acima.
 
 ## Deploy do dia a dia
 
-Uma linha, depois de publicar as imagens (ver
-[entrega-continua.md](entrega-continua.md)):
-
-```
-ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release <sha>"
+```bash
+make deploy        # verifica, publica e implanta o commit atual
+make estado        # o que está no ar
 ```
 
-A sequência mora no servidor, no wrapper que o Ansible instala — pré-voo,
+O release em si mora no servidor, no wrapper que o Ansible instala — pré-voo,
 backup, `pull`, parar web e api, `up -d`, limpar imagens órfãs. Do próprio
 servidor, é o mesmo comando ou os passos abertos:
 
 ```bash
-stacktrack-release release <sha>     # ou `latest`
+stacktrack-release release <sha>
 
 cd ~                                 # o que ele faz por dentro
 docker compose -f docker-compose.prod.yml pull
@@ -366,8 +363,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 **O `docker-compose.prod.yml`, o `backup.sh`, o `.env` e os papéis do banco são
-do Ansible** — mudou algum deles, `make infra-apply` antes do `release`. Não há
-outro caminho: a chave de release não escreve arquivo.
+do Ansible** — o `make deploy` roda o `make infra-apply` antes do release. Não
+há outro caminho: a chave de release não escreve arquivo.
 
 Migration nova vai junto: o `depends_on: service_completed_successfully` garante
 que o Flyway termina antes de a API subir. API e web são interrompidas juntas
@@ -385,11 +382,12 @@ corrigida com roll-forward a partir da release revisionada. Voltar à versão
 anterior só é seguro durante a janela de manutenção, antes de reabrir tráfego e
 antes de qualquer escrita nova.
 
-É o mesmo verbo do deploy, apontando para o commit bom — as imagens dele
-continuam no GHCR, e o wrapper tira o backup antes, como em qualquer release:
+É o mesmo release, apontando para o commit bom — as imagens dele continuam no
+GHCR, nada é construído de novo, e o wrapper tira o backup antes, como em
+qualquer release:
 
-```
-ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release <sha do commit bom>"
+```bash
+make rollback SHA=<sha do commit bom>
 ```
 
 Nada de editar o `IMAGE_TAG` do `.env` no servidor: o arquivo é do Ansible, e o
@@ -709,9 +707,8 @@ sem privilégio no servidor.
 - [ ] `make infra-apply` verde (cria o `.env` com senha aleatória e `chmod 600`,
       sobe a stack com a borda)
 - [ ] `make infra-validar` verde (ansible-lint + syntax-check + wrapper)
-- [ ] as 3 imagens publicadas no GHCR e acessíveis ao servidor (públicas ou
-      `docker login`)
-- [ ] `stacktrack-release release <sha>` verde
+- [ ] `make deploy` verde, e os 3 pacotes do GHCR tornados públicos depois do
+      primeiro push
 - [ ] `https://stacktrack.d4ffy.com` abre e `/api/health` responde 200 (prova
       que a location `/api/` vai para a API)
 - [ ] o log da `borda` mostra o IP real de quem acessou, não `10.89.0.1`
@@ -720,24 +717,6 @@ sem privilégio no servidor.
 - [ ] papel de runtime do banco criado (`stacktrack_app`) e a API conectando com ele
 - [ ] cron do backup agendado (o `infra-apply` faz) e **um backup restaurado em ensaio**
 - [ ] `free -h` no servidor com folga sobre a soma dos limites das stacks
-
-### Antes do próximo deploy: o contract da ordenação
-
-O `V18` está no repositório e **é aplicado pelo Flyway no próximo deploy**. Ele
-cria os índices únicos da chave de ordenação, e o `CREATE UNIQUE INDEX` falha se
-o banco ainda tiver duplicidade herdada — falhando o Flyway, a stack não sobe.
-Por isso os dois passos abaixo são pré-deploy, não pós:
-
-- [ ] `manutencao reparar-ordenacao --conferir` sai **0** contra o banco de
-      produção. Saindo 1, rodar `manutencao reparar-ordenacao` (sem `--conferir`)
-      e conferir de novo — ele repara um quadro por transação, com a aplicação
-      no ar.
-- [ ] Estimativa de lock registrada numa cópia representativa: linhas, tamanho
-      das tabelas e tempo de construção do índice. Não cabendo na janela, a
-      saída é criação concorrente, não abrir mão da unicidade.
-
-Os comandos e o SQL da conferência estão em
-[backend/migrations/README.md](../backend/migrations/README.md).
 
 ### Passo agendado para depois
 

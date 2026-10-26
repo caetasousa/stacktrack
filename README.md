@@ -148,8 +148,8 @@ esta tabela e ele discordarem, vale o Makefile.
 ### Servidor
 
 O servidor é a distro `ubuntu-server` do WSL desta máquina, publicada por um
-túnel da Cloudflare. **Não há esteira**: publicar as imagens e implantar são
-passos manuais ([docs/entrega-continua.md](docs/entrega-continua.md)).
+túnel da Cloudflare. **Não há esteira**: publicar as imagens e implantar é um
+comando que você roda, o `make deploy` ([docs/entrega-continua.md](docs/entrega-continua.md)).
 
 | Comando | O que faz |
 |---|---|
@@ -157,7 +157,8 @@ passos manuais ([docs/entrega-continua.md](docs/entrega-continua.md)).
 | `make infra-apply` | aplica o que é do stacktrack no servidor: `.env`, compose, backup, cron e papéis do banco |
 | `make infra-validar` | sintaxe e lint dos playbooks e o teste do wrapper de release, sem tocar no servidor |
 | `make infra-segredos` · `make infra-preparar` | uma vez só: os segredos do vault e a conta de deploy |
-| `stacktrack-release release <sha>` | o deploy, por SSH com a chave de release: backup, `pull`, `up -d` ([docs/producao.md](docs/producao.md#deploy-do-dia-a-dia)) |
+| `make deploy` | verifica, publica as imagens e implanta o commit atual em produção ([docs/entrega-continua.md](docs/entrega-continua.md)) |
+| `make rollback SHA=<sha>` · `make estado` | volta para um commit já publicado · o que está no ar |
 
 ---
 
@@ -172,7 +173,7 @@ passos manuais ([docs/entrega-continua.md](docs/entrega-continua.md)).
 | 🔄 | **[docs/fluxo-de-trabalho.md](docs/fluxo-de-trabalho.md)** | o caminho de uma mudança: cenário → código → verificar → commitar → publicar |
 | 🧪 | **[docs/testes.md](docs/testes.md)** | as camadas de teste, o que cada uma cobre e o que não cobre |
 | 📖 | **[docs/tecnologias.md](docs/tecnologias.md)** | o stack peça por peça: o que é, por que está aqui, onde estudar |
-| 🔁 | **[docs/entrega-continua.md](docs/entrega-continua.md)** | publicar as imagens, varrer vulnerabilidades e implantar — tudo manual |
+| 🔁 | **[docs/entrega-continua.md](docs/entrega-continua.md)** | o `make deploy`, o rollback e a varredura de vulnerabilidades |
 | 🚢 | **[docs/producao.md](docs/producao.md)** | o servidor no ar: primeiro deploy, backup, email, diagnóstico |
 | 🏗️ | **[docs/infraestrutura.md](docs/infraestrutura.md)** | o servidor como código: playbooks, segredos e recomeço do zero |
 | 📜 | **[docs/historico-do-projeto.md](docs/historico-do-projeto.md)** | como se chegou até aqui |

@@ -104,14 +104,16 @@ correção vai para a role, e o `make infra-apply` é quem aplica.
   `chaves_revogadas` no `vars.yml` — com `exclusive: false`, ela continuaria
   valendo
 
-**Não há esteira.** O GitHub Actions foi removido: testar, buildar, publicar as
-imagens no GHCR e implantar são passos manuais — ver
-[docs/entrega-continua.md](docs/entrega-continua.md). O `make verificar` reúne o
-que ela conferia sozinha; antes de publicar, ele, a integração e o E2E.
+**Não há esteira.** O GitHub Actions foi removido: nada roda sozinho a cada
+push. O deploy é **`make deploy`** (`scripts/deploy.sh`): confere que o commit
+está limpo e no `origin/main`, roda o `make verificar`, publica as três imagens
+no GHCR com a tag no SHA, aplica o `make infra-apply` e chama
+`stacktrack-release release <sha>` pela chave de deploy. A integração e o E2E
+ficam fora dele — rodá-los antes. Voltar atrás é `make rollback SHA=<sha>`.
+Ver [docs/entrega-continua.md](docs/entrega-continua.md).
 
-O deploy é `stacktrack-release release <sha>` (o wrapper faz backup, `pull`,
-para web e api, `up -d`). O `docker-compose.prod.yml` e o `backup.sh` são do
-Ansible (`make infra-apply`).
+Os pacotes do GHCR são públicos: o servidor puxa sem login, e não há token no
+vault.
 
 Segredos ficam em `ansible-vault`, nunca em claro no repositório. `POSTGRES_DB`,
 `POSTGRES_USER` e `POSTGRES_PASSWORD` são gravados pelo `initdb` no volume:
@@ -141,7 +143,7 @@ para ele:
 | 🧪 | `docs/testes.md` | cada camada de teste: build tags, Testcontainers, Playwright |
 | 🧪 | `frontend/e2e/CENARIOS.md` | como cada funcionalidade pode quebrar, com os ids que os testes citam |
 | 📖 | `docs/tecnologias.md` | o stack peça por peça: o que é → por que está aqui → onde estudar |
-| 🔁 | `docs/entrega-continua.md` | publicação, varredura de vulnerabilidades e deploy, todos manuais |
+| 🔁 | `docs/entrega-continua.md` | o `make deploy`, o rollback e a varredura de vulnerabilidades |
 | 🚢 | `docs/producao.md` | o servidor no ar: primeiro deploy, backup, email, diagnóstico e manutenção |
 | 🏗️ | `docs/infraestrutura.md` | o Ansible: playbooks, segredos, recomeço do zero |
 | 🐘 | `backend/migrations/README.md` | a sequência vigente das migrations e o porquê de cada uma |

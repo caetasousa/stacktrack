@@ -85,7 +85,7 @@ adaptador: o caso de uso não sabe que existe Postgres, WebSocket ou SMTP.
 
 | | Pasta | Responsabilidade |
 |---|---|---|
-| 🧭 | `routes/` | as telas: início, `cadastro`, `login`, `recuperar-senha`, `redefinir-senha/[token]`, `confirmar-email/[token]`, `painel`, `painel/quadros/[id]` (o quadro), `…/membros`, `…/historico`, `convite/[token]`, `publico/[token]`, `notificacoes/[id]` (o link do email de um aviso) |
+| 🧭 | `routes/` | as telas: início, `cadastro`, `login`, `recuperar-senha`, `redefinir-senha/[token]`, `confirmar-email/[token]`, `painel`, `painel/quadros/[id]` (o quadro), `…/membros`, `…/historico`, `convite/[token]`, `publico/[token]`, `notificacoes/[id]` (o link do email de um aviso), `termos`, `privacidade` e o `+error.svelte` |
 | 🔌 | `lib/api/` | o cliente HTTP e os tipos que espelham os DTOs do backend |
 | 📡 | `lib/realtime/` | a conexão de WebSocket, a reconciliação por revisão e o stream (SSE) do sino |
 | 🧩 | `lib/components/` | o card, a coluna, o modal do card, os diálogos, o sino e o campo de comentário com menções |

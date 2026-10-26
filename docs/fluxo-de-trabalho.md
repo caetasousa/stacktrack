@@ -169,20 +169,18 @@ git commit -m "feat: reenviar o convite troca o link e renova a validade"
 git push                                          # você
 ```
 
-Depois, à mão, na ordem de [entrega-continua.md](entrega-continua.md):
+Depois, um comando ([entrega-continua.md](entrega-continua.md)):
 
-1. **construir e publicar** as três imagens no GHCR, com a tag no SHA do commit;
-2. **aplicar a configuração**, se o compose, o `.env`, o `backup.sh` ou os papéis
-   do banco mudaram: `make infra-check` (mostra o que mudaria) e
-   `make infra-apply`;
-3. **implantar**:
+```bash
+make deploy                                       # verifica, publica e implanta
+```
 
-   ```bash
-   ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release <sha>"
-   ```
-
-4. **conferir no ar**: `curl -fsS https://stacktrack.d4ffy.com/api/health` e o
-   teste que vale mais que ele — cadastro → login → criar quadro → F5.
+Ele constrói e publica as três imagens no GHCR com a tag no SHA do commit,
+aplica a configuração do servidor (`make infra-apply`), faz o release e confere
+que a versão nova está no ar. Quando o compose, o `.env`, o `backup.sh` ou os
+papéis do banco mudaram, rode antes o `make infra-check`, que mostra o diff do
+que vai mudar. Depois, o teste que vale mais que qualquer checagem: cadastro →
+login → criar quadro → F5.
 
 ### 📦 O que o deploy faz
 

@@ -178,7 +178,7 @@ infraestrutura como código de um script que ninguém revisa.
 
 `make infra-segredos` gera `deploy/ansible/segredos/producao.yml`, cifrado com
 `ansible-vault`, contendo o nome do banco, o usuário, a senha (aleatória, de
-`openssl rand -hex 24`) e o token do GHCR.
+`openssl rand -hex 24`), o papel de runtime e as credenciais do email.
 
 **Ele fica fora de `group_vars/` de propósito.** Lá dentro, o Ansible o
 decifraria ao montar as variáveis de qualquer playbook que apontasse para o
@@ -208,12 +208,11 @@ ansible-vault view --vault-password-file .senha-vault segredos/producao.yml
 ansible-vault edit --vault-password-file .senha-vault segredos/producao.yml
 ```
 
-### O token do GHCR pode ficar vazio
+### Não há token do GHCR
 
-As imagens nascem privadas, mas podem ser tornadas públicas em
-Packages → Package settings. Hoje as três são públicas, então o vault tem
-`vault_ghcr_token: ''` e a task de `docker login` é pulada. Se um dia elas
-voltarem a ser privadas, basta um token com `read:packages` no vault.
+Os três pacotes são públicos: o servidor puxa as imagens sem login, e a role
+não tem task de `docker login`. O token de **escrita** só existe na sua máquina,
+e só o `make deploy` o usa (ver [entrega-continua.md](entrega-continua.md)).
 
 ### Trocar a senha do banco não é editar o vault
 

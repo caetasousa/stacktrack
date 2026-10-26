@@ -1,97 +1,88 @@
-# 🔄 Publicação, varredura e deploy — tudo manual
+# 🔄 Publicação, varredura e deploy
 
-> **Em uma frase:** testar, publicar as imagens no GHCR, varrer vulnerabilidades e
-> implantar — à mão, nessa ordem.
+> **Em uma frase:** como uma versão sai desta máquina e entra no ar — um comando,
+> `make deploy` — e como varrer as vulnerabilidades do que está publicado.
 
-**Não há esteira.** O GitHub Actions foi removido. Testar, buildar, publicar as
-imagens e implantar são passos que você roda à mão, na ordem abaixo. O servidor
-continua nunca compilando nada — ele só puxa imagem pronta do GHCR.
-
-O roteiro do servidor está em [producao.md](producao.md); o do host, em
+Quem chega sem contexto começa por [como-funciona.md](como-funciona.md). O
+servidor em si está em [producao.md](producao.md); o Ansible, em
 [infraestrutura.md](infraestrutura.md).
+
+**Não há esteira.** O GitHub Actions foi removido: nada roda sozinho a cada
+push. O servidor continua nunca compilando nada — ele só puxa imagem pronta do
+GHCR —, e quem constrói e publica essa imagem é a sua máquina.
 
 ---
 
-## 1️⃣ Antes de publicar: testar
+## 1️⃣ Antes: testar
 
 ```bash
-make verificar                        # o que a esteira conferia, de uma vez (sem Docker)
-make test-integracao                  # casos de uso e servidor HTTP contra Postgres real (Docker)
-make test-e2e                         # Playwright sobre a stack (exige `make run` no ar)
+make verificar            # o que a esteira conferia, sem Docker (o deploy roda de novo)
+make test-integracao      # casos de uso e servidor HTTP contra Postgres real (Docker)
+make test-e2e             # Playwright sobre a stack (exige `make run` no ar)
 ```
 
 O `make verificar` reúne o que a esteira fazia sozinha: `gofmt`, `go vet`, a
 regra de que **migration não escreve dado** (o grep do
 [CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados)), os testes com `-race`, o
-Prettier, o `svelte-check` e os testes de unidade do frontend. A diferença é que
-agora ele só roda se você rodar.
-
-O `make test-e2e` termina gerando `frontend/e2e/relatorio/resumo.md` — cada
-cenário do catálogo com o resultado e o print da tela. É o artefato a conferir
-antes de publicar.
-
-E valide o Ansible antes de aplicar:
-
-```bash
-make infra-validar        # ansible-lint + --syntax-check nos dois playbooks
-```
+Prettier, o `svelte-check` e os testes de unidade do frontend. A integração e o
+E2E ficam de fora do deploy porque precisam de Docker e da stack local de pé —
+rode-os antes. O `make test-e2e` termina gerando
+`frontend/e2e/relatorio/resumo.md`, com o resultado e o print de cada cenário.
 
 ---
 
-## 2️⃣ Publicar as imagens no GHCR
+## 2️⃣ Implantar: `make deploy`
 
-Três imagens: `stacktrack-api`, `stacktrack-web`, `stacktrack-migrations`. A do
-`web` leva `PUBLIC_API_URL=/api` embutido no build.
-
-```bash
-sha=$(git rev-parse HEAD)
-echo "$GHCR_TOKEN" | docker login ghcr.io -u caetasousa --password-stdin
-
-docker build -t ghcr.io/caetasousa/stacktrack-api:$sha        -t ghcr.io/caetasousa/stacktrack-api:latest        -f backend/Dockerfile.prod       backend
-docker build -t ghcr.io/caetasousa/stacktrack-web:$sha        -t ghcr.io/caetasousa/stacktrack-web:latest        -f frontend/Dockerfile.prod --build-arg PUBLIC_API_URL=/api frontend
-docker build -t ghcr.io/caetasousa/stacktrack-migrations:$sha -t ghcr.io/caetasousa/stacktrack-migrations:latest -f backend/Dockerfile.migrations backend
-
-for img in stacktrack-api stacktrack-web stacktrack-migrations; do
-  docker push --all-tags ghcr.io/caetasousa/$img
-done
-```
-
-O token só precisa de `write:packages`. Os pacotes nascem privados — ou você os
-torna públicos (Packages → Package settings), ou o servidor faz `docker login`
-(o `make infra-apply` faz, se `vault_ghcr_token` estiver no vault).
-
-**Fixe sempre a tag no SHA.** É o que garante que o servidor sobe exatamente o
-que você testou, e é o que torna o rollback o mesmo comando do deploy, com o SHA
-anterior ([producao.md](producao.md#voltar-atrás)).
-
----
-
-## 3️⃣ Implantar
+Com o commit feito **e já no `origin/main`**:
 
 ```bash
-# config (compose, backup.sh, papéis do banco) — só quando esses mudam:
-make infra-apply
-
-# o deploy em si:
-ssh -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1 "stacktrack-release release $sha"
+make deploy                       # verifica, publica e implanta o commit atual
+PULAR_VERIFICAR=1 make deploy     # o mesmo, quando o verificar acabou de passar
 ```
 
-O wrapper (`stacktrack-release`, instalado pelo Ansible) faz, nessa ordem:
-backup pré-release, `pull`, para `web` e `api` juntas, `up -d`, limpa imagens
-órfãs. Depois, confira:
+O [`scripts/deploy.sh`](../scripts/deploy.sh) faz, nesta ordem, e para no
+primeiro erro:
+
+| Passo | O que confere ou faz |
+|---|---|
+| pré-voo | árvore limpa, o commit no `origin/main`, a chave de release e a senha do vault presentes |
+| `make verificar` | a mesma checagem da seção anterior |
+| login no GHCR | só se ainda não houver; usa o `GHCR_TOKEN` do ambiente ou, na falta dele, o token que o git guarda para o push (precisa de `write:packages`) — e sai no fim |
+| imagens | build de `stacktrack-api`, `stacktrack-migrations` e `stacktrack-web` (esta com `PUBLIC_API_URL=/api`), com a tag no SHA e `latest`, e push |
+| `make infra-apply` | compose, `backup.sh`, `.env` e papéis do banco; sem mudança, não mexe em nada |
+| release | `stacktrack-release release <sha>` pela chave de deploy: backup, `pull`, para web e api, `up -d` |
+| conferência | a API no ar é a do SHA, e `https://<dominio>/api/health` responde |
+
+Ele **não faz `git push`**: produção nunca roda um commit que não está no
+GitHub, e publicar o código é decisão sua, antes.
+
+**A tag é sempre o SHA.** É o que garante que o servidor sobe exatamente o que
+você testou, e é o que torna o rollback o mesmo release, com o SHA anterior:
 
 ```bash
-curl -fsS https://stacktrack.d4ffy.com/api/health
-curl -sI  https://stacktrack.d4ffy.com | head -1
+make rollback SHA=<sha do commit bom>   # as imagens dele já estão no GHCR
+make estado                             # containers, versão no ar, cron do backup
 ```
 
-E o teste que vale mais que os `curl`: **cadastro → login → criar quadro → F5**
-(exercita o cookie `__Host-` de ponta a ponta).
+O banco não volta junto — ver [producao.md](producao.md#voltar-atrás).
 
-O wrapper é a fronteira do que uma chave de deploy alcança —
+Depois do deploy, o teste que vale mais que o `/api/health`: **cadastro → login
+→ criar quadro → F5** (exercita o cookie `__Host-` de ponta a ponta).
+
+### Por que os pacotes do GHCR são públicos
+
+O servidor puxa as imagens sem login, e por isso não há token de leitura para
+guardar no vault nem para trocar quando vencer. O que elas contêm é o mesmo que
+o repositório: nenhum segredo vai na imagem — o `.env` mora só no servidor.
+
+### A chave de deploy
+
+O release entra com `~/.ssh/stacktrack_release`, presa no servidor ao wrapper
+`stacktrack-release`, que só entende três verbos (`release`, `backup`,
+`estado`) e nenhum que escreva arquivo. Por isso compose e `backup.sh` mudam
+pelo `make infra-apply`, que entra com a chave do operador.
 `scripts/testa-wrapper-de-release.sh` prova as recusas (shell, encadeamento,
-substituição de comando, SHA malformado, o `sync` que saiu com a esteira) e roda em
-`make infra-validar`.
+substituição de comando, SHA malformado) e roda em `make infra-validar`.
 
 ---
 
@@ -240,7 +231,7 @@ seguir é consciente e merece registro.
 Node ou do Postgres. Se não houver correção publicada, a saída é trocar de base
 ou remover o pacote (caso 2), e registrar no `.trivyignore` o que ficou.
 
-**Deploy que não responde** — a aplicação não respondeu no `curl` pós-release.
+**Deploy que não responde** — o `make deploy` parou na conferência.
 `docker compose -f docker-compose.prod.yml logs api` no servidor. Costuma ser
 migration que falhou ou `.env` incompleto.
 
@@ -254,17 +245,8 @@ migration que falhou ou `.env` incompleto.
   um dump para provar que banco + anexos formam um conjunto recuperável. O
   ensaio de restauração é manual, em `producao.md`.
 - **Dependabot / atualização de dependência.** Manual; quem avisa é você rodando
-  a §4.
+  a varredura abaixo.
 - **Análise estática de segurança** (CodeQL, gosec). Não configurada.
-- **Os segredos que a esteira deixou no GitHub.** O repositório ainda pode ter,
-  em **Settings → Environments → production** e em **Settings → Secrets and
-  variables → Actions**, os segredos que ela usava: `VPS_SSH_KEY` (a metade
-  privada da chave de deploy antiga), `VPS_HOST`, `VPS_USER`, `VPS_PORT`,
-  `VPS_KNOWN_HOSTS`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` e a variável
-  `DOMINIO`. Nada mais os usa, e a chave de deploy que eles guardavam foi
-  revogada no servidor (`chaves_revogadas`) — mas segredo sem uso é segredo
-  esperando vazar: apague-os, e o environment `production` junto. O mesmo vale
-  para o token do Docker Hub, no próprio Docker Hub.
 
 ---
 

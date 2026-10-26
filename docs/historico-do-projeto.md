@@ -263,7 +263,7 @@ recuperação, observabilidade e capacidade estiverem prontas.
 - [testes.md](testes.md): camadas de teste e limites de cada uma.
 - [producao.md](producao.md): topologia, deploy, backup e operação.
 - [infraestrutura.md](infraestrutura.md): Ansible e reconstrução do host.
-- [entrega-continua.md](entrega-continua.md): publicar imagens, varrer e implantar (manual).
+- [entrega-continua.md](entrega-continua.md): o `make deploy`, o rollback e a varredura.
 
 Quando uma etapa do roadmap mudar o comportamento real, esses documentos devem
 ser atualizados no mesmo conjunto de alterações. O histórico, por outro lado,

@@ -72,7 +72,7 @@ repositório, que é onde ele deve ser lido.
 
 Os limites do pool são decididos pelo projeto em
 [`config/database.go`](../backend/config/database.go), e não herdados do padrão
-do pgx (`max(4, núcleos)`), que num VPS de 1 vCPU daria 4 conexões.
+do pgx (`max(4, núcleos)`), que numa máquina de 1 vCPU daria 4 conexões.
 
 ⚠️ **O SQL é a camada que os testes não alcançam.** Fakes em memória copiam a
 struct inteira e passam mesmo quando a coluna não está no `INSERT`. Aconteceu
@@ -758,7 +758,7 @@ Aqui a chave é o IP — que o cliente não escolhe, ver abaixo.
 **IP confiável.** `middleware.IPReal` só obedece `X-Real-IP` quando o peer
 direto da conexão TCP está na lista `PROXIES_CONFIAVEIS`; de qualquer outro
 lugar, os cabeçalhos são **apagados** antes de seguir. A versão anterior confiava
-sempre, com o raciocínio "só o Traefik da borda fala com a API" — correto enquanto
+sempre, com o raciocínio "só a borda fala com a API" — correto enquanto
 essa topologia valer, e verificado em lugar nenhum. Escolher o próprio IP é
 escolher o próprio balde de rate limit.
 
@@ -1100,7 +1100,7 @@ embutida no próprio arquivo (`configs.borda_nginx.content`): `/api/*` vai para 
 API sem o prefixo, o resto para o front, e a resposta do front leva os
 cabeçalhos de segurança.
 
-Por que nginx e não Traefik, que era a borda no VPS: atrás do túnel, o IP do
+Por que nginx e não Traefik: atrás do túnel, o IP do
 visitante vem num cabeçalho, e o nginx sabe trocar o peer por ele
 (`set_real_ip_from` + `real_ip_header CF-Connecting-IP`) antes de repassar o
 `X-Real-IP` à API. O Traefik preencheria o `X-Real-IP` com o IP do
@@ -1149,9 +1149,10 @@ mental, e quase todo erro de quem começa vem de imaginar a máquina errada
 executando o código.
 
 A **aplicação no servidor** descrita como código, em `deploy/ansible/` — `.env`,
-compose, backup, cron, papéis do banco. Publicar as imagens e implantar são
-passos manuais (ver [entrega-continua.md](entrega-continua.md)); o Ansible cuida
-da máquina, não da versão que roda nela.
+compose, backup, cron, papéis do banco. Publicar as imagens e implantar é o
+`make deploy` (ver [entrega-continua.md](entrega-continua.md)), que chama o
+Ansible no meio do caminho; o Ansible cuida da máquina, não da versão que roda
+nela.
 
 Entrou por um motivo específico: o `.env` de produção, com a senha do Postgres,
 nascia de um heredoc copiado à mão. Era o único passo que impedia o servidor de
@@ -1254,16 +1255,14 @@ O que aconteceu de verdade na reconstrução, em ordem:
    ali com a instrução de rodar `make infra-preparar`. Falhar cedo, com a causa.
 2. **diretórios** — `~/stacktrack`, `scripts/`, `~/backups`. O módulo `file`
    cria os pais recursivamente, como `mkdir -p`.
-3. **GHCR** — `slurp` do `~/.docker/config.json` para ver se já há login. As três
-   imagens estão públicas, o token no vault está vazio, e a task foi **pulada**.
-4. **o `assert` do `initdb`** — lê o `.env` que existir e compara com o vault.
+3. **o `assert` do `initdb`** — lê o `.env` que existir e compara com o vault.
    Num servidor vazio não há `.env`, então ele é pulado pelo
    `when: env_atual.content is defined`. A mesma role serve aos dois cenários.
-5. **`.env`** — `template` renderiza `env.j2` com as variáveis e o vault. Nasceu
+4. **`.env`** — `template` renderiza `env.j2` com as variáveis e o vault. Nasceu
    `-rw------- stacktrack stacktrack`, que é o `mode: '0600'` declarado.
-6. **compose e `backup.sh`** — `copy` a partir dos arquivos da raiz do
+5. **compose e `backup.sh`** — `copy` a partir dos arquivos da raiz do
    repositório. Nada é duplicado dentro da role.
-7. **cron** — o `ansible.builtin.cron` procura o marcador `#Ansible: <name>` e
+6. **cron** — o `ansible.builtin.cron` procura o marcador `#Ansible: <name>` e
    gerencia só aquele bloco, sem reescrever o arquivo:
 
 ```
@@ -1281,10 +1280,9 @@ inteiro — um corte no meio trunca o agendamento.
 #### 5. Quando um módulo custa caro demais
 
 Quando existe módulo para o que a task faz, ele vem primeiro: o módulo sabe
-dizer se mudou alguma coisa, e um `command` não sabe. A versão do VPS lia a rede
-`borda` com `community.docker.docker_network_info`, para derivar a lista de
-proxies confiáveis da IPAM real; hoje a rede nasce dentro do compose, com
-sub-rede fixa, e não há o que ler.
+dizer se mudou alguma coisa, e um `command` não sabe — é por isso que a stack
+sobe com `community.docker.docker_compose_v2`, e não com um `docker compose up`
+cru.
 
 Quando um `command` cru é inevitável (o `psql` dos papéis, o `docker ps` que
 descobre a tag no ar), os quatro atributos são o que o torna honesto:

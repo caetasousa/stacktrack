@@ -3,34 +3,36 @@
 	import PreviaDoQuadro from '$lib/components/PreviaDoQuadro.svelte';
 	import { sessao } from '$lib/stores/session.svelte';
 
-	// Só o que o produto FAZ HOJE. A versão anterior desta lista trazia selos de
-	// "fase 4", "fase 5" e "fase 6" em recursos que já estavam no ar havia muito
-	// tempo — o roteiro interno vazando para a página e vendendo o produto por
-	// menos do que ele é. O que falta fica em docs/historico-do-projeto.md.
+	import { PRODUTO } from '$lib/instituicao';
+
+	// Só o que o produto FAZ HOJE, e dito do ponto de vista de quem usa. A página
+	// já trouxe selos de "fase 4" e nomes de algoritmo ("Argon2id", "cookie
+	// HttpOnly"): o roteiro interno e a engenharia vazando para quem só quer
+	// saber se o quadro resolve o trabalho dela. O detalhe técnico mora em docs/.
 	const recursos = [
 		{
 			icone: 'tempo-real',
 			titulo: 'Todo mundo vê na hora',
 			texto:
-				'Uma pessoa move um card e ele se move na tela das outras, sem recarregar. Quem cai e volta recebe o que perdeu enquanto esteve fora.'
+				'Uma pessoa move um card e ele se move na tela das outras, sem recarregar. O quadro mostra quem está nele agora.'
 		},
 		{
-			icone: 'presenca',
-			titulo: 'Quem está junto, agora',
+			icone: 'notificacao',
+			titulo: 'Avisos do que é seu',
 			texto:
-				'O avatar de cada pessoa aparece no quadro que ela abriu, e some quando ela sai. Dá para saber com quem se está trabalhando.'
+				'Card que passou a ser seu, menção num comentário, prazo chegando, convite para um quadro: no sino, na hora — e por email, se você não estava olhando.'
 		},
 		{
 			icone: 'arrastar',
-			titulo: 'Arrastar sem atropelar',
+			titulo: 'Edição sem atropelo',
 			texto:
-				'Mover um card reescreve uma linha, não a coluna inteira. Duas pessoas arrastando ao mesmo tempo não desfazem o trabalho uma da outra.'
+				'Duas pessoas no mesmo quadro não desfazem o trabalho uma da outra. Quem salva por último é avisado, com o próprio texto preservado.'
 		},
 		{
 			icone: 'conversa',
-			titulo: 'Conversa e histórico no card',
+			titulo: 'Conversa e histórico',
 			texto:
-				'Comentários em markdown, e o registro de quem moveu de onde para onde, quem renomeou o quê e quando.'
+				'Comentários com formatação e @menções, e o registro de quem fez o quê e quando — no card e no quadro inteiro.'
 		},
 		{
 			icone: 'organizacao',
@@ -40,18 +42,18 @@
 		},
 		{
 			icone: 'papeis',
-			titulo: 'Papéis conferidos no servidor',
+			titulo: 'Acesso sob controle',
 			texto:
-				'Dono, editor e leitor. Convite por email, acesso revogável — e a permissão checada a cada operação, não só na tela.'
+				'Dono, editor e leitor. Ninguém entra num quadro sem convite, e quem administra revoga o acesso a qualquer momento.'
 		}
 	] as const;
 </script>
 
 <svelte:head>
-	<title>stacktrack — quadro Kanban colaborativo em tempo real</title>
+	<title>{PRODUTO} — quadro Kanban colaborativo em tempo real</title>
 	<meta
 		name="description"
-		content="Quadro Kanban em que várias pessoas movem cards ao mesmo tempo e todas veem na hora, sem recarregar a página."
+		content="Quadro Kanban para equipes: várias pessoas no mesmo quadro, cada mudança aparecendo na hora para todas, com convites, papéis de acesso e notificações."
 	/>
 </svelte:head>
 
@@ -81,9 +83,8 @@
 		</div>
 
 		<p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-mute">
-			<span>Grátis</span><span aria-hidden="true">·</span><span>Sem cartão</span><span
-				aria-hidden="true">·</span
-			><span>Código aberto</span>
+			<span>Convite por email</span><span aria-hidden="true">·</span><span>Papéis de acesso</span
+			><span aria-hidden="true">·</span><span>Funciona no celular</span>
 		</p>
 	</div>
 
@@ -111,15 +112,20 @@
 </section>
 
 <!-- A faixa de segurança fica ao lado dos recursos, e não misturada a eles: é o
-     tipo de coisa que ninguém procura, mas que decide a adoção de quem procura. -->
+     tipo de coisa que ninguém procura, mas que decide a adoção de quem procura —
+     e por isso fala do que a pessoa ganha, e não do algoritmo que o entrega. -->
 <section
 	class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-hairline bg-surface px-6 py-5"
 >
-	<b class="text-xs font-semibold tracking-widest text-mute uppercase">Por baixo</b>
-	<span class="text-[0.8125rem] text-body">Senhas em Argon2id</span>
-	<span class="text-[0.8125rem] text-body">Sessão em cookie HttpOnly</span>
-	<span class="text-[0.8125rem] text-body">Token guardado só como hash</span>
-	<span class="text-[0.8125rem] text-body">Edição concorrente sem sobrescrita</span>
+	<b class="text-xs font-semibold tracking-widest text-mute uppercase">Segurança e privacidade</b>
+	<span class="text-[0.8125rem] text-body">Cada quadro só é visto por quem foi convidado</span>
+	<span class="text-[0.8125rem] text-body">Senhas guardadas de forma irreversível</span>
+	<span class="text-[0.8125rem] text-body"
+		>Trocar a senha encerra a sessão em todos os aparelhos</span
+	>
+	<a href="/privacidade" class="text-[0.8125rem] font-semibold text-accent-texto hover:underline"
+		>Política de privacidade</a
+	>
 </section>
 
 {#if !sessao.usuario}

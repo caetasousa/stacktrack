@@ -127,6 +127,14 @@ as notificações dele — está em `backend/test/repository/notificacao_test.go
 protocolo do SSE (cabeçalhos, batimento, sessão encerrada, limites) está em
 `backend/test/realtime/sse_test.go`.
 
+## I. Uso institucional
+
+| id  | Como quebra                                                                        | O que o usuário vê                                         |
+| --- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| I1  | os Termos de Uso e a Política de Privacidade não existem, ou não há como chegar a eles | quem vai criar conta não sabe com o que está concordando  |
+| I2  | a página inicial vende o projeto como de estudo ou fala de engenharia               | "código aberto", "Argon2id": o produto parece um protótipo |
+| I3  | um endereço errado cai na página de erro crua do framework                          | um número e uma frase em inglês, sem caminho de volta      |
+
 ## F. Recuperar a senha
 
 | id  | Como quebra                                                                                     | O que o usuário vê                                                           |

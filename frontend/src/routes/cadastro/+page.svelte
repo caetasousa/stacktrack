@@ -101,6 +101,11 @@
 		<button type="submit" class="botao" disabled={enviando}>
 			{enviando ? 'Criando…' : 'Criar conta'}
 		</button>
+		<p class="text-center text-xs text-mute">
+			Ao criar a conta, você concorda com os
+			<a href="/termos" class="underline hover:text-ink">Termos de Uso</a> e com a
+			<a href="/privacidade" class="underline hover:text-ink">Política de Privacidade</a>.
+		</p>
 	</form>
 
 	<p class="mt-6 text-center text-sm text-mute">

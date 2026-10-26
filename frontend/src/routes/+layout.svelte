@@ -9,6 +9,7 @@
 	import SeletorTema from '$lib/components/SeletorTema.svelte';
 	import SinoDeNotificacoes from '$lib/components/SinoDeNotificacoes.svelte';
 	import DialogoDeConfirmacao from '$lib/components/DialogoDeConfirmacao.svelte';
+	import { PRODUTO } from '$lib/instituicao';
 
 	let { children } = $props();
 
@@ -35,9 +36,17 @@
 </script>
 
 <div class="flex min-h-screen flex-col bg-canvas font-sans text-body">
+	<!-- Para quem navega pelo teclado ou por leitor de tela: sem isto, cada página
+	     começa atravessando o cabeçalho inteiro antes de chegar ao que importa. -->
+	<a
+		href="#conteudo"
+		class="sr-only rounded-sm bg-surface px-3 py-2 text-sm font-semibold text-ink focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
+	>
+		Pular para o conteúdo
+	</a>
 	<header class="border-b border-hairline bg-surface">
 		<div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-			<a href="/" aria-label="stacktrack — início" class="flex items-center">
+			<a href="/" aria-label="{PRODUTO} — início" class="flex items-center">
 				<Logo comNome />
 			</a>
 
@@ -65,7 +74,7 @@
 		</div>
 	</header>
 
-	<main class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-12">
+	<main id="conteudo" class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-12">
 		{@render children()}
 	</main>
 
@@ -77,10 +86,11 @@
 		<div
 			class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-mute"
 		>
-			<span>stacktrack — quadro colaborativo em tempo real.</span>
-			<a href="https://github.com/caetasousa/stacktrack" rel="noreferrer" class="hover:text-ink"
-				>Código aberto no GitHub</a
-			>
+			<span>{PRODUTO} — quadro colaborativo em tempo real.</span>
+			<nav aria-label="Informações legais" class="flex flex-wrap gap-4">
+				<a href="/termos" class="hover:text-ink">Termos de uso</a>
+				<a href="/privacidade" class="hover:text-ink">Política de privacidade</a>
+			</nav>
 		</div>
 	</footer>
 </div>

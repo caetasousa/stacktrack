@@ -57,7 +57,7 @@ type RepositorioExclusaoDeArquivo interface {
 // ⚠️ A pergunta é sobre o ID EXATO, e não sobre tempo. Timestamp, relógio do
 // host ou `max(id)` NÃO servem de prova, e a razão é concreta: o dump do
 // PostgreSQL e a cópia dos arquivos acontecem em instantes diferentes, o relógio
-// do VPS pode andar para trás, e uma exclusão gravada depois do dump pode ter um
+// do servidor pode andar para trás, e uma exclusão gravada depois do dump pode ter um
 // id menor que outra gravada antes. Só a lista literal dos ids que o backup
 // levou responde a pergunta sem margem.
 //

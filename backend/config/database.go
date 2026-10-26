@@ -32,8 +32,8 @@ func DSNBanco() string {
 }
 
 // MaxConexoesBanco é o teto de conexões simultâneas do pool
-// (env DB_MAX_CONNS). O padrão do pgx é max(4, núcleos de CPU) — numa VPS de
-// 1 vCPU isso dá 4, o que torna o teto de concorrência da API um efeito
+// (env DB_MAX_CONNS). O padrão do pgx é max(4, núcleos de CPU) — numa máquina
+// de 1 vCPU isso dá 4, o que torna o teto de concorrência da API um efeito
 // colateral do hardware em vez de uma decisão. Ao subir, lembrar que o teto do
 // Postgres (max_connections, 100 por padrão) é compartilhado com o job de
 // migration e com qualquer psql aberto.

@@ -24,27 +24,6 @@
 
 # --- segredos e configuração -------------------------------------------------
 
-# As imagens do GHCR nascem privadas. Sem autenticação o `pull` do primeiro
-# deploy falha — e falha DEPOIS de tudo o mais estar pronto, que é onde o erro
-# custa mais caro para diagnosticar.
-- name: confere se o servidor já está autenticado no GHCR
-  ansible.builtin.slurp:
-    src: '{{ pasta_base }}/.docker/config.json'
-  register: stacktrack_docker_config
-  failed_when: false
-  check_mode: false
-
-- name: autentica o servidor no GHCR
-  ansible.builtin.command:
-    cmd: docker login ghcr.io --username {{ ghcr_usuario }} --password-stdin
-    stdin: '{{ vault_ghcr_token }}'
-  when:
-    - vault_ghcr_token | length > 0
-    - "'ghcr.io' not in (stacktrack_docker_config.content | default('') | b64decode)"
-  # O token viajaria para o log em claro sem isto.
-  no_log: true
-  changed_when: true
-
 # A trava que existe por causa do initdb. Ela é PULADA num servidor vazio (não
 # há .env), e passa a valer do segundo dia em diante: assim que a stack sobe uma
 # vez, esses três campos ficam cravados no volume do Postgres, e trocá-los aqui

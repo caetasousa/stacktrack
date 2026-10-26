@@ -9,8 +9,7 @@
 # install` numa máquina nova baixa a 5.x, avisa que não suporta este core e
 # falha em tempo de execução — bem depois do syntax-check passar.
 collections:
-  # docker_network_info e docker_compose_v2: leem a rede da borda e sobem a stack
-  # sem shell cru nem SDK Python no servidor.
+  # docker_compose_v2: sobe a stack sem shell cru nem SDK Python no servidor.
   - name: community.docker
     version: '>=4.0.0,<5.0.0'
 

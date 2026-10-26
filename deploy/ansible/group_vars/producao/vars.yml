@@ -34,10 +34,10 @@ operador_chave_publica: >-
 
 # --- a chave de deploy -----------------------------------------------------
 #
-# Opcional. Para implantar sem usar a chave do operador (que abre shell), um par
-# dedicado (~/.ssh/stacktrack_release): a role `usuario_app` o instala preso a
-# um comando forçado que só entende três verbos (release/backup/estado). Vazia,
-# o deploy é só com a chave do operador.
+# A chave com que o `make deploy` implanta, para não usar a do operador (que
+# abre shell): um par dedicado (~/.ssh/stacktrack_release) que a role
+# `usuario_app` instala preso a um comando forçado que só entende três verbos
+# (release/backup/estado).
 #
 #   ssh-keygen -t ed25519 -C release-stacktrack -f ~/.ssh/stacktrack_release -N ""
 #
@@ -66,15 +66,12 @@ pasta_stack: '{{ pasta_base }}'
 pasta_scripts: '{{ pasta_stack }}/scripts'
 pasta_backups: '{{ pasta_base }}/backups'
 
-# Imagens no GHCR (build e push manuais — ver docs/entrega-continua.md). O
-# `stacktrack-release release <sha>` sobrescreve IMAGE_TAG no momento do deploy,
-# sem tocar no .env.
+# Imagens no GHCR, publicadas pelo `make deploy`. Os pacotes são PÚBLICOS: o
+# servidor puxa sem login, e não há token de leitura para guardar nem trocar. O
+# `stacktrack-release release <sha>` sobrescreve IMAGE_TAG no momento do
+# deploy, sem tocar no .env.
 imagem_repo: ghcr.io/caetasousa
 imagem_tag: latest
-
-# Usuário do GHCR para o `docker login`. O token que o acompanha é secreto e
-# está no vault; só precisa de `read:packages`.
-ghcr_usuario: caetasousa
 
 # Os arquivos que a role instala no servidor vêm da RAIZ deste repositório —
 # docker-compose.prod.yml e scripts/backup.sh. Copiá-los para

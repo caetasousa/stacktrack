@@ -98,7 +98,7 @@ func (c *Coletor) LimparLote(ctx context.Context, limite int) (int64, error) {
 //
 // A pergunta é pelos IDs EXATOS. Timestamp, relógio do host ou `max(id)` não
 // servem: o dump do banco e a cópia dos arquivos acontecem em instantes
-// diferentes, o relógio do VPS pode andar para trás, e uma exclusão gravada
+// diferentes, o relógio do servidor pode andar para trás, e uma exclusão gravada
 // depois do dump pode ter id menor que outra gravada antes. Só a lista literal
 // do que o snapshot levou responde sem margem.
 func (c *Coletor) atualizarCobertura(ctx context.Context, limite int) error {

@@ -113,8 +113,8 @@ func RateLimitSessaoDesconhecida() int {
 // ProxiesConfiaveis devolve as faixas de onde um cabeçalho X-Real-IP é aceito
 // (env PROXIES_CONFIAVEIS, faixas CIDR ou IPs separados por vírgula).
 //
-// Em producao prefira o IP exato do Traefik da borda ou a sub-rede exata da bridge.
-// Confiar em toda 172.16.0.0/12 daria o mesmo poder a containers vizinhos.
+// Em produção, a sub-rede exata da rede da borda (o nginx do compose). Confiar
+// em toda 172.16.0.0/12 daria o mesmo poder a containers vizinhos.
 //
 // Vazia (o padrão) significa NÃO CONFIAR EM NINGUÉM: o IP do cliente passa a
 // ser sempre o peer direto da conexão. É o comportamento certo em

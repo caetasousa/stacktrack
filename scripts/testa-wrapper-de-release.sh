@@ -36,8 +36,7 @@ if command -v ansible >/dev/null; then
 		-a "src=$template dest=$trabalho/jinja.sh mode=0755" \
 		-e usuario_app=stacktrack \
 		-e pasta_stack=/home/stacktrack \
-		-e pasta_scripts=/home/stacktrack/scripts \
-		-e ghcr_usuario=caetasousa >"$trabalho/ansible.log" 2>&1 || {
+		-e pasta_scripts=/home/stacktrack/scripts >"$trabalho/ansible.log" 2>&1 || {
 		echo "FALHA: o Jinja não conseguiu renderizar o template:"
 		sed 's/^/       /' "$trabalho/ansible.log"
 		exit 1
@@ -61,7 +60,6 @@ sed \
 	-e "s@{{ usuario_app | quote }}@'$(id -un)'@g" \
 	-e "s@{{ pasta_stack | quote }}@'$trabalho/stack'@g" \
 	-e "s@{{ pasta_scripts | quote }}@'$trabalho/stack/scripts'@g" \
-	-e "s@{{ ghcr_usuario | quote }}@'caetasousa'@g" \
 	"$template" >"$wrapper"
 chmod +x "$wrapper"
 

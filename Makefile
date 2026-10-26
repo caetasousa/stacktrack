@@ -133,7 +133,7 @@ estado: ## o que está no ar: containers, versão e impressão digital dos arqui
 # do WSL, os pacotes do Docker rootless, o sshd, o cloudflared) é do `site.yml`
 # do studygo, e a rota do túnel é do painel da Cloudflare. A ordem de uso é
 #
-#   make infra-segredos   uma vez, cria e cifra a senha do banco e o token
+#   make infra-segredos   uma vez, cria e cifra a senha do banco e o SMTP
 #   make infra-preparar   o que exige privilégio: o usuário de deploy, o
 #                         sudoers restrito, as chaves e o wrapper de release
 #   make infra-check      mostra o que MUDARIA, sem tocar em nada

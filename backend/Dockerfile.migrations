@@ -2,7 +2,7 @@
 #
 # Existe para que o host de produção não precise do repositório. Sem ela, o job
 # de migration dependeria de um bind mount de ./backend/migrations, obrigando a
-# manter o código-fonte na VPS só para aplicar o schema — e a manter esse clone
+# manter o código-fonte no servidor só para aplicar o schema — e a manter esse clone
 # sincronizado com a imagem que está rodando.
 
 FROM flyway/flyway:13-alpine

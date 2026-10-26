@@ -22,7 +22,6 @@ frontend/e2e/relatorio/
 .env
 .env.*
 !.env.example
-!.env.prod.example
 
 # Ansible — estado local da máquina de quem opera, nunca versionado.
 #

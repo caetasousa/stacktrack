@@ -347,6 +347,8 @@ erDiagram
     usuarios ||--o{ notificacoes : "recebe"
     boards ||--o{ notificacoes : "fala de"
     notificacoes ||--o{ email_outbox : "avisada por"
+    boards ||--o{ board_bloqueios : "barra"
+    usuarios ||--o{ board_bloqueios : "removida de"
 ```
 
 <details>
@@ -364,6 +366,7 @@ usuarios ──┬── sessions
            └── email_outbox ◄── convites_board, notificacoes
 
 boards ──┬── board_membros        (papel: dono, editor, leitor)
+         ├── board_bloqueios       (quem o dono tirou: não volta pelo domínio)
          ├── colunas ── cards ──┬── card_etiquetas ──► etiquetas
          │                      ├── checklists ── checklist_itens
          │                      ├── anexos
@@ -406,6 +409,12 @@ Regras que o schema carrega:
   de um texto retirado. O email de um aviso vai junto (`email_outbox.notificacao_id`,
   também `CASCADE`). A chave `notificacoes.chave` é única: o mesmo prazo visto
   por duas passadas do vigia, ou o mesmo convite reenviado, não viram dois avisos.
+- **A porta do domínio são duas colunas que andam juntas**:
+  `boards.dominio_acesso` e `boards.dominio_papel`, nulas quando o quadro está
+  fechado. O domínio gravado é sempre o do email confirmado de quem abriu —
+  derivado pelo domínio (`internal/domain/dominio`), nunca recebido como texto.
+  `board_bloqueios` guarda quem o dono tirou do quadro, e só um convite aceito
+  apaga a linha.
 - **Sem `DEFAULT` nem `CHECK` de regra de negócio**, e migration não escreve
   dado — as regras estão no [CLAUDE.md](../CLAUDE.md#migrations-banco-de-dados).
   A sequência vigente das migrations, e o porquê de cada uma, está em
@@ -534,7 +543,7 @@ As demais exigem sessão e têm teto de requisições por sessão.
 
 | Método | Rota | O que faz |
 |---|---|---|
-| `GET`/`POST` | `/boards` | Lista os quadros de que você participa (com o seu papel e o nome do `dono`) e cria um novo. O painel separa por aí os seus dos compartilhados com você. |
+| `GET`/`POST` | `/boards` | Lista os quadros de que você participa (com o seu papel e o nome do `dono`) e cria um novo. O painel separa por aí os seus dos compartilhados com você. **422** quando a conta já é dona de 100 quadros (o teto do plano gratuito). |
 | `GET` | `/boards/{id}` | O quadro com colunas e cards, em ordem, numa requisição só — lido sobre **um único instantâneo** do banco (`REPEATABLE READ`). Traz `revisao`, que é o cursor que a tela devolve ao WebSocket. |
 | `PATCH`/`DELETE` | `/boards/{id}` | Renomeia ou apaga o quadro. Só o dono. |
 | `PATCH` | `/boards/{id}/fundo` | Troca o fundo do quadro. Só o dono. |
@@ -551,14 +560,19 @@ As demais exigem sessão e têm teto de requisições por sessão.
 | `PATCH` | `/cards/{id}/mover` | Move o card. Recebe os **vizinhos**, não a ordem. **409** se eles vierem fora de ordem (a tela estava velha) ou se a lista já foi reordenada vezes demais naquele ponto. |
 | `PATCH` | `/cards/{id}/prazo` | Marca a data de entrega; `null` limpa. |
 | `GET`/`POST` | `/boards/{id}/membros` | Quem participa (com os convites pendentes e o estado do email de cada um, para o dono) e convida informando o email. O convite vai por **email** e a resposta traz também o `link`, para o dono mandar por outro meio; `entrega` diz como ele chega: `email` (na fila), `manual` (envio desligado) ou `cota` (teto de 30 emails de convite por dia atingido — só o link vale). Conhecer um email não põe ninguém no quadro. **409** se a pessoa já participa ou já tem convite pendente; **422** com 50 convites em aberto no quadro. |
-| `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. |
+| `PATCH`/`DELETE` | `/boards/{id}/membros/{usuarioId}` | Troca o papel ou remove do quadro. Só o dono. Quem é removido por outra pessoa fica bloqueado: não volta pelo domínio, só por um convite aceito. |
+| `GET` | `/boards/{id}/dominio` | A porta do domínio: `dominio` e `papel` abertos (vazios, fechada) e `disponivel`, o domínio que o dono pode abrir — o do email confirmado dele. Vazio, `impedimento` diz por quê: `email_nao_confirmado` ou `email_pessoal`. Só o dono — **403** para editor e leitor. |
+| `PUT` | `/boards/{id}/dominio` | Abre o quadro a quem tem email confirmado do domínio do dono (`{"papel": "editor"}`; o domínio **não** vem no corpo). Abrir de novo troca o papel de quem ainda vai entrar. **422** para email não confirmado ou de provedor pessoal (Gmail, Outlook…); **400** para papel que não seja `editor` ou `leitor`. Fica no histórico. |
+| `DELETE` | `/boards/{id}/dominio` | Fecha a porta (204): quem não entrou deixa de ver o quadro, e quem entrou continua. Fechar o que já está fechado não grava nada. |
+| `POST` | `/boards/{id}/entrar` | Entra no quadro aberto ao domínio do email da conta, com o papel escolhido pelo dono, e devolve o quadro. A única rota de `/boards/{id}` que não exige participar. **404** para tudo o que não dá direito de entrar — porta fechada, outro domínio, email não confirmado, pessoa que o dono tirou —, como o quadro de que não se participa; **422** com 100 participantes. Entrar de novo devolve o papel atual sem gravar nada. |
 | `DELETE` | `/boards/{id}/convites/{conviteId}` | Revoga um convite, invalidando o link (204), e tira da fila o email que ainda não saiu. **Marca** como revogado em vez de apagar — a linha ainda responde "quem convidou quem, e quando". **404** para convite já aceito, já revogado ou inexistente: os três iguais. |
 | `POST` | `/boards/{id}/convites/{conviteId}/reenviar` | Dá ao convite um link novo, com a validade inteira de novo (também ao vencido), e o manda outra vez por email. O link anterior — inclusive o do email anterior — deixa de valer. Responde como o convidar (`link`, `entrega`). **429** com `Retry-After` se o último email desse convite saiu há menos de 2 minutos; **404** para convite já aceito, revogado, de outro quadro ou de quem não administra. |
 | `POST` | `/auth/confirmacao` | Reenvia o link de confirmação para a conta logada (202). A mesma resposta com o teto de 3 por hora atingido e para conta já confirmada. |
+| `GET` | `/meu-dominio/quadros` | Os quadros abertos ao domínio do email da conta de que ela ainda não participa nem foi tirada: `id`, `titulo`, `dono`, `papel` (com que entra) e `participantes`. Lista vazia — e não erro — para conta sem email confirmado ou com email pessoal. |
 | `GET` | `/meus-convites` | Os convites em aberto e válidos para o email da conta, de qualquer quadro: `quadro`, `convidadoPor`, `papel`, `expiraEm`. **403** para conta sem email confirmado. |
 | `POST` | `/meus-convites/{conviteId}/aceitar` | Aceita pelo painel e devolve o quadro — o mesmo aceite do link, com a confirmação de email no lugar do token. **403** sem email confirmado; **404** para convite de outro email, vencido ou já resolvido. |
 | `POST` | `/meus-convites/{conviteId}/recusar` | Recusa (204): encerra o convite e o link do email, tira da fila o email que não saiu e registra `convite.recusado` no histórico do quadro. Mesmos códigos do aceite. |
-| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro, no **mesmo commit**. **403** quando a sessão é de outro email — e o convite **não** é consumido. **404** para token inválido, vencido ou já usado, inclusive quando outra requisição venceu a corrida. |
+| `POST` | `/convites/{token}/aceitar` | Aceita o convite e entra no quadro, no **mesmo commit**. **403** quando a sessão é de outro email — e o convite **não** é consumido. **404** para token inválido, vencido ou já usado, inclusive quando outra requisição venceu a corrida. **422** com 100 participantes no quadro. Desfaz o bloqueio de quem tinha sido tirado. |
 | `GET`/`POST` | `/boards/{id}/etiquetas` | Lista e cria as etiquetas do quadro. |
 | `PATCH`/`DELETE` | `/etiquetas/{id}` | Edita nome e cor, ou apaga (some de todos os cards). |
 | `PUT`/`DELETE` | `/cards/{id}/etiquetas/{etiquetaId}` | Aplica e tira a etiqueta do card. |

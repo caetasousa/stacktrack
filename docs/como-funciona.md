@@ -147,6 +147,15 @@ O convite que aparece no painel segue a mesma régua: ele só aparece para a con
 que **confirmou** o email — senão bastaria criar uma conta com o email de outra
 pessoa para ver, e aceitar, os convites dela.
 
+Uma empresa não precisa convidar uma pessoa por vez. Quem tem o email da empresa
+confirmado pode **abrir o quadro ao domínio** dela — por exemplo, a todo mundo
+com email `@acme.com.br`. As colegas encontram o quadro no painel e entram com
+um clique. A mesma régua vale aqui: só se abre o domínio do **próprio** email
+confirmado, só entra quem também confirmou um email daquele domínio, e email
+pessoal (Gmail, Outlook…) não abre nada — senão o quadro ficaria aberto a
+qualquer pessoa com conta lá. E quem o dono tira do quadro não volta sozinho por
+essa porta: só por um convite novo.
+
 ### 5. O que sai para fora é anotado antes
 
 O email do convite entra numa **fila**, no mesmo instante em que o convite é

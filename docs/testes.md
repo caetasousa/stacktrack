@@ -237,7 +237,7 @@ login têm teto por IP, e uma suíte paralela derrubaria a si mesma com 429.
 concreta de uma funcionalidade quebrar para quem usa, por área (A tempo real,
 B auditoria, C link público, D celular, E convite e compartilhamento, F
 recuperação de senha, G confirmação de email, I uso institucional, N
-notificações). Cada teste cita no
+notificações, O empresas e a entrada pelo domínio). Cada teste cita no
 título o id que cobre (`[E4] …`).
 
 `make test-e2e` termina rodando `frontend/e2e/resumo.mjs`, que cruza o catálogo

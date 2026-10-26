@@ -292,6 +292,17 @@ no painel. O resto, na ordem em que fazia sentido:
 
 E melhorias conhecidas, que não são critério de nada:
 
+- **Planos e cobrança**: o serviço é gratuito, com os tetos no domínio (100
+  quadros por conta, 100 participantes por quadro, 1 GiB de anexos por quadro).
+  Planos pagos pedem um meio de pagamento, a assinatura e o que acontece na
+  inadimplência — e os tetos passam a vir do plano, e não de constantes.
+- **Conta de empresa**: hoje não existe — a empresa adere pelas contas pessoais
+  com o email dela e pela porta do domínio em cada quadro. Uma administração
+  central (quem é da empresa, tirar de todos os quadros quem saiu, quadros que
+  sobrevivem à saída do dono) é o próximo passo se o uso por empresas crescer.
+- **Trocar o email da conta** (A12) terá de decidir o que acontece com os
+  quadros em que a pessoa entrou pelo domínio antigo: hoje a participação fica.
+
 - **Preferências de notificação**: hoje todo aviso de atribuição, menção e prazo
   vai também por email, com espera e teto. Não há como a pessoa desligar o email
   de um tipo, nem receber um resumo diário no lugar de um email por aviso — o

@@ -26,6 +26,7 @@ Cada seção segue o mesmo roteiro:
 | 📎 | [O que pende de um card](#-o-que-pende-de-um-card) |
 | 👥 | [Membros e papéis](#-membros-e-papéis) |
 | ✉️ | [Convite por email](#️-convite-por-email) |
+| 🏢 | [Empresas: entrada pelo domínio do email](#-empresas-entrada-pelo-domínio-do-email) |
 | 🔗 | [Link público de acompanhamento](#-link-público-de-acompanhamento) |
 | 📜 | [Histórico do quadro](#-histórico-do-quadro) |
 | ⚡ | [Tempo real](#-tempo-real) |
@@ -526,7 +527,8 @@ e `lib/components/ModalDoCard.svelte`.
 | leitor | ✅ | — | ✅ | — |
 
 **Administrar** é convidar, trocar papel, remover, renomear e apagar o quadro,
-trocar o fundo, escolher a retenção das notificações e ligar o link público.
+trocar o fundo, escolher a retenção das notificações, abrir o quadro à empresa e
+ligar o link público.
 
 **Por baixo**: `GET /boards/{id}/membros`, `PATCH`/`DELETE
 /boards/{id}/membros/{usuarioId}`. Trocar o papel de alguém avisa a tela dela na
@@ -543,7 +545,11 @@ recarregar.
   existe. O 403 fica para quem é membro e esbarra no próprio papel.
 - Papel desconhecido — dado estragado no banco — **não pode nada**.
 - Remover alguém leva as atribuições de responsável e os avisos dela sobre o
-  quadro junto; o que a pessoa escreveu fica.
+  quadro junto; o que a pessoa escreveu fica. E **bloqueia** a pessoa: ela não
+  volta sozinha pela [porta do domínio](#-empresas-entrada-pelo-domínio-do-email),
+  só por um convite aceito. O dono que sai por conta própria não é bloqueado.
+- **No máximo 100 participantes por quadro**, contados sob o lock no aceite do
+  convite e na entrada pelo domínio (**422** no teto).
 
 **No código**: `usecase/board/membros.go`, `domain/membro`,
 `routes/painel/quadros/[id]/membros/+page.svelte`.
@@ -635,7 +641,9 @@ sequenceDiagram
 
   | Teto | Valor | Estourado |
   |---|---|---|
-  | convites em aberto por quadro | 50 | o convite é recusado (**422**) |
+  | convites em aberto por quadro | 50 |
+| participantes por quadro (plano gratuito) | 100 — pelo convite e pelo domínio |
+| quadros de que uma conta é dona (plano gratuito) | 100 | o convite é recusado (**422**) |
   | emails de convite por conta, em 24 h | 30 | o convite nasce, só com o link |
   | emails por convite | 5 | o reenvio gera o link, sem email |
   | intervalo entre dois emails do mesmo convite | 2 min | o reenvio é recusado (**429**) |
@@ -909,6 +917,58 @@ atenção. Abri-lo mostra a lista, do mais novo para o mais antigo:
 
 ---
 
+## 🏢 Empresas: entrada pelo domínio do email
+
+Não existe conta de empresa: cada pessoa tem a própria conta, e a empresa adere
+quando as pessoas dela usam o email da empresa. O que a porta do domínio
+resolve é chamar a equipe inteira sem um convite por pessoa.
+
+**Na tela**
+
+- Em **Membros**, o dono vê **Aberto à empresa**: escolhe o papel (editor ou
+  leitor) e clica **Abrir para @acme.com.br** — o domínio é o do email dele, e
+  não é digitado. Aberto, o cartão diz a quem e com que papel, e oferece
+  **Fechar à empresa**.
+- Sem email confirmado, o cartão pede a confirmação; com email pessoal (Gmail,
+  Outlook…), explica que é preciso usar a conta com o email da empresa.
+- No **painel** de quem tem email confirmado do mesmo domínio, aparece **Da sua
+  empresa**: o quadro, o dono, quantas pessoas participam e o papel com que se
+  entra. **Entrar** leva direto ao quadro, que passa para "Compartilhados com
+  você".
+- O histórico do quadro registra a abertura, o fechamento e cada entrada ("entrou
+  pelo domínio @acme.com.br como leitor").
+
+**Por baixo**: `GET`/`PUT`/`DELETE /boards/{id}/dominio`,
+`GET /meu-dominio/quadros` e `POST /boards/{id}/entrar`. Abrir e fechar gravam
+`quadro.dominio_aberto` e `quadro.dominio_fechado`; entrar grava `membro.entrou`
+com o domínio no payload, e quem está com o quadro aberto o vê pelo tempo real.
+A entrada confere de novo, sob o lock do quadro, o domínio, o papel, o bloqueio
+e o teto: o dono pode ter fechado a porta ou trocado o papel no meio.
+
+**Regras**
+
+- **Só se abre o próprio domínio, e só com o email confirmado.** É a
+  confirmação que prova que o domínio é de quem abre — sem ela, bastaria
+  cadastrar o email de alguém da empresa.
+- **Domínio de email pessoal não abre** (**422**): o quadro ficaria aberto a
+  qualquer pessoa com conta no Gmail. A lista está em `domain/dominio`.
+- **O domínio é exato**: `vendas.acme.com.br` não entra em quadro aberto a
+  `acme.com.br`, nem o contrário.
+- Quem entra pelo domínio é **editor ou leitor**, nunca dono.
+- **Quem o dono tirou não volta sozinho** — nem vê o quadro na lista. Só um
+  convite aceito o desbloqueia.
+- **Fechar não tira ninguém**: quem já entrou continua; para tirar, Remover.
+- Tudo o que não dá direito de entrar — porta fechada, outro domínio, email não
+  confirmado, pessoa bloqueada — responde **404**, como o quadro de que não se
+  participa.
+
+**No código**: `domain/dominio`, `usecase/board/dominio.go`,
+`adapter/repository/dominio_postgres.go`,
+`routes/painel/quadros/[id]/membros/+page.svelte`, `routes/painel/+page.svelte`,
+`e2e/empresa.spec.ts` e `backend/test/repository/dominio_test.go`.
+
+---
+
 ## ⚖️ Termos, privacidade e páginas de erro
 
 **Na tela**
@@ -938,15 +998,20 @@ atenção. Abri-lo mostra a lista, do mais novo para o mais antigo:
 
 **Regras**
 
-- Os dois textos são **rascunhos para revisão jurídica**: a identificação do
-  controlador dos dados, o canal do encarregado e o foro dependem da instituição
-  que oferece o sistema. Sem `EMAIL_DE_CONTATO` preenchido, as páginas mandam
-  procurar quem administra o acesso.
+- Os dois textos são **rascunhos para revisão jurídica**, escritos para um
+  serviço aberto a pessoas e empresas: para os dados da conta, o stacktrack é o
+  controlador; para o conteúdo dos quadros de uma empresa, a empresa é a
+  controladora e o stacktrack, o operador. Quem responde pelo serviço
+  (`RESPONSAVEL`) e o canal de contato (`EMAIL_DE_CONTATO`) precisam ser
+  preenchidos antes de os textos valerem; vazios, as páginas não inventam um.
+- A página inicial tem uma seção **Para empresas** com a porta do domínio e os
+  limites do plano gratuito, e os Termos, uma seção **Uso por empresas** (o E2E
+  `I4` confere).
 - A página inicial e as legais falam com quem usa: nenhuma menção a GitHub,
   "código aberto" ou nomes de algoritmo (o E2E `I2` confere).
 
-**No código**: `lib/instituicao.ts` (nome, email de contato e a data dos
-textos), `lib/components/PaginaLegal.svelte`, `routes/termos`,
+**No código**: `lib/instituicao.ts` (nome, responsável, email de contato e a
+data dos textos), `lib/components/PaginaLegal.svelte`, `routes/termos`,
 `routes/privacidade`, `routes/+error.svelte` e `e2e/institucional.spec.ts`.
 
 ---

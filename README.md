@@ -6,17 +6,19 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Ansible](https://img.shields.io/badge/Ansible-provisionamento-EE0000?logo=ansible&logoColor=white)
 
-**Quadro Kanban colaborativo em tempo real.** Várias pessoas movem cards no
-mesmo quadro e todas veem na hora, sem recarregar a página — com convite por
-email, papéis, histórico de quem mexeu em quê e um link público para quem só
-acompanha.
+**Quadro Kanban colaborativo em tempo real, aberto a pessoas e empresas.**
+Várias pessoas movem cards no mesmo quadro e todas veem na hora, sem recarregar
+a página — com convite por email, entrada pelo email da empresa, papéis,
+histórico de quem mexeu em quê e um link público para quem só acompanha.
 
 🔗 **[stacktrack.d4ffy.com](https://stacktrack.d4ffy.com)**
 
-Projeto de estudo. O eixo é **concorrência em Go e sincronização de estado entre
-clientes**: o que acontece quando duas pessoas mexem na mesma coisa ao mesmo
-tempo, e como cada tela fica sabendo. O caminho até aqui, e o que ainda falta,
-está em [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
+Começou como projeto de estudo e hoje é um serviço gratuito, com limites, que
+empresas podem adotar. O eixo técnico continua sendo **concorrência em Go e
+sincronização de estado entre clientes**: o que acontece quando duas pessoas
+mexem na mesma coisa ao mesmo tempo, e como cada tela fica sabendo. O caminho
+até aqui, e o que ainda falta, está em
+[docs/historico-do-projeto.md](docs/historico-do-projeto.md).
 
 ---
 
@@ -41,6 +43,10 @@ está em [docs/historico-do-projeto.md](docs/historico-do-projeto.md).
   com você" — só ele, e não os outros quadros do dono. A tela mostra se o email
   saiu, e o convite se reenvia ou revoga. Quem confirmou o email da conta vê o
   convite também no painel, e aceita ou recusa por lá.
+- **Empresas** — quem tem email da empresa confirmado abre o quadro ao domínio
+  (`@acme.com.br`): as colegas o encontram no painel e entram sem convite, no
+  papel escolhido pelo dono. Quem o dono remove não volta sozinho. O plano
+  gratuito vai até 100 quadros por conta e 100 pessoas por quadro.
 - **Notificações** — um sino no topo avisa o convite para um quadro, o card que
   passou a ser seu, a menção num comentário (`@Nome`, com autocompletar) e o
   prazo chegando, sem recarregar. O aviso também vai por email, dois minutos

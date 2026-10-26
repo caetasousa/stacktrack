@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: run ajuda test test-backend test-frontend test-integracao test-tempo-real test-e2e verificar
+.PHONY: run ajuda test test-backend test-frontend test-integracao test-tempo-real test-e2e verificar deploy rollback estado
 
 # Sobe a stack inteira: Postgres, migrations (Flyway), API, frontend e Mailpit.
 # Roda em primeiro plano — os logs dos cinco serviços saem juntos e Ctrl+C
@@ -104,6 +104,27 @@ test-e2e: ## Playwright contra a stack no ar e o relatório em frontend/e2e/rela
 		node e2e/resumo.mjs; \
 	exit $$codigo
 
+
+# --- Produção ----------------------------------------------------------------
+#
+# O deploy inteiro num comando: pré-voo (commit limpo e já no origin/main),
+# `make verificar`, build e push das três imagens no GHCR com a tag no SHA,
+# `make infra-apply` e o release pela chave de deploy, conferindo no fim que a
+# versão nova está no ar. Ver scripts/deploy.sh e docs/entrega-continua.md.
+deploy: ## publica e implanta em produção o commit atual (PULAR_VERIFICAR=1 pula o verificar)
+	@scripts/deploy.sh
+
+RELEASE_SSH := ssh -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/stacktrack_release -p 2222 stacktrack@127.0.0.1
+
+# Voltar atrás é o mesmo release, apontando para um commit cujas imagens já
+# estão no GHCR — nada é construído de novo. O banco não volta junto: ver
+# docs/producao.md, "Voltar atrás".
+rollback: ## volta produção para um commit já publicado: make rollback SHA=<sha>
+	@test -n "$(SHA)" || { echo "informe o commit: make rollback SHA=<sha>"; exit 1; }
+	@$(RELEASE_SSH) "stacktrack-release release $(SHA)"
+
+estado: ## o que está no ar: containers, versão e impressão digital dos arquivos da stack
+	@$(RELEASE_SSH) "stacktrack-release estado"
 
 # --- Infraestrutura (Ansible) ------------------------------------------------
 #

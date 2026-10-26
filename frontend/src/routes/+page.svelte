@@ -44,7 +44,7 @@
 			icone: 'papeis',
 			titulo: 'Acesso sob controle',
 			texto:
-				'Dono, editor e leitor. Ninguém entra num quadro sem convite, e quem administra revoga o acesso a qualquer momento.'
+				'Dono, editor e leitor. Só entra quem foi convidado — ou quem tem o email da empresa, se o dono abrir o quadro a ela —, e quem administra tira o acesso a qualquer momento.'
 		}
 	] as const;
 </script>
@@ -53,7 +53,7 @@
 	<title>{PRODUTO} — quadro Kanban colaborativo em tempo real</title>
 	<meta
 		name="description"
-		content="Quadro Kanban para equipes: várias pessoas no mesmo quadro, cada mudança aparecendo na hora para todas, com convites, papéis de acesso e notificações."
+		content="Quadro Kanban para equipes e empresas: várias pessoas no mesmo quadro, cada mudança aparecendo na hora para todas, com convites, acesso pelo email da empresa, papéis e notificações."
 	/>
 </svelte:head>
 
@@ -69,8 +69,8 @@
 		</h1>
 
 		<p class="max-w-lg text-base leading-relaxed text-body">
-			Kanban colaborativo de verdade: várias pessoas no mesmo quadro, cada movimento aparecendo na
-			tela das outras no instante em que acontece.
+			Kanban colaborativo para equipes e empresas: várias pessoas no mesmo quadro, cada movimento
+			aparecendo na tela das outras no instante em que acontece.
 		</p>
 
 		<div class="mt-1 flex flex-wrap gap-3">
@@ -83,7 +83,8 @@
 		</div>
 
 		<p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-mute">
-			<span>Convite por email</span><span aria-hidden="true">·</span><span>Papéis de acesso</span
+			<span>Convite por email</span><span aria-hidden="true">·</span><span
+				>Acesso pelo email da empresa</span
 			><span aria-hidden="true">·</span><span>Funciona no celular</span>
 		</p>
 	</div>
@@ -118,7 +119,7 @@
 	class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-hairline bg-surface px-6 py-5"
 >
 	<b class="text-xs font-semibold tracking-widest text-mute uppercase">Segurança e privacidade</b>
-	<span class="text-[0.8125rem] text-body">Cada quadro só é visto por quem foi convidado</span>
+	<span class="text-[0.8125rem] text-body">Cada quadro só é visto por quem participa dele</span>
 	<span class="text-[0.8125rem] text-body">Senhas guardadas de forma irreversível</span>
 	<span class="text-[0.8125rem] text-body"
 		>Trocar a senha encerra a sessão em todos os aparelhos</span
@@ -126,6 +127,37 @@
 	<a href="/privacidade" class="text-[0.8125rem] font-semibold text-accent-texto hover:underline"
 		>Política de privacidade</a
 	>
+</section>
+
+<!-- Para quem decide pela empresa: como a equipe inteira entra, e o que o plano
+     gratuito comporta. Os números são os tetos do domínio (membro.MaximoPorQuadro,
+     board.MaximoDeQuadrosPorConta, a cota de anexos) — mudou lá, muda aqui. -->
+<section class="mt-14" aria-labelledby="titulo-empresas">
+	<h2 id="titulo-empresas" class="text-xs font-semibold tracking-widest text-mute uppercase">
+		Para empresas
+	</h2>
+	<div class="mt-6 grid gap-6 sm:grid-cols-3">
+		<div>
+			<b class="text-sm font-semibold text-ink">A equipe entra sem convite um a um</b>
+			<p class="mt-1.5 text-[0.8125rem] leading-relaxed text-mute">
+				Quem cria o quadro com o email da empresa pode abri-lo ao domínio: as colegas com email
+				@suaempresa confirmado o encontram no painel e entram com um clique.
+			</p>
+		</div>
+		<div>
+			<b class="text-sm font-semibold text-ink">Cada pessoa com a própria conta</b>
+			<p class="mt-1.5 text-[0.8125rem] leading-relaxed text-mute">
+				Ninguém divide senha. O dono escolhe o papel de quem entra, e quem ele remove não volta
+				sozinho — só por um convite novo.
+			</p>
+		</div>
+		<div>
+			<b class="text-sm font-semibold text-ink">Sem custo, com limites claros</b>
+			<p class="mt-1.5 text-[0.8125rem] leading-relaxed text-mute">
+				Até 100 quadros por conta, 100 pessoas por quadro e 1 GiB de anexos por quadro.
+			</p>
+		</div>
+	</div>
 </section>
 
 {#if !sessao.usuario}
@@ -137,7 +169,8 @@
 		</h2>
 		<p class="max-w-md text-sm leading-relaxed text-mute">
 			A conta leva menos de um minuto. O convite chega por email: quem ainda não tem conta cria uma
-			pelo próprio link, e quem já tem entra no quadro com a conta de sempre.
+			pelo próprio link, e quem já tem entra no quadro com a conta de sempre. Use o email da empresa
+			para poder abrir os quadros à equipe inteira.
 		</p>
 		<a href="/cadastro" class="botao mt-1 w-auto px-6">Criar conta</a>
 	</section>

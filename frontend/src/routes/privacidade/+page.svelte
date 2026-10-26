@@ -3,18 +3,33 @@
 	// prazos e os destinos abaixo são os do código e da infraestrutura (ver
 	// docs/funcionalidades.md e docs/producao.md). Mudou um prazo lá, muda aqui.
 	//
-	// ⚠️ Texto-base para revisão jurídica: a identificação do controlador e o
-	// canal do encarregado dependem da instituição que oferece o sistema.
+	// ⚠️ Texto-base para revisão jurídica: a identificação do controlador
+	// (RESPONSAVEL) e o canal do encarregado (EMAIL_DE_CONTATO) precisam estar
+	// preenchidos em $lib/instituicao antes de o texto valer.
 	import PaginaLegal from '$lib/components/PaginaLegal.svelte';
-	import { EMAIL_DE_CONTATO, PRODUTO } from '$lib/instituicao';
+	import { EMAIL_DE_CONTATO, PRODUTO, RESPONSAVEL } from '$lib/instituicao';
 </script>
 
 <PaginaLegal titulo="Política de Privacidade">
 	<p>
 		Esta política explica quais dados pessoais o {PRODUTO} trata, para quê, por quanto tempo e como você
-		exerce os seus direitos previstos na Lei Geral de Proteção de Dados (Lei nº 13.709/2018). O controlador
-		dos dados é a instituição que disponibiliza o {PRODUTO} a você.
+		exerce os seus direitos previstos na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
 	</p>
+
+	<h2>Quem é responsável pelos dados</h2>
+	<ul>
+		<li>
+			<b>Dados da sua conta</b> (nome, email, senha, acessos): o {PRODUTO}{#if RESPONSAVEL},
+				oferecido por {RESPONSAVEL}{/if}, é o controlador — decide como esses dados são tratados,
+			nos termos desta política.
+		</li>
+		<li>
+			<b>Conteúdo dos quadros de uma empresa:</b> quando uma empresa usa o {PRODUTO} para o trabalho da
+			equipe, ela decide o que vai nos quadros e quem participa deles — é a controladora desse conteúdo,
+			e o {PRODUTO} o trata em nome dela, só para prestar o serviço. Pedidos sobre esse conteúdo podem
+			ser feitos também à própria empresa.
+		</li>
+	</ul>
 
 	<h2>Que dados tratamos</h2>
 	<ul>
@@ -30,6 +45,11 @@
 		<li>
 			<b>Convites:</b> o email de quem é convidado para um quadro. No histórico, ele aparece mascarado
 			(a***@exemplo.com).
+		</li>
+		<li>
+			<b>Acesso pelo domínio da empresa:</b> se o dono de um quadro o abre ao domínio do email dele, o
+			domínio fica registrado no quadro; e quem o dono remove de um quadro fica registrado, para não poder
+			voltar sozinho.
 		</li>
 		<li>
 			<b>Notificações:</b> os avisos gerados para você — convites, cards atribuídos, menções e prazos.
@@ -62,6 +82,10 @@
 		<li>
 			O conteúdo de um quadro é visto apenas por quem participa dele, conforme o papel de cada um
 			(dono, editor ou leitor). Quem participa vê o nome e o email das outras pessoas do quadro.
+		</li>
+		<li>
+			Se o dono abrir um quadro ao domínio da empresa, quem tem email confirmado desse domínio vê,
+			antes de entrar, o título do quadro, o nome do dono e quantas pessoas participam.
 		</li>
 		<li>
 			O dono de um quadro pode gerar um link público de acompanhamento. Ele mostra colunas, cards,
@@ -100,6 +124,10 @@
 			Convites encerrados e o registro do envio de cada email: 90 dias. O texto do email é apagado
 			assim que ele sai.
 		</li>
+		<li>
+			O registro de quem foi removido de um quadro: até a pessoa aceitar um convite novo para ele,
+			ou até o quadro ser apagado.
+		</li>
 		<li>Cópias de segurança do banco de dados: 7 dias.</li>
 		<li>
 			Arquivos anexados que foram apagados podem continuar armazenados até a conclusão da rotina de
@@ -130,7 +158,8 @@
 		{#if EMAIL_DE_CONTATO}
 			Para isso, escreva para <a href="mailto:{EMAIL_DE_CONTATO}">{EMAIL_DE_CONTATO}</a>.
 		{:else}
-			Para isso, procure quem administra o acesso ao {PRODUTO} na sua instituição.
+			O canal para esses pedidos será publicado nesta página; sobre o conteúdo dos quadros de uma
+			empresa, o pedido também pode ser feito à própria empresa.
 		{/if}
 	</p>
 
